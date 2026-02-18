@@ -1,0 +1,13 @@
+{
+  "name": "torc-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test scripts for Torc database RPCs and race conditions",
+  "scripts": {
+    "test:race": "node test-job-race.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.10",
+    "dotenv": "^16.4.7"
+  }
+}

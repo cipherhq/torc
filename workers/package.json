@@ -1,0 +1,28 @@
+{
+  "name": "torc-push-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Push notification worker for Torc - listens to Postgres pg_notify and sends Expo push notifications",
+  "main": "push-notification-worker.js",
+  "scripts": {
+    "start": "node push-notification-worker.js",
+    "dev": "nodemon push-notification-worker.js",
+    "pm2:start": "pm2 start push-notification-worker.js --name torc-push-worker",
+    "pm2:stop": "pm2 stop torc-push-worker",
+    "pm2:restart": "pm2 restart torc-push-worker",
+    "pm2:logs": "pm2 logs torc-push-worker"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.10",
+    "dotenv": "^16.4.7",
+    "expo-server-sdk": "^3.11.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9",
+    "pm2": "^5.4.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

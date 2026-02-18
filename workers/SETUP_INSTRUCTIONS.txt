@@ -1,0 +1,26 @@
+===========================================
+PUSH WORKER SETUP - NEXT STEP
+===========================================
+
+✅ Dependencies installed!
+
+🔑 I NEED YOUR DATABASE CONNECTION STRING
+
+Go to Supabase Dashboard:
+https://supabase.com/dashboard/project/apojatplmfsbimgcyjoo/settings/database
+
+1. Scroll to "Connection string" section
+2. Select "URI" tab
+3. Copy the connection string
+4. Reply with it here
+
+Format looks like:
+postgresql://postgres.apojatplmfsbimgcyjoo:[PASSWORD]@aws-0-us-west-1.pooler.supabase.com:6543/postgres
+
+Replace [PASSWORD] with your actual database password.
+
+Once you provide it, I'll:
+✓ Create the .env file
+✓ Test the worker locally
+✓ Show you deployment options
+===========================================

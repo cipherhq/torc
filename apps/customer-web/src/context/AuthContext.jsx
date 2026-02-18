@@ -1,0 +1,164 @@
+import { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router';
+
+const AuthContext = createContext({});
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function fetchProfile(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Get user_metadata as fallback for empty/missing profile fields
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const meta = authUser?.user_metadata || {};
+
+      const profileBase = data || { id: userId, email: authUser?.email || '' };
+
+      const merged = {
+        ...profileBase,
+        first_name: profileBase.first_name || meta.first_name || '',
+        last_name: profileBase.last_name || meta.last_name || '',
+        full_name: profileBase.full_name || meta.full_name || '',
+        phone: profileBase.phone || meta.phone || '',
+        role: profileBase.role || meta.role || 'customer',
+      };
+
+      setProfile(merged);
+    } catch (error) {
+      console.warn('Error fetching profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const signIn = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+  };
+
+  const signUp = async (email, password, userData = {}) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: userData },
+    });
+    if (error) throw error;
+    return data;
+  };
+
+  const resetPasswordForEmail = async (email) => {
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback`,
+    });
+    if (error) throw error;
+    return data;
+  };
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    setUser(null);
+    setProfile(null);
+  };
+
+  const updateProfile = async (updates) => {
+    if (!user) throw new Error('No user logged in');
+    
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    setProfile(data);
+    return data;
+  };
+
+  const value = {
+    user,
+    profile,
+    loading,
+    isAuthenticated: !!user,
+    isCustomer: profile?.role === 'customer',
+    signIn,
+    signUp,
+    signOut,
+    resetPasswordForEmail,
+    updateProfile,
+    refreshProfile: () => user && fetchProfile(user.id),
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+}
+
+// Protected Route Component
+export function ProtectedRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white/60">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return isAuthenticated ? children : null;
+}

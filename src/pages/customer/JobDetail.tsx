@@ -1,0 +1,205 @@
+import { motion } from 'motion/react';
+import { useNavigate, useParams } from 'react-router';
+import { ArrowLeft, MapPin, Calendar, Star, Download, RotateCw } from 'lucide-react';
+import { mockJobs } from '../../data/mockData';
+
+export function JobDetail() {
+  const navigate = useNavigate();
+  const { jobId } = useParams();
+  const job = mockJobs.find(j => j.id === jobId);
+
+  if (!job) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0A0F1E] relative overflow-hidden">
+      {/* Background */}
+      <div className="absolute inset-0">
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+      </div>
+
+      {/* Header */}
+      <div className="relative z-10 p-6 flex items-center gap-4">
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => navigate('/activity')}
+          className="glass rounded-full p-3"
+        >
+          <ArrowLeft className="w-6 h-6 text-white" />
+        </motion.button>
+        <h1 className="text-2xl font-bold text-white">Job Details</h1>
+      </div>
+
+      <div className="relative z-10 px-6 pb-6">
+        {/* Status */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass rounded-[32px] p-6 mb-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-white font-bold text-2xl">{job.service}</h2>
+            <div className={`px-4 py-2 rounded-full ${
+              job.status === 'completed'
+                ? 'bg-[#2EFFAF]/20 text-[#2EFFAF]'
+                : 'bg-[#007AFF]/20 text-[#007AFF]'
+            } font-semibold text-sm`}>
+              {job.status === 'completed' ? 'COMPLETED' : 'SCHEDULED'}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Calendar className="w-5 h-5 text-[#2EFFAF]" />
+              <div>
+                <p className="text-white/60 text-sm">Date & Time</p>
+                <p className="text-white font-semibold">
+                  {job.status === 'completed'
+                    ? new Date(job.completedAt!).toLocaleString()
+                    : new Date(job.scheduledFor!).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <MapPin className="w-5 h-5 text-[#2EFFAF]" />
+              <div>
+                <p className="text-white/60 text-sm">Location</p>
+                <p className="text-white font-semibold">{job.location}</p>
+              </div>
+            </div>
+
+            {job.destination && (
+              <div className="flex items-center gap-3">
+                <MapPin className="w-5 h-5 text-[#007AFF]" />
+                <div>
+                  <p className="text-white/60 text-sm">Destination</p>
+                  <p className="text-white font-semibold">{job.destination}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Provider info (for completed jobs) */}
+        {job.status === 'completed' && job.providerName && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="glass rounded-[32px] p-6 mb-6"
+          >
+            <h3 className="text-white font-semibold text-lg mb-4">Provider</h3>
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center text-xl font-bold text-[#0A0F1E]">
+                {job.providerName.split(' ').map(n => n[0]).join('')}
+              </div>
+              <div className="flex-1">
+                <p className="text-white font-semibold text-lg">{job.providerName}</p>
+                <div className="flex items-center gap-1 mt-1">
+                  <Star className="w-4 h-4 text-[#2EFFAF] fill-[#2EFFAF]" />
+                  <span className="text-[#2EFFAF] font-semibold">{job.providerRating}</span>
+                  <span className="text-white/60 text-sm ml-1">Professional</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Receipt */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="glass rounded-[32px] p-6 mb-6"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-white font-semibold text-lg">Payment Summary</h3>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="glass rounded-full p-2"
+            >
+              <Download className="w-5 h-5 text-[#2EFFAF]" />
+            </motion.button>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-white/80">Service</span>
+              <span className="text-white font-semibold">${job.price}</span>
+            </div>
+            {job.tip && job.tip > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-white/80">Tip</span>
+                <span className="text-white font-semibold">${job.tip}</span>
+              </div>
+            )}
+            <div className="border-t border-white/10 pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-white font-bold">Total</span>
+                <span className="text-[#2EFFAF] font-bold text-xl">
+                  ${(job.price + (job.tip || 0)).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Your rating (for completed jobs) */}
+        {job.status === 'completed' && job.customerRating && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="glass rounded-[32px] p-6 mb-6"
+          >
+            <h3 className="text-white font-semibold text-lg mb-4">Your Rating</h3>
+            <div className="flex items-center gap-2">
+              {[...Array(5)].map((_, i) => (
+                <Star
+                  key={i}
+                  className={`w-8 h-8 ${
+                    i < job.customerRating!
+                      ? 'text-[#2EFFAF] fill-[#2EFFAF]'
+                      : 'text-white/20'
+                  }`}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Action buttons */}
+        <div className="space-y-3">
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#2EFFAF]/30 flex items-center justify-center gap-3"
+          >
+            <RotateCw className="w-5 h-5" />
+            Book Same Service Again
+          </motion.button>
+
+          {job.status === 'completed' && (
+            <motion.button
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="w-full glass rounded-[32px] py-5 font-semibold text-white text-lg"
+            >
+              Download Receipt
+            </motion.button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,27 @@
+{
+  "name": "admin-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 8082",
+    "build": "vite build",
+    "preview": "vite preview --port 8082"
+  },
+  "dependencies": {
+    "@torc/api": "*",
+    "@torc/ui": "*",
+    "@torc/types": "*",
+    "@torc/utils": "*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router": "*",
+    "motion": "*",
+    "lucide-react": "^0.487.0",
+    "recharts": "^2.15.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react-swc": "^3.10.2",
+    "vite": "6.3.5"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Torc Provider",
+    "slug": "torc-provider",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.torc.provider",
+      "buildNumber": "1",
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.yourcompany.torc.provider",
+      "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#2EFFAF",
+      "androidMode": "default",
+      "androidCollapsedTitle": "New request"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#2EFFAF",
+          "sounds": [
+            "./assets/sounds/new-request.wav",
+            "./assets/sounds/accepted.wav",
+            "./assets/sounds/cancelled.wav"
+          ]
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "your-expo-project-id-here"
+      }
+    }
+  }
+}

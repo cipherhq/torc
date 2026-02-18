@@ -1,0 +1,88 @@
+import { motion } from 'motion/react';
+import { useNavigate } from 'react-router';
+import { useEffect } from 'react';
+import { useTheme } from '../../context/ThemeContext';
+
+export function Splash() {
+  const navigate = useNavigate();
+  const { isDark } = useTheme();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      navigate('/login');
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [navigate]);
+
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center relative overflow-hidden"
+      style={{
+        background: isDark
+          ? 'linear-gradient(135deg, #1A1F2E 0%, #0F1419 100%)'
+          : 'linear-gradient(135deg, #F8FAFB 0%, #FFFFFF 100%)',
+      }}
+    >
+      {/* Ambient glow */}
+      <div className="absolute inset-0 pointer-events-none">
+        <motion.div
+          className="absolute top-1/3 left-1/3 w-80 h-80 rounded-full"
+          style={{ backgroundColor: '#2EFFAF', filter: 'blur(140px)' }}
+          animate={{ scale: [1, 1.2, 1], opacity: [0.12, 0.2, 0.12] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full"
+          style={{ backgroundColor: '#007AFF', filter: 'blur(140px)' }}
+          animate={{ scale: [1.2, 1, 1.2], opacity: [0.1, 0.18, 0.1] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+
+      <div className="relative z-10 text-center px-6">
+        {/* Logo */}
+        <motion.div
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.6, ease: 'backOut' }}
+          className="mb-4"
+        >
+          <div className={`inline-block ${isDark ? 'bg-white/95 rounded-3xl p-4' : ''}`}>
+            <img
+              src="/logo.png"
+              alt="Torc"
+              className="w-56 h-56 mx-auto object-contain"
+            />
+          </div>
+        </motion.div>
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="text-lg font-semibold"
+          style={{ color: '#2EFFAF' }}
+        >
+          Provider
+        </motion.p>
+
+        {/* Loading dots */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.2 }}
+          className="mt-8 flex items-center justify-center gap-2"
+        >
+          {[0, 1, 2].map((i) => (
+            <motion.div
+              key={i}
+              className="w-2 h-2 rounded-full bg-[#2EFFAF]"
+              animate={{ scale: [1, 1.5, 1], opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+            />
+          ))}
+        </motion.div>
+      </div>
+    </div>
+  );
+}

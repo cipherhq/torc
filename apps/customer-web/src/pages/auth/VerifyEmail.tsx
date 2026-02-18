@@ -1,0 +1,129 @@
+import { motion } from 'motion/react';
+import { useNavigate } from 'react-router';
+import { Mail, ArrowLeft, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import { supabase } from '../../lib/supabase';
+
+export function VerifyEmail() {
+  const navigate = useNavigate();
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
+  const email = localStorage.getItem('pendingVerificationEmail');
+
+  const handleResend = async () => {
+    if (!email) return;
+    
+    setResending(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+      });
+      
+      if (error) throw error;
+      setResent(true);
+      setTimeout(() => setResent(false), 3000);
+    } catch (error) {
+      console.error('Resend error:', error);
+    } finally {
+      setResending(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#1A1F2E] flex flex-col p-6 relative overflow-hidden">
+      {/* Background */}
+      <div className="absolute inset-0">
+        <motion.div
+          className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full"
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.1, 0.2, 0.1],
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+          }}
+        />
+      </div>
+
+      {/* Header */}
+      <div className="relative z-10 flex items-center gap-4 mb-8">
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => navigate('/login')}
+          className="glass rounded-full p-3"
+        >
+          <ArrowLeft className="w-6 h-6 text-white" />
+        </motion.button>
+        <h1 className="text-2xl font-bold text-white">Verify Email</h1>
+      </div>
+
+      {/* Content */}
+      <div className="relative z-10 flex-1 flex flex-col justify-center items-center max-w-md mx-auto w-full text-center">
+        <motion.div
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', duration: 0.6 }}
+        >
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mb-8 mx-auto">
+            <Mail className="w-16 h-16 text-[#0A0F1E]" />
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <h2 className="text-3xl font-bold text-white mb-4">
+            Check Your Email
+          </h2>
+          <p className="text-white/60 text-lg mb-2">
+            We sent a verification link to
+          </p>
+          <p className="text-[#2EFFAF] font-semibold text-lg mb-8">
+            {email || 'your email'}
+          </p>
+
+          <div className="glass rounded-[24px] p-6 mb-6 text-left">
+            <h3 className="text-white font-semibold mb-3">What's next?</h3>
+            <ol className="space-y-2 text-white/60 text-sm">
+              <li className="flex gap-3">
+                <span className="text-[#2EFFAF] font-bold">1.</span>
+                <span>Check your email inbox (and spam folder)</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="text-[#2EFFAF] font-bold">2.</span>
+                <span>Click the verification link in the email</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="text-[#2EFFAF] font-bold">3.</span>
+                <span>You'll be redirected back to sign in</span>
+              </li>
+            </ol>
+          </div>
+
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={handleResend}
+            disabled={resending || resent}
+            className="w-full glass rounded-[32px] py-4 font-semibold text-white flex items-center justify-center gap-2 mb-4 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-5 h-5 ${resending ? 'animate-spin' : ''}`} />
+            {resent ? 'Email Sent!' : resending ? 'Sending...' : 'Resend Email'}
+          </motion.button>
+
+          <button
+            onClick={() => navigate('/login')}
+            className="text-[#2EFFAF] font-semibold hover:underline"
+          >
+            Back to Login
+          </button>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
