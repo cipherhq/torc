@@ -1,21 +1,87 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Check } from 'lucide-react';
-import { services } from '../../data/services';
+import { ArrowLeft, Check, Loader2 } from 'lucide-react';
 import * as Icons from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
+
+interface ServiceRow {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  base_price: number | null;
+  is_active: boolean | null;
+}
 
 export function ProviderServiceSelection() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
+  const { user } = useAuth() as any;
+  const [services, setServices] = useState<ServiceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
+
+  useEffect(() => {
+    async function loadServices() {
+      try {
+        setLoading(true);
+
+        const { data: allServices, error: servicesError } = await supabase
+          .from('services')
+          .select('id, name, description, icon, base_price, is_active')
+          .eq('is_active', true)
+          .order('name', { ascending: true });
+        if (servicesError) throw servicesError;
+        setServices((allServices || []) as ServiceRow[]);
+
+        if (user?.id) {
+          const { data: providerProfile } = await supabase
+            .from('provider_profiles')
+            .select('services')
+            .eq('id', user.id)
+            .maybeSingle();
+          setSelectedServices(providerProfile?.services || []);
+        }
+      } catch (error) {
+        console.warn('Failed to load provider services:', error);
+        setServices([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    void loadServices();
+  }, [user?.id]);
 
   const toggleService = (serviceId: string) => {
     setSelectedServices(prev =>
       prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId]
     );
   };
+
+  async function handleContinue() {
+    if (!user || selectedServices.length === 0) return;
+    try {
+      setSaving(true);
+      const { error } = await supabase
+        .from('provider_profiles')
+        .upsert({
+          id: user.id,
+          services: selectedServices,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+      if (error) throw error;
+      navigate('/provider/documents');
+    } catch (error: any) {
+      console.warn('Failed to save provider services:', error);
+      window.alert(error?.message || 'Could not save selected services.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div
@@ -43,9 +109,15 @@ export function ProviderServiceSelection() {
           Choose all services you can provide
         </p>
 
+        {loading ? (
+          <div className="rounded-2xl p-6 text-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }}>
+            <Loader2 className="w-5 h-5 mx-auto mb-2 animate-spin" style={{ color: '#2EFFAF' }} />
+            <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>Loading services...</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 gap-3">
           {services.map((service, index) => {
-            const Icon = Icons[service.icon as keyof typeof Icons] as any;
+            const Icon = (service.icon && (Icons as any)[service.icon]) || Icons.Wrench;
             const isSelected = selectedServices.includes(service.id);
 
             return (
@@ -82,12 +154,13 @@ export function ProviderServiceSelection() {
                 </div>
                 <div className="text-center">
                   <p className="font-semibold text-sm" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{service.name}</p>
-                  <p className="text-xs mt-0.5" style={{ color: isSelected ? '#2EFFAF' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }}>${service.basePrice}+</p>
+                  <p className="text-xs mt-0.5" style={{ color: isSelected ? '#2EFFAF' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }}>${Number(service.base_price || 0)}+</p>
                 </div>
               </motion.button>
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Fixed bottom */}
@@ -96,11 +169,11 @@ export function ProviderServiceSelection() {
           {selectedServices.length} service{selectedServices.length !== 1 ? 's' : ''} selected
         </p>
         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          onClick={() => navigate('/provider/documents')}
-          disabled={selectedServices.length === 0}
+          onClick={handleContinue}
+          disabled={selectedServices.length === 0 || saving}
           className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50"
         >
-          Continue
+          {saving ? 'Saving...' : 'Continue'}
         </motion.button>
       </div>
     </div>

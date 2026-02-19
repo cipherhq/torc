@@ -11,6 +11,7 @@ interface JobRow {
   id: string;
   status: string;
   created_at: string;
+  customer_id?: string | null;
   requester_name: string | null;
 }
 
@@ -36,19 +37,55 @@ export function ProviderMessages() {
     setLoading(true);
     setLoadError(null);
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('jobs')
-      .select('id, status, created_at, requester_name')
+      .select('id, status, created_at, requester_name, customer_id')
       .eq('provider_id', user.id)
       .order('created_at', { ascending: false })
       .limit(50);
+
+    // Compatibility fallback for schemas without requester_name.
+    if (error && String(error.message || '').includes('requester_name')) {
+      const fallback = await supabase
+        .from('jobs')
+        .select('id, status, created_at, customer_id')
+        .eq('provider_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      data = fallback.data as any;
+      error = fallback.error as any;
+    }
 
     if (error) {
       console.warn('Failed to load provider messages jobs:', error);
       setLoadError('Could not load conversations right now.');
       setJobs([]);
     } else {
-      setJobs((data || []) as JobRow[]);
+      const rows = (data || []) as JobRow[];
+      const customerIds = Array.from(new Set(rows.map((row) => row.customer_id).filter(Boolean))) as string[];
+      let nameMap: Record<string, string> = {};
+
+      if (customerIds.length > 0) {
+        const { data: profiles, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name')
+          .in('id', customerIds);
+
+        if (!profileError && profiles) {
+          nameMap = profiles.reduce((acc: Record<string, string>, profile: any) => {
+            const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+            acc[profile.id] = fullName || 'Customer';
+            return acc;
+          }, {});
+        }
+      }
+
+      setJobs(
+        rows.map((row) => ({
+          ...row,
+          requester_name: row.requester_name || (row.customer_id ? nameMap[row.customer_id] || 'Customer' : 'Customer'),
+        }))
+      );
     }
     setLoading(false);
   }

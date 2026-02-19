@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router";
 import { Splash } from "./pages/auth/Splash";
+import { UserIntro } from "./pages/auth/UserIntro";
 import { RoleSelection } from "./pages/auth/RoleSelection";
 import { Login } from "./pages/auth/Login";
 import { Signup } from "./pages/auth/Signup";
@@ -8,7 +9,6 @@ import { VerifyEmail } from "./pages/auth/VerifyEmail";
 import { AuthCallback } from "./pages/auth/AuthCallback";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
 import { ResetPassword } from "./pages/auth/ResetPassword";
-import { TestSignup } from "./pages/auth/TestSignup";
 import { HomeMap } from "./pages/customer/HomeMap";
 import { WhoNeedsHelp } from "./pages/customer/WhoNeedsHelp";
 import { ConfirmLocation } from "./pages/customer/ConfirmLocation";
@@ -31,6 +31,8 @@ import { Explore } from "./pages/customer/Explore";
 import { ShopDetail } from "./pages/customer/ShopDetail";
 import { PersonalInfo } from "./pages/customer/PersonalInfo";
 import { Vehicles } from "./pages/customer/Vehicles";
+import { AccountSecurity } from "./pages/customer/AccountSecurity";
+import { CustomerMessages } from "./pages/customer/Messages";
 import { NotFound } from "./pages/NotFound";
 import { Navigate } from "react-router";
 import { AppSelector } from "./pages/AppSelector";
@@ -51,6 +53,10 @@ import { AdminServices } from "./pages/admin/Services";
 import { AdminTeam } from "./pages/admin/Team";
 import { AdminSettings } from "./pages/admin/Settings";
 import { AdminLiveDispatch } from "./pages/admin/LiveDispatch";
+import { AdminSupportTickets } from "./pages/admin/SupportTickets";
+import { AdminFinance } from "./pages/admin/Finance";
+import { AdminAuditTrail } from "./pages/admin/AuditTrail";
+import { AdminReporting } from "./pages/admin/Reporting";
 
 // Website imports
 import { WebsiteHome } from "./pages/website/Home";
@@ -73,6 +79,7 @@ import { ProviderEarnings } from "./pages/provider/Earnings";
 import { ProviderProfile } from "./pages/provider/ProviderProfile";
 import { ProviderServices } from "./pages/provider/Services";
 import { ProviderBankAccounts } from "./pages/provider/BankAccounts";
+import { ProtectedRoute } from "./context/AuthContext";
 
 export const router = createBrowserRouter([
   {
@@ -82,6 +89,10 @@ export const router = createBrowserRouter([
   {
     path: "/apps",
     Component: AppSelector,
+  },
+  {
+    path: "/intro/user",
+    Component: UserIntro,
   },
   {
     path: "/role-selection",
@@ -116,88 +127,92 @@ export const router = createBrowserRouter([
     Component: ResetPassword,
   },
   {
-    path: "/test-signup",
-    Component: TestSignup,
-  },
-  {
     path: "/home",
     element: <Navigate to="/customer/home" replace />,
   },
   {
     path: "/customer/home",
-    Component: HomeMap,
+    element: <ProtectedRoute requiredRole="customer"><HomeMap /></ProtectedRoute>,
   },
   {
     path: "/customer/history",
-    Component: Activity,
+    element: <ProtectedRoute requiredRole="customer"><Activity /></ProtectedRoute>,
   },
   {
     path: "/customer/explore",
-    Component: Explore,
+    element: <ProtectedRoute requiredRole="customer"><Explore /></ProtectedRoute>,
   },
   {
     path: "/customer/profile",
-    Component: Profile,
+    element: <ProtectedRoute requiredRole="customer"><Profile /></ProtectedRoute>,
   },
   {
     path: "/customer/service-history",
-    Component: ServiceHistory,
+    element: <ProtectedRoute requiredRole="customer"><ServiceHistory /></ProtectedRoute>,
   },
   {
     path: "/customer/payment-methods",
-    Component: PaymentMethods,
+    element: <ProtectedRoute requiredRole="customer"><PaymentMethods /></ProtectedRoute>,
   },
   {
     path: "/customer/notifications",
-    Component: Notifications,
+    element: <ProtectedRoute requiredRole="customer"><Notifications /></ProtectedRoute>,
   },
   {
     path: "/customer/help-center",
-    Component: HelpCenter,
+    element: <ProtectedRoute requiredRole="customer"><HelpCenter /></ProtectedRoute>,
   },
   {
     path: "/customer/personal-info",
-    Component: PersonalInfo,
+    element: <ProtectedRoute requiredRole="customer"><PersonalInfo /></ProtectedRoute>,
   },
   {
     path: "/customer/vehicles",
-    Component: Vehicles,
+    element: <ProtectedRoute requiredRole="customer"><Vehicles /></ProtectedRoute>,
+  },
+  {
+    path: "/customer/account-security",
+    element: <ProtectedRoute requiredRole="customer"><AccountSecurity /></ProtectedRoute>,
+  },
+  {
+    path: "/customer/messages",
+    element: <ProtectedRoute requiredRole="customer"><CustomerMessages /></ProtectedRoute>,
   },
   {
     path: "/who-needs-help",
-    Component: WhoNeedsHelp,
+    element: <ProtectedRoute requiredRole="customer"><WhoNeedsHelp /></ProtectedRoute>,
   },
   {
     path: "/confirm-location",
-    Component: ConfirmLocation,
+    element: <ProtectedRoute requiredRole="customer"><ConfirmLocation /></ProtectedRoute>,
   },
   {
     path: "/service-selection",
-    Component: ServiceSelection,
+    element: <ProtectedRoute requiredRole="customer"><ServiceSelection /></ProtectedRoute>,
   },
   {
     path: "/service-details/:serviceId",
-    Component: ServiceDetails,
+    element: <ProtectedRoute requiredRole="customer"><ServiceDetails /></ProtectedRoute>,
   },
   {
     path: "/schedule",
-    Component: ScheduleService,
+    element: <ProtectedRoute requiredRole="customer"><ScheduleService /></ProtectedRoute>,
   },
   {
     path: "/pricing",
-    Component: PricingPayment,
+    element: <ProtectedRoute requiredRole="customer"><PricingPayment /></ProtectedRoute>,
   },
   {
     path: "/matching",
-    Component: Matching,
+    element: <ProtectedRoute requiredRole="customer"><Matching /></ProtectedRoute>,
   },
   {
     path: "/tracking/:jobId",
-    Component: LiveTracking,
+    element: <ProtectedRoute requiredRole="customer"><LiveTracking /></ProtectedRoute>,
   },
   {
     path: "/completion/:jobId",
-    Component: ServiceCompletion,
+    element: <ProtectedRoute requiredRole="customer"><ServiceCompletion /></ProtectedRoute>,
   },
   {
     path: "/activity",
@@ -205,7 +220,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/job/:jobId",
-    Component: JobDetail,
+    element: <ProtectedRoute requiredRole="customer"><JobDetail /></ProtectedRoute>,
   },
   {
     path: "/wallet",
@@ -221,7 +236,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/shop/:shopId",
-    Component: ShopDetail,
+    element: <ProtectedRoute requiredRole="customer"><ShopDetail /></ProtectedRoute>,
   },
   // Provider routes
   {
@@ -250,53 +265,53 @@ export const router = createBrowserRouter([
   },
   {
     path: "/provider/home",
-    Component: ProviderHome,
+    element: <ProtectedRoute requiredRole="provider"><ProviderHome /></ProtectedRoute>,
   },
   {
     path: "/provider/request/:requestId",
-    Component: JobRequest,
+    element: <ProtectedRoute requiredRole="provider"><JobRequest /></ProtectedRoute>,
   },
   {
     path: "/provider/job/:jobId",
-    Component: JobActive,
+    element: <ProtectedRoute requiredRole="provider"><JobActive /></ProtectedRoute>,
   },
   {
     path: "/provider/complete/:jobId",
-    Component: JobComplete,
+    element: <ProtectedRoute requiredRole="provider"><JobComplete /></ProtectedRoute>,
   },
   {
     path: "/provider/earnings",
-    Component: ProviderEarnings,
+    element: <ProtectedRoute requiredRole="provider"><ProviderEarnings /></ProtectedRoute>,
   },
   {
     path: "/provider/profile",
-    Component: ProviderProfile,
+    element: <ProtectedRoute requiredRole="provider"><ProviderProfile /></ProtectedRoute>,
   },
   {
     path: "/provider/services-list",
-    Component: ProviderServices,
+    element: <ProtectedRoute requiredRole="provider"><ProviderServices /></ProtectedRoute>,
   },
   {
     path: "/provider/bank-accounts",
-    Component: ProviderBankAccounts,
+    element: <ProtectedRoute requiredRole="provider"><ProviderBankAccounts /></ProtectedRoute>,
   },
 
   // Admin routes
   {
     path: "/admin",
-    Component: AdminDashboard,
+    element: <ProtectedRoute requiredRole="admin"><AdminDashboard /></ProtectedRoute>,
   },
   {
     path: "/admin/jobs",
-    Component: AdminJobs,
+    element: <ProtectedRoute requiredRole="admin"><AdminJobs /></ProtectedRoute>,
   },
   {
     path: "/admin/providers",
-    Component: AdminProviders,
+    element: <ProtectedRoute requiredRole="admin"><AdminProviders /></ProtectedRoute>,
   },
   {
     path: "/admin/payments",
-    Component: AdminPayments,
+    element: <ProtectedRoute requiredRole="admin"><AdminPayments /></ProtectedRoute>,
   },
   {
     path: "/admin/directory",
@@ -304,43 +319,59 @@ export const router = createBrowserRouter([
   },
   {
     path: "/admin/provider-approval",
-    Component: ProviderApproval,
+    element: <ProtectedRoute requiredRole="admin"><ProviderApproval /></ProtectedRoute>,
   },
   {
     path: "/admin/payouts",
-    Component: AdminPayouts,
+    element: <ProtectedRoute requiredRole="admin"><AdminPayouts /></ProtectedRoute>,
   },
   {
     path: "/admin/document-settings",
-    Component: DocumentSettings,
+    element: <ProtectedRoute requiredRole="admin"><DocumentSettings /></ProtectedRoute>,
   },
   {
     path: "/admin/analytics",
-    Component: AdminAnalytics,
+    element: <ProtectedRoute requiredRole="admin"><AdminAnalytics /></ProtectedRoute>,
   },
   {
     path: "/admin/users",
-    Component: AdminUsers,
+    element: <ProtectedRoute requiredRole="admin"><AdminUsers /></ProtectedRoute>,
   },
   {
     path: "/admin/payout-history",
-    Component: AdminPayoutHistory,
+    element: <ProtectedRoute requiredRole="admin"><AdminPayoutHistory /></ProtectedRoute>,
   },
   {
     path: "/admin/services",
-    Component: AdminServices,
+    element: <ProtectedRoute requiredRole="admin"><AdminServices /></ProtectedRoute>,
   },
   {
     path: "/admin/team",
-    Component: AdminTeam,
+    element: <ProtectedRoute requiredRole="admin"><AdminTeam /></ProtectedRoute>,
   },
   {
     path: "/admin/settings",
-    Component: AdminSettings,
+    element: <ProtectedRoute requiredRole="admin"><AdminSettings /></ProtectedRoute>,
   },
   {
     path: "/admin/live-dispatch",
-    Component: AdminLiveDispatch,
+    element: <ProtectedRoute requiredRole="admin"><AdminLiveDispatch /></ProtectedRoute>,
+  },
+  {
+    path: "/admin/support",
+    element: <ProtectedRoute requiredRole="admin"><AdminSupportTickets /></ProtectedRoute>,
+  },
+  {
+    path: "/admin/finance",
+    element: <ProtectedRoute requiredRole="admin"><AdminFinance /></ProtectedRoute>,
+  },
+  {
+    path: "/admin/audit-trail",
+    element: <ProtectedRoute requiredRole="admin"><AdminAuditTrail /></ProtectedRoute>,
+  },
+  {
+    path: "/admin/reporting",
+    element: <ProtectedRoute requiredRole="admin"><AdminReporting /></ProtectedRoute>,
   },
   // Website routes
   {

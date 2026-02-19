@@ -34,6 +34,17 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    if (typeof Notification === 'undefined') return;
+    const key = 'torc_customer_notification_prompted_v1';
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, [user]);
+
   async function fetchProfile(userId) {
     try {
       const { data, error } = await supabase
@@ -62,6 +73,18 @@ export function AuthProvider({ children }) {
       setProfile(merged);
     } catch (error) {
       console.warn('Error fetching profile:', error);
+      // Fallback to auth metadata so route guards don't blank the app.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const meta = authUser?.user_metadata || {};
+      setProfile({
+        id: userId,
+        email: authUser?.email || '',
+        first_name: meta.first_name || '',
+        last_name: meta.last_name || '',
+        full_name: meta.full_name || '',
+        phone: meta.phone || '',
+        role: meta.role || 'customer',
+      });
     } finally {
       setLoading(false);
     }
@@ -139,15 +162,26 @@ export function useAuth() {
 }
 
 // Protected Route Component
-export function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth();
+export function ProtectedRoute({ children, requiredRole = null }) {
+  const { isAuthenticated, loading, profile, user } = useAuth();
   const navigate = useNavigate();
+  const resolvedRole = profile?.role || user?.user_metadata?.role || null;
+  const isAuthorized = !requiredRole || resolvedRole === requiredRole;
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       navigate('/login');
     }
-  }, [isAuthenticated, loading, navigate]);
+    if (!loading && isAuthenticated && requiredRole && !isAuthorized) {
+      if (resolvedRole === 'admin') {
+        navigate('/admin');
+      } else if (resolvedRole === 'provider') {
+        navigate('/provider/home');
+      } else {
+        navigate('/customer/home');
+      }
+    }
+  }, [isAuthenticated, loading, navigate, requiredRole, isAuthorized, resolvedRole]);
 
   if (loading) {
     return (
@@ -160,5 +194,5 @@ export function ProtectedRoute({ children }) {
     );
   }
 
-  return isAuthenticated ? children : null;
+  return isAuthenticated && isAuthorized ? children : null;
 }

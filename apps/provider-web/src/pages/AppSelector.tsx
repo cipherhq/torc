@@ -105,7 +105,7 @@ export function AppSelector() {
           transition={{ delay: 0.6 }}
           className="text-center text-white/40 text-sm mt-8"
         >
-          This is a demo platform showcasing the complete TORC ecosystem
+          Unified entrypoint for the complete TORC ecosystem
         </motion.p>
       </div>
     </div>

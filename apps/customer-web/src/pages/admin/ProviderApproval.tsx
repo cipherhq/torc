@@ -10,87 +10,171 @@ export function ProviderApproval() {
   const [selectedDocument, setSelectedDocument] = useState<any>(null);
   const [pendingProviders, setPendingProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actioningProviderId, setActioningProviderId] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    approvedToday: 0,
+    rejectedToday: 0,
+    activeProviders: 0,
+  });
+
+  async function loadPendingProviders() {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('provider_profiles')
+        .select(`
+          id,
+          account_type,
+          company_name,
+          created_at,
+          user:profiles(full_name, email, phone)
+        `)
+        .eq('is_verified', false)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedProviders = await Promise.all((data || []).map(async (provider: any) => {
+        const { data: documents } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('provider_id', provider.id)
+          .order('updated_at', { ascending: false });
+
+        const { data: providerServices } = await supabase
+          .from('provider_services')
+          .select('service:services(name)')
+          .eq('provider_id', provider.id);
+
+        const servicesOffered = providerServices?.map((ps: any) => ps.service?.name).filter(Boolean) || [];
+        const name = provider.user?.full_name || provider.user?.email?.split('@')[0] || 'Unknown';
+        const submittedAt = new Date(provider.created_at).toLocaleString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+
+        return {
+          id: `PR-${provider.id.slice(0, 8)}`,
+          providerId: provider.id,
+          name,
+          email: provider.user?.email || '-',
+          phone: provider.user?.phone || '-',
+          accountType: provider.account_type === 'company' ? 'Company' : 'Individual',
+          companyName: provider.company_name,
+          submittedAt,
+          documents: documents?.map((doc: any) => ({
+            id: doc.id,
+            type: doc.type?.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Document',
+            status: doc.status || 'pending',
+            file: doc.file_name || 'document.pdf',
+            url: doc.file_url || null,
+            rejectionReason: doc.rejection_reason || null,
+          })) || [],
+          backgroundCheck: 'pending',
+          servicesOffered,
+        };
+      }));
+
+      setPendingProviders(formattedProviders);
+
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const [{ count: approvedToday }, { count: rejectedToday }, { count: activeProviders }] = await Promise.all([
+        supabase
+          .from('documents')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'approved')
+          .gte('reviewed_at', startOfDay.toISOString()),
+        supabase
+          .from('documents')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'rejected')
+          .gte('reviewed_at', startOfDay.toISOString()),
+        supabase
+          .from('provider_profiles')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_verified', true),
+      ]);
+
+      setStats({
+        approvedToday: approvedToday || 0,
+        rejectedToday: rejectedToday || 0,
+        activeProviders: activeProviders || 0,
+      });
+    } catch (error) {
+      console.warn('Failed to load pending providers:', error);
+      setPendingProviders([]);
+      setStats({ approvedToday: 0, rejectedToday: 0, activeProviders: 0 });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function loadPendingProviders() {
-      try {
-        setLoading(true);
-        
-        const { data, error } = await supabase
-          .from('provider_profiles')
-          .select(`
-            id,
-            account_type,
-            company_name,
-            created_at,
-            user:profiles(full_name, email, phone)
-          `)
-          .eq('is_verified', false)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        // Fetch documents for each provider
-        const formattedProviders = await Promise.all((data || []).map(async (provider: any) => {
-          const { data: documents } = await supabase
-            .from('documents')
-            .select('*')
-            .eq('provider_id', provider.id);
-
-          // Fetch services offered
-          const { data: providerServices } = await supabase
-            .from('provider_services')
-            .select('service:services(name)')
-            .eq('provider_id', provider.id);
-
-          const servicesOffered = providerServices?.map((ps: any) => ps.service?.name).filter(Boolean) || [];
-
-          const name = provider.user?.full_name || provider.user?.email?.split('@')[0] || 'Unknown';
-          const submittedAt = new Date(provider.created_at).toLocaleString('en-US', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-
-          return {
-            id: `PR-${provider.id.slice(0, 8)}`,
-            name,
-            email: provider.user?.email || '-',
-            phone: provider.user?.phone || '-',
-            accountType: provider.account_type === 'company' ? 'Company' : 'Individual',
-            companyName: provider.company_name,
-            submittedAt,
-            documents: documents?.map((doc: any) => ({
-              type: doc.type?.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'Document',
-              status: doc.status === 'approved' ? 'uploaded' : 'pending',
-              file: doc.file_name || 'document.pdf',
-            })) || [],
-            backgroundCheck: 'pending', // This would need a separate background check system
-            servicesOffered,
-          };
-        }));
-
-        setPendingProviders(formattedProviders);
-      } catch (error) {
-        console.warn('Failed to load pending providers:', error);
-        setPendingProviders([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadPendingProviders();
+    void loadPendingProviders();
   }, []);
 
-  const handleApprove = (providerId: string) => {
-    console.log('Approving provider:', providerId);
-    // In real app: API call to approve provider
+  const handleApprove = async (providerId: string) => {
+    try {
+      setActioningProviderId(providerId);
+      const { error: docsError } = await supabase
+        .from('documents')
+        .update({
+          status: 'approved',
+          rejection_reason: null,
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq('provider_id', providerId);
+      if (docsError) throw docsError;
+
+      const { error: providerError } = await supabase
+        .from('provider_profiles')
+        .update({ is_verified: true })
+        .eq('id', providerId);
+      if (providerError) throw providerError;
+
+      await loadPendingProviders();
+    } catch (error: any) {
+      console.warn('Approve provider failed:', error);
+      window.alert(error?.message || 'Failed to approve provider.');
+    } finally {
+      setActioningProviderId(null);
+    }
   };
 
-  const handleReject = (providerId: string) => {
-    console.log('Rejecting provider:', providerId);
-    // In real app: API call to reject provider
+  const handleReject = async (providerId: string) => {
+    const reason = window.prompt('Reason for rejection:', 'Document did not meet verification requirements');
+    if (reason === null) return;
+
+    try {
+      setActioningProviderId(providerId);
+      const { error: docsError } = await supabase
+        .from('documents')
+        .update({
+          status: 'rejected',
+          rejection_reason: reason.trim() || 'Rejected by admin',
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq('provider_id', providerId);
+      if (docsError) throw docsError;
+
+      const { error: providerError } = await supabase
+        .from('provider_profiles')
+        .update({ is_verified: false })
+        .eq('id', providerId);
+      if (providerError) throw providerError;
+
+      await loadPendingProviders();
+    } catch (error: any) {
+      console.warn('Reject provider failed:', error);
+      window.alert(error?.message || 'Failed to reject provider.');
+    } finally {
+      setActioningProviderId(null);
+    }
   };
 
   return (
@@ -115,17 +199,17 @@ export function ProviderApproval() {
             <div className="glass rounded-[24px] p-6">
               <CheckCircle className="w-8 h-8 text-[#2EFFAF] mb-3" />
               <p className="text-white/60 text-sm">Approved Today</p>
-              <p className="text-white text-3xl font-bold">12</p>
+              <p className="text-white text-3xl font-bold">{stats.approvedToday}</p>
             </div>
             <div className="glass rounded-[24px] p-6">
               <XCircle className="w-8 h-8 text-red-400 mb-3" />
               <p className="text-white/60 text-sm">Rejected Today</p>
-              <p className="text-white text-3xl font-bold">3</p>
+              <p className="text-white text-3xl font-bold">{stats.rejectedToday}</p>
             </div>
             <div className="glass rounded-[24px] p-6">
               <Shield className="w-8 h-8 text-[#2EFFAF] mb-3" />
               <p className="text-white/60 text-sm">Active Providers</p>
-              <p className="text-white text-3xl font-bold">247</p>
+              <p className="text-white text-3xl font-bold">{stats.activeProviders}</p>
             </div>
           </div>
 
@@ -189,11 +273,30 @@ export function ProviderApproval() {
                     <div className="grid grid-cols-2 gap-3">
                       {provider.documents.map((doc: any) => (
                         <div key={doc.type} className="bg-white/5 rounded-xl p-3 flex items-center justify-between">
-                          <span className="text-white/80 text-sm">{doc.type}</span>
-                          <button className="text-[#2EFFAF] text-xs font-semibold hover:underline flex items-center gap-1">
-                            <Eye className="w-3 h-3" />
-                            View
-                          </button>
+                          <div>
+                            <span className="text-white/80 text-sm block">{doc.type}</span>
+                            <span className={`text-[10px] uppercase tracking-wide ${
+                              doc.status === 'approved'
+                                ? 'text-[#2EFFAF]'
+                                : doc.status === 'rejected'
+                                  ? 'text-red-400'
+                                  : 'text-yellow-400'
+                            }`}>
+                              {doc.status}
+                            </span>
+                          </div>
+                          {doc.url ? (
+                            <button
+                              onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
+                              className="text-[#2EFFAF] text-xs font-semibold hover:underline flex items-center gap-1"
+                              title={`View ${doc.type}`}
+                            >
+                              <Eye className="w-3 h-3" />
+                              View
+                            </button>
+                          ) : (
+                            <span className="text-white/40 text-xs">No file</span>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -237,20 +340,22 @@ export function ProviderApproval() {
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => handleApprove(provider.id)}
-                      className="flex-1 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-3 font-semibold text-[#0F1419] flex items-center justify-center gap-2"
+                      onClick={() => handleApprove(provider.providerId)}
+                      disabled={actioningProviderId === provider.providerId}
+                      className="flex-1 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-3 font-semibold text-[#0F1419] flex items-center justify-center gap-2 disabled:opacity-60"
                     >
                       <CheckCircle className="w-5 h-5" />
-                      Approve Provider
+                      {actioningProviderId === provider.providerId ? 'Saving...' : 'Approve Provider'}
                     </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => handleReject(provider.id)}
-                      className="flex-1 bg-red-500/20 border border-red-500/30 rounded-2xl py-3 font-semibold text-red-400 flex items-center justify-center gap-2"
+                      onClick={() => handleReject(provider.providerId)}
+                      disabled={actioningProviderId === provider.providerId}
+                      className="flex-1 bg-red-500/20 border border-red-500/30 rounded-2xl py-3 font-semibold text-red-400 flex items-center justify-center gap-2 disabled:opacity-60"
                     >
                       <XCircle className="w-5 h-5" />
-                      Reject
+                      {actioningProviderId === provider.providerId ? 'Saving...' : 'Reject'}
                     </motion.button>
                   </div>
                 </motion.div>

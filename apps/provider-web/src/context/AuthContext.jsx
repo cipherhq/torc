@@ -34,6 +34,17 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    if (typeof Notification === 'undefined') return;
+    const key = 'torc_provider_notification_prompted_v1';
+    if (localStorage.getItem(key) === '1') return;
+    localStorage.setItem(key, '1');
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, [user]);
+
   async function fetchProfile(userId) {
     try {
       const { data, error } = await supabase
@@ -159,4 +170,32 @@ export function ProtectedRoute({ children }) {
   }
 
   return isAuthenticated ? children : null;
+}
+
+export function ProviderProtectedRoute({ children }) {
+  const { isAuthenticated, loading, profile } = useAuth();
+  const navigate = useNavigate();
+  const isAuthorized = profile?.role === 'provider';
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+    if (!loading && isAuthenticated && !isAuthorized) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, isAuthorized, navigate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white/60">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return isAuthenticated && isAuthorized ? children : null;
 }

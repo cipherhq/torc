@@ -1,28 +1,40 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Upload, FileText, CheckCircle, Clock, AlertCircle, X, Eye } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, Upload, FileText, CheckCircle, Clock, AlertCircle, X, Eye, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
-interface DocumentUpload {
-  file: File | null;
-  preview: string | null;
-  status: 'empty' | 'uploaded' | 'approved' | 'rejected';
-  uploadDate?: string;
-  rejectionReason?: string;
+interface DocumentRecord {
+  id: string;
+  provider_id: string;
+  type: string;
+  file_name: string | null;
+  file_path: string | null;
+  file_url: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  status: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
+  updated_at: string;
 }
 
 export function ProviderDocuments() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
-  const [documents, setDocuments] = useState<Record<string, DocumentUpload>>({
-    license: { file: null, preview: null, status: 'empty' },
-    insurance: { file: null, preview: null, status: 'empty' },
-    registration: { file: null, preview: null, status: 'empty' },
-    towing: { file: null, preview: null, status: 'empty' },
+  const { user } = useAuth() as any;
+  const [documents, setDocuments] = useState<Record<string, DocumentRecord | null>>({
+    license: null,
+    insurance: null,
+    registration: null,
+    towing: null,
   });
+  const [loading, setLoading] = useState(true);
+  const [savingDocId, setSavingDocId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState<{ id: string; preview: string } | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ id: string; url: string; mimeType: string | null; fileName: string | null } | null>(null);
 
   const documentConfig = [
     { id: 'license', name: "Driver's License", required: true, description: "Valid state-issued driver's license" },
@@ -31,26 +43,135 @@ export function ProviderDocuments() {
     { id: 'towing', name: 'Towing Credentials', required: false, description: 'Towing certification (if applicable)' },
   ];
 
-  const handleFileSelect = (docId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    loadDocuments();
+  }, [user?.id]);
+
+  async function loadDocuments() {
+    if (!user) return;
+    try {
+      setLoading(true);
+      setPageError(null);
+      const { data, error } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('provider_id', user.id);
+      if (error) throw error;
+
+      const next: Record<string, DocumentRecord | null> = {
+        license: null,
+        insurance: null,
+        registration: null,
+        towing: null,
+      };
+      (data || []).forEach((row: any) => {
+        if (next[row.type] !== undefined) {
+          next[row.type] = row as DocumentRecord;
+        }
+      });
+      setDocuments(next);
+    } catch (error: any) {
+      console.warn('Failed to load provider documents:', error);
+      setPageError(error?.message || 'Could not load documents right now.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFileSelect(docId: string, event: React.ChangeEvent<HTMLInputElement>) {
+    if (!user) return;
     const file = event.target.files?.[0];
     if (!file) return;
+
     const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
     if (!validTypes.includes(file.type)) { alert('Please upload a JPG, PNG, or PDF file'); return; }
     if (file.size > 10 * 1024 * 1024) { alert('File size must be less than 10MB'); return; }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setDocuments(prev => ({ ...prev, [docId]: { file, preview: reader.result as string, status: 'uploaded', uploadDate: new Date().toISOString() } }));
-    };
-    reader.readAsDataURL(file);
-  };
 
-  const handleRemoveDocument = (docId: string) => {
-    setDocuments(prev => ({ ...prev, [docId]: { file: null, preview: null, status: 'empty' } }));
-  };
+    try {
+      setSavingDocId(docId);
+      const safeName = file.name.replace(/\s+/g, '-').replace(/[^\w.-]/g, '');
+      const storagePath = `${user.id}/${docId}/${Date.now()}-${safeName}`;
+
+      const upload = await supabase.storage.from('provider-documents').upload(storagePath, file, { upsert: false });
+      if (upload.error) throw upload.error;
+
+      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
+      const fileUrl = publicData?.publicUrl || null;
+
+      const basePayload = {
+        provider_id: user.id,
+        type: docId,
+        file_name: file.name,
+        file_url: fileUrl,
+        mime_type: file.type,
+        file_size: file.size,
+        status: 'pending',
+        rejection_reason: null,
+      };
+
+      const withPathPayload = {
+        ...basePayload,
+        file_path: storagePath,
+      };
+
+      let { error: upsertError } = await supabase
+        .from('documents')
+        .upsert(withPathPayload, { onConflict: 'provider_id,type' });
+
+      // Backward compatibility for environments where documents.file_path does not exist yet.
+      if (upsertError && String(upsertError.message || '').includes('file_path')) {
+        const fallback = await supabase
+          .from('documents')
+          .upsert(basePayload, { onConflict: 'provider_id,type' });
+        upsertError = fallback.error;
+      }
+
+      if (upsertError) throw upsertError;
+
+      await loadDocuments();
+    } catch (error: any) {
+      console.warn('Upload failed:', error);
+      alert(error?.message || 'Could not upload this document.');
+    } finally {
+      setSavingDocId(null);
+    }
+  }
+
+  async function handleRemoveDocument(docId: string) {
+    if (!user) return;
+    const existing = documents[docId];
+    if (!existing) return;
+    try {
+      setSavingDocId(docId);
+      if (existing.file_path) {
+        const removeRes = await supabase.storage.from('provider-documents').remove([existing.file_path]);
+        if (removeRes.error) {
+          // We still try DB delete if file was already removed.
+          console.warn('Storage remove warning:', removeRes.error);
+        }
+      }
+      const { error } = await supabase
+        .from('documents')
+        .delete()
+        .eq('provider_id', user.id)
+        .eq('type', docId);
+      if (error) throw error;
+      await loadDocuments();
+    } catch (error: any) {
+      console.warn('Failed to remove document:', error);
+      alert(error?.message || 'Could not remove this document.');
+    } finally {
+      setSavingDocId(null);
+    }
+  }
 
   const handleSubmit = () => {
     const requiredDocs = documentConfig.filter(d => d.required);
-    const missingDocs = requiredDocs.filter(d => !documents[d.id].file);
+    const missingDocs = requiredDocs.filter(d => !documents[d.id]);
     if (missingDocs.length > 0) { alert(`Please upload: ${missingDocs.map(d => d.name).join(', ')}`); return; }
     if (!consentChecked) { alert('Please consent to background check'); return; }
     navigate('/payout');
@@ -59,13 +180,13 @@ export function ProviderDocuments() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'approved': return <CheckCircle className="w-5 h-5" style={{ color: '#2EFFAF' }} />;
-      case 'uploaded': return <Clock className="w-5 h-5" style={{ color: '#007AFF' }} />;
+      case 'pending': return <Clock className="w-5 h-5" style={{ color: '#007AFF' }} />;
       case 'rejected': return <AlertCircle className="w-5 h-5 text-red-500" />;
       default: return <FileText className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF' }} />;
     }
   };
 
-  const allRequiredUploaded = documentConfig.filter(d => d.required).every(d => documents[d.id].file);
+  const allRequiredUploaded = documentConfig.filter(d => d.required).every(d => !!documents[d.id]);
 
   return (
     <div
@@ -89,6 +210,12 @@ export function ProviderDocuments() {
       </div>
 
       <div className="relative z-10 flex-1 px-6 pb-8 overflow-y-auto">
+        {pageError && (
+          <div className="rounded-2xl p-4 mb-4 border border-red-500/30" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }}>
+            <p className="text-red-400 text-sm">{pageError}</p>
+          </div>
+        )}
+
         {/* Instructions */}
         <div className="rounded-2xl p-5 mb-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB'}` }}>
           <p className="text-sm mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>
@@ -101,6 +228,12 @@ export function ProviderDocuments() {
 
         {/* Document Cards */}
         <div className="space-y-4 mb-6">
+          {loading && (
+            <div className="rounded-2xl p-4 flex items-center gap-2 text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF', color: isDark ? 'rgba(255,255,255,0.7)' : '#6B7280' }}>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading document status...
+            </div>
+          )}
           {documentConfig.map((doc, index) => {
             const upload = documents[doc.id];
             return (
@@ -108,52 +241,58 @@ export function ProviderDocuments() {
                 className="rounded-2xl p-5" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.04)' }}
               >
                 <div className="flex items-start gap-3 mb-4">
-                  {getStatusIcon(upload.status)}
+                  {getStatusIcon(upload?.status || 'empty')}
                   <div className="flex-1">
                     <h3 className="font-semibold flex items-center gap-2" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
                       {doc.name}
                       {doc.required && <span className="text-red-500 text-xs">*Required</span>}
                     </h3>
                     <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>{doc.description}</p>
+                    {upload?.status === 'rejected' && upload.rejection_reason && (
+                      <p className="text-xs mt-1 text-red-400">Rejection reason: {upload.rejection_reason}</p>
+                    )}
                   </div>
                 </div>
 
-                {upload.preview && (
+                {upload?.file_url && (
                   <div className="mb-4 rounded-xl p-3 flex items-center gap-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB' }}>
-                    {upload.file?.type.startsWith('image/') ? (
-                      <img src={upload.preview} alt="Preview" className="w-16 h-16 object-cover rounded-lg" />
+                    {(upload.mime_type || '').startsWith('image/') ? (
+                      <img src={upload.file_url} alt="Preview" className="w-16 h-16 object-cover rounded-lg" />
                     ) : (
                       <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E5E7EB' }}>
                         <FileText className="w-6 h-6" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{upload.file?.name}</p>
-                      <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>{(upload.file!.size / 1024 / 1024).toFixed(2)} MB</p>
+                      <p className="text-sm font-medium truncate" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{upload.file_name || 'Document'}</p>
+                      <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>
+                        {upload.file_size ? `${(upload.file_size / 1024 / 1024).toFixed(2)} MB` : '-'} • {upload.status}
+                      </p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => setPreviewDoc({ id: doc.id, preview: upload.preview! })} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6' }}>
+                      <button title={`Preview ${doc.name}`} onClick={() => setPreviewDoc({ id: doc.id, url: upload.file_url!, mimeType: upload.mime_type, fileName: upload.file_name })} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6' }}>
                         <Eye className="w-4 h-4" style={{ color: isDark ? '#FFFFFF' : '#6B7280' }} />
                       </button>
-                      <button onClick={() => handleRemoveDocument(doc.id)} className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }}>
+                      <button title={`Remove ${doc.name}`} onClick={() => handleRemoveDocument(doc.id)} disabled={savingDocId === doc.id} className="p-2 rounded-lg disabled:opacity-50" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }}>
                         <X className="w-4 h-4 text-red-500" />
                       </button>
                     </div>
                   </div>
                 )}
 
-                <input type="file" id={`file-${doc.id}`} accept="image/jpeg,image/png,image/jpg,application/pdf" onChange={(e) => handleFileSelect(doc.id, e)} className="hidden" />
+                <input title={`Upload ${doc.name}`} type="file" id={`file-${doc.id}`} accept="image/jpeg,image/png,image/jpg,application/pdf" onChange={(e) => { void handleFileSelect(doc.id, e); }} className="hidden" />
                 <button
                   onClick={() => document.getElementById(`file-${doc.id}`)?.click()}
+                  disabled={savingDocId === doc.id}
                   className="w-full rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 transition-all"
                   style={{
-                    backgroundColor: upload.preview ? (isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB') : 'rgba(46,255,175,0.1)',
-                    border: `1px solid ${upload.preview ? (isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB') : 'rgba(46,255,175,0.3)'}`,
-                    color: upload.preview ? (isDark ? 'rgba(255,255,255,0.6)' : '#6B7280') : '#2EFFAF',
+                    backgroundColor: upload?.file_url ? (isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB') : 'rgba(46,255,175,0.1)',
+                    border: `1px solid ${upload?.file_url ? (isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB') : 'rgba(46,255,175,0.3)'}`,
+                    color: upload?.file_url ? (isDark ? 'rgba(255,255,255,0.6)' : '#6B7280') : '#2EFFAF',
                   }}
                 >
-                  <Upload className="w-4 h-4" />
-                  {upload.preview ? 'Replace Document' : 'Upload Document'}
+                  {savingDocId === doc.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {savingDocId === doc.id ? 'Uploading...' : (upload?.file_url ? 'Replace Document' : 'Upload Document')}
                 </button>
               </motion.div>
             );
@@ -195,16 +334,23 @@ export function ProviderDocuments() {
           <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="max-w-lg w-full rounded-2xl p-6 overflow-auto" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Document Preview</h3>
-              <button onClick={() => setPreviewDoc(null)} className="p-2 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#F3F4F6' }}>
+              <button title="Close preview" onClick={() => setPreviewDoc(null)} className="p-2 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#F3F4F6' }}>
                 <X className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#6B7280' }} />
               </button>
             </div>
-            {documents[previewDoc.id].file?.type.startsWith('image/') ? (
-              <img src={previewDoc.preview} alt="Document" className="w-full rounded-xl" />
+            {(previewDoc.mimeType || '').startsWith('image/') ? (
+              <img src={previewDoc.url} alt="Document" className="w-full rounded-xl" />
             ) : (
               <div className="rounded-xl p-12 text-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB' }}>
                 <FileText className="w-16 h-16 mx-auto mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF' }} />
-                <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>{documents[previewDoc.id].file?.name}</p>
+                <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>{previewDoc.fileName || 'Document'}</p>
+                <button
+                  onClick={() => window.open(previewDoc.url, '_blank', 'noopener,noreferrer')}
+                  className="mt-4 text-sm font-semibold"
+                  style={{ color: '#2EFFAF' }}
+                >
+                  Open file
+                </button>
               </div>
             )}
           </motion.div>

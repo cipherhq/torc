@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 
+const INTRO_KEY = 'torc_user_intro_seen_v1';
+
 export function Splash() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigate('/login');
+      const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
+      navigate(hasSeenIntro ? '/login' : '/intro/user');
     }, 3000);
     return () => clearTimeout(timer);
   }, [navigate]);

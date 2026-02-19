@@ -3,11 +3,21 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { registerForPushNotifications } from '../../utils/pushNotifications';
+import { supabase } from '../../lib/supabase';
+
+interface ServiceRow {
+  id: string;
+  name: string;
+  base_price: number | null;
+  is_active: boolean | null;
+}
 
 export default function HomeScreen() {
   const router = useRouter();
   const { isAuthenticated, profile, loading, signOut } = useAuth();
   const [pushToken, setPushToken] = useState<string | null>(null);
+  const [availableServices, setAvailableServices] = useState<ServiceRow[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && !pushToken) {
@@ -21,6 +31,30 @@ export default function HomeScreen() {
       });
     }
   }, [isAuthenticated, pushToken]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !profile?.role) return;
+    loadServices();
+  }, [isAuthenticated, profile?.role]);
+
+  const loadServices = async () => {
+    try {
+      setServicesLoading(true);
+      const { data, error } = await supabase
+        .from('services')
+        .select('id, name, base_price, is_active')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+      setAvailableServices((data || []) as ServiceRow[]);
+    } catch (error: any) {
+      console.warn('Failed to load services:', error);
+      setAvailableServices([]);
+    } finally {
+      setServicesLoading(false);
+    }
+  };
 
   const handleSignOut = async () => {
     try {
@@ -99,15 +133,22 @@ export default function HomeScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Available Services</Text>
-            {['Towing', 'Jump Start', 'Flat Tire', 'Fuel Delivery', 'Lockout'].map((service) => (
-              <TouchableOpacity
-                key={service}
-                style={styles.serviceItem}
-                onPress={() => Alert.alert('Service', `${service} selected`)}
-              >
-                <Text style={styles.serviceText}>{service}</Text>
-              </TouchableOpacity>
-            ))}
+            {servicesLoading ? (
+              <ActivityIndicator size="small" color="#2EFFAF" />
+            ) : availableServices.length === 0 ? (
+              <Text style={styles.emptySubtext}>No active services configured yet.</Text>
+            ) : (
+              availableServices.map((service) => (
+                <TouchableOpacity
+                  key={service.id}
+                  style={styles.serviceItem}
+                  onPress={() => Alert.alert('Service', `${service.name} selected`)}
+                >
+                  <Text style={styles.serviceText}>{service.name}</Text>
+                  <Text style={styles.servicePrice}>${Number(service.base_price || 0).toFixed(2)}</Text>
+                </TouchableOpacity>
+              ))
+            )}
           </View>
         </View>
       </ScrollView>
@@ -142,7 +183,7 @@ export default function HomeScreen() {
               </View>
             </View>
             <Text style={styles.statusDescription}>
-              You're online and ready to accept jobs.
+              You&apos;re online and ready to accept jobs.
             </Text>
           </View>
 
@@ -165,9 +206,28 @@ export default function HomeScreen() {
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>No active jobs</Text>
               <Text style={styles.emptySubtext}>
-                You'll receive a notification when a new job is available
+                You&apos;ll receive a notification when a new job is available
               </Text>
             </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.statusRow}>
+              <Text style={styles.cardTitle}>Available Services</Text>
+              <Text style={styles.onlineText}>{availableServices.length}</Text>
+            </View>
+            {servicesLoading ? (
+              <ActivityIndicator size="small" color="#2EFFAF" />
+            ) : availableServices.length === 0 ? (
+              <Text style={styles.emptySubtext}>No active services available yet.</Text>
+            ) : (
+              availableServices.map((service) => (
+                <View key={service.id} style={styles.serviceItem}>
+                  <Text style={styles.serviceText}>{service.name}</Text>
+                  <Text style={styles.servicePrice}>${Number(service.base_price || 0).toFixed(2)}</Text>
+                </View>
+              ))
+            )}
           </View>
         </View>
       </ScrollView>
@@ -309,10 +369,18 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   serviceText: {
     color: '#FFFFFF',
     fontSize: 18,
+  },
+  servicePrice: {
+    color: '#2EFFAF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   statusRow: {
     flexDirection: 'row',

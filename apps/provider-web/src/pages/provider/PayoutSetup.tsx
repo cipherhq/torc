@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, DollarSign, Plus, Trash2, Pencil, CheckCircle2, Building2, Mail, AtSign, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, DollarSign, Plus, Trash2, Pencil, CheckCircle2, Building2, Mail, AtSign, X, User, Hash, Landmark, KeyRound } from 'lucide-react';
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
@@ -44,6 +44,44 @@ const emptyForm: FormState = {
   paypalEmail: '',
   venmoHandle: '',
 };
+
+function IconField({
+  icon: Icon,
+  value,
+  onChange,
+  placeholder,
+  isDark,
+  type = 'text',
+}: {
+  icon: ComponentType<{ className?: string; style?: CSSProperties }>;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  isDark: boolean;
+  type?: string;
+}) {
+  return (
+    <div
+      className="w-full rounded-xl px-3 py-2 flex items-center gap-2.5"
+      style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB'}`, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }}
+    >
+      <div
+        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ backgroundColor: isDark ? 'rgba(46,255,175,0.14)' : 'rgba(46,255,175,0.12)' }}
+      >
+        <Icon className="w-4 h-4" style={{ color: '#2EFFAF' }} />
+      </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-transparent outline-none text-sm"
+        style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}
+      />
+    </div>
+  );
+}
 
 export function PayoutSetup() {
   const navigate = useNavigate();
@@ -151,7 +189,14 @@ export function PayoutSetup() {
 
     if (error) {
       console.warn('Failed to save payout method:', error);
-      alert('Unable to save payout method right now.');
+      const raw = String((error as any)?.message || '');
+      if ((error as any)?.code === '42P01') {
+        alert('Payout methods table is missing. Run the latest database migrations, then retry.');
+      } else if (raw.includes('column') || raw.includes('schema cache')) {
+        alert(`Payout schema is outdated: ${raw}`);
+      } else {
+        alert('Unable to save payout method right now.');
+      }
       setSaving(false);
       return;
     }
@@ -315,23 +360,66 @@ export function PayoutSetup() {
             </div>
 
             <div className="space-y-3">
-              <input type="text" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="Display name (optional)" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
+              <IconField
+                icon={Pencil}
+                value={form.displayName}
+                onChange={(value) => setForm({ ...form, displayName: value })}
+                placeholder="Display name (optional)"
+                isDark={isDark}
+              />
 
               {form.methodType === 'bank' && (
                 <>
-                  <input type="text" value={form.accountHolderName} onChange={(e) => setForm({ ...form, accountHolderName: e.target.value })} placeholder="Account holder name" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
-                  <input type="text" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} placeholder="Bank name" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
-                  <input type="text" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} placeholder={editingId ? 'Account number (enter to replace)' : 'Account number'} className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
-                  <input type="text" value={form.routingNumber} onChange={(e) => setForm({ ...form, routingNumber: e.target.value })} placeholder={editingId ? 'Routing number (enter to replace)' : 'Routing number'} className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
+                  <IconField
+                    icon={User}
+                    value={form.accountHolderName}
+                    onChange={(value) => setForm({ ...form, accountHolderName: value })}
+                    placeholder="Account holder name"
+                    isDark={isDark}
+                  />
+                  <IconField
+                    icon={Landmark}
+                    value={form.bankName}
+                    onChange={(value) => setForm({ ...form, bankName: value })}
+                    placeholder="Bank name"
+                    isDark={isDark}
+                  />
+                  <IconField
+                    icon={Hash}
+                    value={form.accountNumber}
+                    onChange={(value) => setForm({ ...form, accountNumber: value })}
+                    placeholder={editingId ? 'Account number (enter to replace)' : 'Account number'}
+                    isDark={isDark}
+                  />
+                  <IconField
+                    icon={KeyRound}
+                    value={form.routingNumber}
+                    onChange={(value) => setForm({ ...form, routingNumber: value })}
+                    placeholder={editingId ? 'Routing number (enter to replace)' : 'Routing number'}
+                    isDark={isDark}
+                  />
                 </>
               )}
 
               {form.methodType === 'paypal' && (
-                <input type="email" value={form.paypalEmail} onChange={(e) => setForm({ ...form, paypalEmail: e.target.value })} placeholder="PayPal email" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
+                <IconField
+                  icon={Mail}
+                  value={form.paypalEmail}
+                  onChange={(value) => setForm({ ...form, paypalEmail: value })}
+                  placeholder="PayPal email"
+                  isDark={isDark}
+                  type="email"
+                />
               )}
 
               {form.methodType === 'venmo' && (
-                <input type="text" value={form.venmoHandle} onChange={(e) => setForm({ ...form, venmoHandle: e.target.value })} placeholder="Venmo handle (e.g. @name)" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`, color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
+                <IconField
+                  icon={AtSign}
+                  value={form.venmoHandle}
+                  onChange={(value) => setForm({ ...form, venmoHandle: value })}
+                  placeholder="Venmo handle (e.g. @name)"
+                  isDark={isDark}
+                />
               )}
             </div>
 

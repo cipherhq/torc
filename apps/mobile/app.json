@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -20,7 +25,11 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.bajide18.mobile"
+      "package": "com.bajide18.mobile",
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
+      ]
     },
     "web": {
       "output": "static",
@@ -28,6 +37,14 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#2EFFAF",
+          "defaultChannel": "default"
+        }
+      ],
       [
         "expo-splash-screen",
         {

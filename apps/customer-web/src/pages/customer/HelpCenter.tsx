@@ -1,11 +1,21 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, Search, MessageCircle, Phone, Mail, ChevronRight, HelpCircle, Shield, CreditCard, MapPin, Users, FileText, Zap } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 export function HelpCenter() {
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [subject, setSubject] = useState('');
+  const [description, setDescription] = useState('');
+  const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [myTickets, setMyTickets] = useState<any[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
 
   const helpCategories = [
     {
@@ -54,12 +64,12 @@ export function HelpCenter() {
     },
     {
       icon: Users,
-      title: 'Account & Family',
+      title: 'Account & Settings',
       color: 'from-orange-400 to-red-500',
       articles: [
         'Managing your account',
-        'Family account features',
-        'Adding family members',
+        'Requesting service for someone else',
+        'Managing saved contacts',
         'Privacy and data settings',
       ],
     },
@@ -68,24 +78,27 @@ export function HelpCenter() {
   const quickActions = [
     {
       icon: MessageCircle,
-      title: 'Live Chat',
-      description: '24/7 support chat',
+      title: 'Create Ticket',
+      description: 'Send a support request',
       color: 'from-[#2EFFAF] to-[#007AFF]',
-      action: () => {},
+      action: () => {
+        const form = document.getElementById('support-ticket-form');
+        form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
     },
     {
       icon: Phone,
       title: 'Call Us',
       description: '1-800-TORC-HELP',
       color: 'from-green-400 to-emerald-500',
-      action: () => {},
+      action: () => { window.location.href = 'tel:+18008672435'; },
     },
     {
       icon: Mail,
       title: 'Email',
       description: 'support@torc.com',
       color: 'from-purple-400 to-pink-500',
-      action: () => {},
+      action: () => { window.location.href = 'mailto:support@torc.com'; },
     },
   ];
 
@@ -107,6 +120,67 @@ export function HelpCenter() {
       answer: 'Yes, all TORC providers undergo comprehensive background checks, driving record reviews, and insurance verification before approval.',
     },
   ];
+
+  useEffect(() => {
+    if (!user) return;
+    loadMyTickets();
+  }, [user]);
+
+  async function loadMyTickets() {
+    if (!user) return;
+    try {
+      setLoadingTickets(true);
+      const { data, error } = await supabase
+        .from('support_tickets')
+        .select('id, subject, status, priority, created_at, admin_note')
+        .eq('requester_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      setMyTickets(data || []);
+    } catch (error) {
+      console.warn('Failed to load support tickets:', error);
+      setMyTickets([]);
+    } finally {
+      setLoadingTickets(false);
+    }
+  }
+
+  async function submitSupportTicket() {
+    if (!user) return;
+    const cleanSubject = subject.trim();
+    const cleanDescription = description.trim();
+    if (!cleanSubject || !cleanDescription) {
+      setSubmitMessage('Please enter both subject and description.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setSubmitMessage(null);
+      const requesterRole = profile?.role === 'provider' ? 'provider' : 'customer';
+      const { error } = await supabase.from('support_tickets').insert({
+        requester_id: user.id,
+        requester_role: requesterRole,
+        subject: cleanSubject,
+        description: cleanDescription,
+        priority,
+        status: 'open',
+      });
+      if (error) throw error;
+
+      setSubject('');
+      setDescription('');
+      setPriority('normal');
+      setSubmitMessage('Support request submitted. Our team will respond shortly.');
+      await loadMyTickets();
+    } catch (error: any) {
+      console.warn('Failed to create support ticket:', error);
+      setSubmitMessage(error?.message || 'Could not submit support request.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
@@ -167,6 +241,87 @@ export function HelpCenter() {
                 </motion.button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Create ticket */}
+        <div id="support-ticket-form" className="glass-light rounded-[24px] p-6 border border-[#2EFFAF]/20">
+          <h2 className="text-white font-bold text-lg mb-1">Create Support Request</h2>
+          <p className="text-white/60 text-sm mb-4">Send an issue to support with details so we can help quickly.</p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-white/70 text-sm mb-1 block">Subject</label>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="e.g., Charged twice for a completed job"
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+              />
+            </div>
+            <div>
+              <label className="text-white/70 text-sm mb-1 block">Priority</label>
+              <select
+                title="Ticket priority"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high' | 'urgent')}
+                className="w-full px-4 py-3 bg-[#1E2433] border border-white/10 rounded-[14px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-white/70 text-sm mb-1 block">Description</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe your issue in detail..."
+                rows={4}
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+              />
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={submitSupportTicket}
+              disabled={submitting}
+              className="w-full py-3 rounded-[16px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold disabled:opacity-60"
+            >
+              {submitting ? 'Submitting...' : 'Submit Support Request'}
+            </motion.button>
+            {submitMessage && <p className="text-sm text-white/70">{submitMessage}</p>}
+          </div>
+        </div>
+
+        {/* My support tickets */}
+        <div>
+          <h2 className="text-white font-bold text-lg mb-4">My Support Requests</h2>
+          <div className="space-y-3">
+            {loadingTickets ? (
+              <div className="glass-light rounded-[20px] p-4 text-white/60">Loading tickets...</div>
+            ) : myTickets.length === 0 ? (
+              <div className="glass-light rounded-[20px] p-4 text-white/60">No support requests yet.</div>
+            ) : (
+              myTickets.map((ticket) => (
+                <div key={ticket.id} className="glass-light rounded-[20px] p-4">
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <p className="text-white font-semibold">{ticket.subject}</p>
+                    <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">{ticket.status}</span>
+                  </div>
+                  <p className="text-white/60 text-sm">Priority: {ticket.priority}</p>
+                  <p className="text-white/50 text-xs mt-1">{new Date(ticket.created_at).toLocaleString()}</p>
+                  {ticket.admin_note && (
+                    <p className="text-white/70 text-sm mt-2 border-t border-white/10 pt-2">
+                      Admin note: {ticket.admin_note}
+                    </p>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -246,9 +401,13 @@ export function HelpCenter() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              const form = document.getElementById('support-ticket-form');
+              form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
             className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold"
           >
-            Start Live Chat
+            Create Support Ticket
           </motion.button>
         </motion.div>
       </div>

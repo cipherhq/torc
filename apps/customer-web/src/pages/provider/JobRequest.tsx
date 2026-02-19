@@ -158,10 +158,12 @@ export function JobRequest() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={async () => {
-              if (requestId) {
-                try { await updateJobStatus(requestId, 'accepted'); } catch {}
+              if (!requestId) {
+                navigate('/provider/home');
+                return;
               }
-              navigate(`/provider/job/${requestId || 'demo'}`);
+              try { await updateJobStatus(requestId, 'accepted'); } catch {}
+              navigate(`/provider/job/${requestId}`);
             }}
             className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[24px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30"
           >

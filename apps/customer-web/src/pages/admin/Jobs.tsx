@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
-import { useNavigate } from 'react-router';
-import { ArrowLeft, MapPin, Clock, User, Phone, MoreHorizontal } from 'lucide-react';
+import { MapPin, Clock, User, Search } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { AdminLayout } from '../../components/AdminLayout';
+import { loadPlatformSettings } from '../../lib/platformSettings';
 
 interface Job {
   id: string;
@@ -10,22 +11,27 @@ interface Job {
   customer: string;
   provider: string | null;
   status: string;
+  statusRaw: string;
   location: string;
-  eta: string;
+  createdAt: string;
+  ageHours: number;
   amount: string;
-  sla: string;
+  slaState: 'green' | 'yellow' | 'red';
 }
 
 export function AdminJobs() {
-  const navigate = useNavigate();
   const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'completed'>('active');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     async function loadJobs() {
       try {
         setLoading(true);
+        const settings = await loadPlatformSettings();
+        const urgentSlaHours = settings.urgentSlaHours;
+        const standardSlaHours = settings.standardSlaHours;
         
         let query = supabase
           .from('jobs')
@@ -33,22 +39,18 @@ export function AdminJobs() {
             id,
             status,
             pickup_address,
-            total_price,
+            total_amount,
             service:services(name),
-            customer:customers(
-              user:profiles(full_name, email)
-            ),
-            provider:providers(
-              user:profiles(full_name)
-            )
+            customer:profiles!jobs_customer_id_fkey(first_name, last_name, email),
+            provider:profiles!jobs_provider_id_fkey(first_name, last_name, email)
           `)
           .order('created_at', { ascending: false });
 
         // Apply filter
         if (filter === 'active') {
-          query = query.in('status', ['requested', 'matched', 'accepted', 'en_route', 'arrived', 'in_progress']);
+          query = query.in('status', ['pending', 'requested', 'matching', 'matched', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress']);
         } else if (filter === 'pending') {
-          query = query.eq('status', 'requested');
+          query = query.in('status', ['pending', 'requested', 'matching']);
         } else if (filter === 'completed') {
           query = query.eq('status', 'completed');
         }
@@ -58,27 +60,37 @@ export function AdminJobs() {
         if (error) throw error;
 
         const formattedJobs: Job[] = (data || []).map((job: any) => {
-          const customerName = job.customer?.user?.full_name || job.customer?.user?.email || 'Unknown';
-          const providerName = job.provider?.user?.full_name ? 
-            `${job.provider.user.full_name.split(' ')[0]} ${job.provider.user.full_name.split(' ')[1]?.[0] || ''}.` : null;
+          const customerName = `${job.customer?.first_name || ''} ${job.customer?.last_name || ''}`.trim() || job.customer?.email || 'Unknown';
+          const providerNameBase = `${job.provider?.first_name || ''} ${job.provider?.last_name || ''}`.trim();
+          const providerName = providerNameBase || job.provider?.email || null;
           const serviceName = job.service?.name || 'Unknown Service';
-          const amount = job.total_price ? `$${Number(job.total_price).toFixed(0)}` : '-';
-          
-          // Determine SLA color based on status
-          let sla = 'green';
-          if (job.status === 'requested') sla = 'red';
-          else if (['matched', 'accepted'].includes(job.status)) sla = 'yellow';
+          const amount = job.total_amount ? `$${Number(job.total_amount).toFixed(2)}` : '-';
+          const createdAt = job.created_at;
+          const ageHours = (Date.now() - new Date(createdAt).getTime()) / 36e5;
+          let slaState: 'green' | 'yellow' | 'red' = 'green';
+          const inOpenFlow = ['pending', 'requested', 'matching', 'matched', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'].includes(job.status);
+          if (inOpenFlow) {
+            if (job.status === 'requested' && ageHours > urgentSlaHours) {
+              slaState = 'red';
+            } else if (ageHours > standardSlaHours) {
+              slaState = 'red';
+            } else if (ageHours > standardSlaHours / 2) {
+              slaState = 'yellow';
+            }
+          }
           
           return {
             id: `J-${job.id.slice(0, 8)}`,
             service: serviceName,
             customer: customerName,
             provider: providerName,
-            status: job.status === 'en_route' ? 'active' : job.status === 'in_progress' ? 'active' : job.status === 'requested' ? 'pending' : job.status === 'completed' ? 'completed' : 'active',
+            statusRaw: job.status,
+            status: ['en_route', 'enroute', 'in_progress', 'inprogress', 'matched', 'accepted', 'arrived'].includes(job.status) ? 'active' : ['pending', 'requested', 'matching'].includes(job.status) ? 'pending' : job.status === 'completed' ? 'completed' : 'active',
             location: job.pickup_address || 'Location not set',
-            eta: '-', // ETA calculation would need additional logic
+            createdAt,
+            ageHours,
             amount,
-            sla,
+            slaState,
           };
         });
 
@@ -102,29 +114,32 @@ export function AdminJobs() {
     }
   };
 
+  const visibleJobs = jobs.filter((job) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      job.id.toLowerCase().includes(q) ||
+      job.service.toLowerCase().includes(q) ||
+      job.customer.toLowerCase().includes(q) ||
+      (job.provider || '').toLowerCase().includes(q) ||
+      job.location.toLowerCase().includes(q) ||
+      job.statusRaw.toLowerCase().includes(q)
+    );
+  });
+
   return (
-    <div className="min-h-screen bg-[#F5F7FA]">
+    <AdminLayout>
+      <div className="p-8">
       {/* Header */}
-      <div className="bg-gradient-to-r from-[#1A1F2E] to-[#2F3548] p-8">
-        <div className="max-w-7xl mx-auto flex items-center gap-4">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => navigate('/admin')}
-            className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center"
-          >
-            <ArrowLeft className="w-6 h-6 text-white" />
-          </motion.button>
-          <div>
+      <div className="bg-gradient-to-r from-[#1A1F2E] to-[#2F3548] p-8 rounded-3xl mb-8">
+        <div>
             <h1 className="text-3xl font-bold text-white">Jobs Operations</h1>
             <p className="text-white/60">Monitor and manage active requests</p>
-          </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-8">
         {/* Filters */}
-        <div className="flex gap-3 mb-6">
+        <div className="flex flex-wrap gap-3 mb-6 items-center">
           {(['all', 'active', 'pending', 'completed'] as const).map((f) => (
             <button
               key={f}
@@ -138,6 +153,16 @@ export function AdminJobs() {
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
+          <div className="ml-auto flex items-center gap-2 bg-white rounded-2xl px-3 py-2 min-w-[300px]">
+            <Search className="w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search ID, service, customer, provider..."
+              className="w-full text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
+            />
+          </div>
         </div>
 
         {/* Jobs table */}
@@ -146,7 +171,7 @@ export function AdminJobs() {
             <div className="p-12 text-center">
               <p className="text-gray-600">Loading jobs...</p>
             </div>
-          ) : jobs.length === 0 ? (
+          ) : visibleJobs.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-gray-600">No jobs found</p>
             </div>
@@ -160,14 +185,14 @@ export function AdminJobs() {
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Customer</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Provider</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Location</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">ETA</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Age</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Amount</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">SLA</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Actions</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {jobs.map((job) => (
+                {visibleJobs.map((job) => (
                   <motion.tr
                     key={job.id}
                     initial={{ opacity: 0 }}
@@ -202,19 +227,19 @@ export function AdminJobs() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm text-gray-900">{job.eta}</span>
+                        <span className="text-sm text-gray-900">{job.ageHours < 1 ? `${Math.max(1, Math.round(job.ageHours * 60))}m` : `${job.ageHours.toFixed(1)}h`}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-gray-900">{job.amount}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className={`w-3 h-3 rounded-full ${getSLAColor(job.sla)}`} />
+                      <div className={`w-3 h-3 rounded-full ${getSLAColor(job.slaState)}`} />
                     </td>
                     <td className="px-6 py-4">
-                      <button className="p-2 hover:bg-gray-200 rounded-xl transition-colors">
-                        <MoreHorizontal className="w-5 h-5 text-gray-600" />
-                      </button>
+                      <span className="text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-700 uppercase">
+                        {job.statusRaw}
+                      </span>
                     </td>
                   </motion.tr>
                 ))}
@@ -224,6 +249,6 @@ export function AdminJobs() {
           )}
         </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

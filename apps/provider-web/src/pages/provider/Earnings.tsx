@@ -17,7 +17,7 @@ export function ProviderEarnings() {
     { day: 'Thu', amount: 0 }, { day: 'Fri', amount: 0 }, { day: 'Sat', amount: 0 }, { day: 'Sun', amount: 0 },
   ]);
   const [recentJobs, setRecentJobs] = useState<any[]>([]);
-  const [payoutHistory] = useState<any[]>([]);
+  const [payoutHistory, setPayoutHistory] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -45,7 +45,9 @@ export function ProviderEarnings() {
 
           setEarnings({
             available: completed.reduce((s, j) => s + (j.total_amount || 0), 0),
-            pending: jobs.filter(j => ['accepted','enroute','arrived','inprogress'].includes(j.status)).reduce((s, j) => s + (j.total_amount || j.base_price || 0), 0),
+            pending: jobs
+              .filter(j => ['accepted', 'enroute', 'en_route', 'arrived', 'inprogress', 'in_progress'].includes(j.status))
+              .reduce((s, j) => s + (Number(j.total_amount) || Number(j.base_price) || 0), 0),
             thisWeek: weekJobs.reduce((s, j) => s + (j.total_amount || 0), 0),
             thisMonth: monthJobs.reduce((s, j) => s + (j.total_amount || 0), 0),
           });
@@ -67,10 +69,20 @@ export function ProviderEarnings() {
             tip: j.tip || 0,
             date: new Date(j.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
           })));
+
+          setPayoutHistory(
+            completed.slice(0, 10).map((j) => ({
+              id: j.id,
+              date: new Date(j.completed_at || j.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              netPayout: Number(j.total_amount || j.base_price || 0).toFixed(2),
+              status: j.payment_status === 'paid' ? 'paid' : 'pending',
+            }))
+          );
         }
       } catch (e) {
         console.warn('Failed to load earnings:', e);
         setLoadError('Could not load earnings right now.');
+        setPayoutHistory([]);
       } finally {
         setLoading(false);
       }

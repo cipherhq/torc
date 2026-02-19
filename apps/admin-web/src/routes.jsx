@@ -1,11 +1,11 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { Splash } from "./pages/auth/Splash";
 import { Login } from "./pages/auth/Login";
-import { AdminDashboard } from "./pages/admin/AdminDashboard";
-import { UsersManagement } from "./pages/admin/UsersManagement";
-import { ProvidersManagement } from "./pages/admin/ProvidersManagement";
-import { JobsManagement } from "./pages/admin/JobsManagement";
-import { Analytics } from "./pages/admin/Analytics";
+import { AdminDashboard } from "./pages/admin/Dashboard";
+import { AdminUsers } from "./pages/admin/Users";
+import { AdminProviders } from "./pages/admin/Providers";
+import { AdminJobs } from "./pages/admin/Jobs";
+import { AdminAnalytics } from "./pages/admin/Analytics";
 import { AppSelector } from "./pages/AppSelector";
 
 export const router = createBrowserRouter([
@@ -26,20 +26,24 @@ export const router = createBrowserRouter([
     Component: AdminDashboard,
   },
   {
+    path: "/admin",
+    element: <Navigate to="/dashboard" replace />,
+  },
+  {
     path: "/users",
-    Component: UsersManagement,
+    Component: AdminUsers,
   },
   {
     path: "/providers",
-    Component: ProvidersManagement,
+    Component: AdminProviders,
   },
   {
     path: "/jobs",
-    Component: JobsManagement,
+    Component: AdminJobs,
   },
   {
     path: "/analytics",
-    Component: Analytics,
+    Component: AdminAnalytics,
   },
   {
     path: "*",

@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 
 // Auth
 import { Splash } from "./pages/auth/Splash";
+import { ProviderIntro } from "./pages/auth/ProviderIntro";
 import { VerifyEmail } from "./pages/auth/VerifyEmail";
 import { AuthCallback } from "./pages/auth/AuthCallback";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
@@ -29,6 +30,7 @@ import { HelpSupport } from "./pages/provider/HelpSupport";
 import { PersonalInformation } from "./pages/provider/PersonalInformation";
 import { ProviderVehicles } from "./pages/provider/Vehicles";
 import { ProviderMessages } from "./pages/provider/Messages";
+import { AccountSecurity } from "./pages/provider/AccountSecurity";
 import { AppShell } from "./components/AppShell";
 
 export const router = createBrowserRouter([
@@ -42,6 +44,10 @@ export const router = createBrowserRouter([
       {
         path: "/login",
         Component: ProviderLogin,
+      },
+      {
+        path: "/intro/provider",
+        Component: ProviderIntro,
       },
       {
         path: "/signup",
@@ -154,6 +160,10 @@ export const router = createBrowserRouter([
       {
         path: "/provider/vehicles",
         Component: ProviderVehicles,
+      },
+      {
+        path: "/provider/account-security",
+        Component: AccountSecurity,
       },
       {
         path: "/messages",

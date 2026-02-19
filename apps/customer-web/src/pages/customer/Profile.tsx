@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
-import { User, Car, Bell, HelpCircle, ChevronRight, LogOut, CreditCard, History } from 'lucide-react';
+import { User, Car, Bell, HelpCircle, ChevronRight, LogOut, CreditCard, History, Shield } from 'lucide-react';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -72,6 +72,7 @@ export function Profile() {
       items: [
         { icon: User, label: 'Personal Information', count: null, path: '/customer/personal-info' },
         { icon: Car, label: 'My Vehicles', count: vehicleCount, path: '/customer/vehicles' },
+        { icon: Shield, label: 'Account Security', count: null, path: '/customer/account-security' },
       ],
     },
     {

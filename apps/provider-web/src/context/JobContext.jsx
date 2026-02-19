@@ -46,6 +46,10 @@ export function JobProvider({ children }) {
 
   async function createJob(paymentMethodId) {
     if (!user) throw new Error('User must be authenticated');
+    if (!jobDetails.serviceId) throw new Error('Service selection is required');
+    if (!jobDetails.pickupLocation || !jobDetails.pickupAddress) {
+      throw new Error('Pickup location is required');
+    }
 
     const insertData = {
       customer_id: user.id,
@@ -71,10 +75,13 @@ export function JobProvider({ children }) {
     if (jobDetails.serviceId) {
       const { data: svc } = await supabase.from('services').select('base_price').eq('id', jobDetails.serviceId).single();
       if (svc) {
+        const hazardFee = jobDetails.isHazardLocation ? 15 : 0;
+        const schedulingFee = jobDetails.scheduledFor ? 5 : 0;
         insertData.base_price = svc.base_price;
         insertData.service_fee = Math.round(svc.base_price * 0.1 * 100) / 100;
-        insertData.tax = Math.round(svc.base_price * 0.05 * 100) / 100;
-        insertData.total_amount = svc.base_price + insertData.service_fee + insertData.tax;
+        const subtotal = svc.base_price + hazardFee + schedulingFee;
+        insertData.tax = Math.round(subtotal * 0.08 * 100) / 100;
+        insertData.total_amount = subtotal + insertData.service_fee + insertData.tax;
       }
     }
 

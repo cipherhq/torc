@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Home, Activity, MapPin, User } from 'lucide-react';
+import { Home, Activity, MapPin, User, MessageCircle } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router';
 
 export function CustomerBottomNav() {
@@ -9,6 +9,7 @@ export function CustomerBottomNav() {
   const tabs = [
     { icon: Home, label: 'Home', path: '/customer/home' },
     { icon: Activity, label: 'Activity', path: '/customer/history' },
+    { icon: MessageCircle, label: 'Messages', path: '/customer/messages' },
     { icon: MapPin, label: 'Explore', path: '/customer/explore' },
     { icon: User, label: 'Profile', path: '/customer/profile' },
   ];

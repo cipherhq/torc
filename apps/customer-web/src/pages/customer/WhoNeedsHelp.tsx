@@ -1,8 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Users, UserPlus, ChevronRight } from 'lucide-react';
+import { ArrowLeft, User, UserPlus, ChevronRight } from 'lucide-react';
 import { updateRequestContext } from '../../data/requestContext';
-import { useAuth } from '../../context/AuthContext';
 import { useState } from 'react';
 
 export function WhoNeedsHelp() {
@@ -11,7 +10,7 @@ export function WhoNeedsHelp() {
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
 
-  const handleSelect = (who: 'me' | 'family' | 'new', personData?: any) => {
+  const handleSelect = (who: 'me' | 'new', personData?: any) => {
     updateRequestContext({ 
       whoNeedsHelp: who,
       personName: personData?.name,
@@ -78,30 +77,12 @@ export function WhoNeedsHelp() {
             <ChevronRight className="w-6 h-6 text-[#2EFFAF] group-hover:translate-x-2 transition-transform" />
           </motion.button>
 
-          {/* Family members - empty state for now */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.1 }}
-            className="glass rounded-[32px] p-6"
-          >
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#007AFF]/20 to-[#2EFFAF]/20 flex items-center justify-center flex-shrink-0">
-                <Users className="w-8 h-8 text-[#2EFFAF]" />
-              </div>
-              <div className="flex-1 text-left">
-                <h3 className="text-white font-semibold text-lg">Family Members</h3>
-                <p className="text-white/60 text-sm">No family members added yet</p>
-              </div>
-            </div>
-          </motion.div>
-
           {/* New person */}
           {!showNewPersonForm ? (
             <motion.button
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3 }}
+              transition={{ delay: 0.1 }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => setShowNewPersonForm(true)}

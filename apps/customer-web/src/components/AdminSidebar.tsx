@@ -14,9 +14,13 @@ import {
   ChevronDown,
   ChevronRight,
   Home,
-  Radio
+  Radio,
+  LifeBuoy,
+  LineChart,
+  FileText,
+  FileBarChart2
 } from 'lucide-react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 interface NavItem {
   icon: any;
@@ -29,7 +33,7 @@ interface NavItem {
 export function AdminSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [expandedSections, setExpandedSections] = useState<string[]>(['operations', 'management']);
+  const [expandedSections, setExpandedSections] = useState(['operations', 'management']);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => 
@@ -39,21 +43,23 @@ export function AdminSidebar() {
     );
   };
 
-  const navSections = [
+  const navSections: { title: string; key: string; items: NavItem[] }[] = [
     {
       title: 'OVERVIEW',
       key: 'overview',
       items: [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
         { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
+        { icon: FileBarChart2, label: 'Reporting Hub', path: '/admin/reporting' },
       ],
     },
     {
       title: 'OPERATIONS',
       key: 'operations',
       items: [
-        { icon: Radio, label: 'Live Dispatch', path: '/admin/live-dispatch', badge: '4 Active' },
-        { icon: Briefcase, label: 'Jobs', path: '/admin/jobs', badge: 23 },
+        { icon: Radio, label: 'Live Dispatch', path: '/admin/live-dispatch' },
+        { icon: LifeBuoy, label: 'Support Tickets', path: '/admin/support' },
+        { icon: Briefcase, label: 'Jobs', path: '/admin/jobs' },
         { icon: MapPin, label: 'Directory', path: '/admin/directory' },
         { icon: Wrench, label: 'Services', path: '/admin/services' },
       ],
@@ -63,8 +69,8 @@ export function AdminSidebar() {
       key: 'management',
       items: [
         { icon: Users, label: 'Users', path: '/admin/users' },
-        { icon: Shield, label: 'Providers', path: '/admin/providers', badge: 5 },
-        { icon: Shield, label: 'Provider Approval', path: '/admin/provider-approval', badge: 3 },
+        { icon: Shield, label: 'Providers', path: '/admin/providers' },
+        { icon: Shield, label: 'Provider Approval', path: '/admin/provider-approval' },
       ],
     },
     {
@@ -72,6 +78,7 @@ export function AdminSidebar() {
       key: 'financial',
       items: [
         { icon: DollarSign, label: 'Payments', path: '/admin/payments' },
+        { icon: LineChart, label: 'Finance (P&L)', path: '/admin/finance' },
         { icon: CreditCard, label: 'Payouts', path: '/admin/payouts' },
         { icon: DollarSign, label: 'Payout History', path: '/admin/payout-history' },
       ],
@@ -82,6 +89,7 @@ export function AdminSidebar() {
       items: [
         { icon: Shield, label: 'Team & RBAC', path: '/admin/team' },
         { icon: Settings, label: 'Document Settings', path: '/admin/document-settings' },
+        { icon: FileText, label: 'Audit Trail', path: '/admin/audit-trail' },
         { icon: Settings, label: 'Platform Settings', path: '/admin/settings' },
       ],
     },

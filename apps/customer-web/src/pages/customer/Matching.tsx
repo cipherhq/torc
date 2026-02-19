@@ -2,7 +2,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { Loader, MapPin, CheckCircle, Star, Navigation, User } from 'lucide-react';
 import { getRequestContext } from '../../data/requestContext';
-import { services } from '../../data/services';
 import { useEffect, useState, useRef } from 'react';
 import { useJob } from '../../context/JobContext';
 import { useAuth } from '../../context/AuthContext';
@@ -21,7 +20,6 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export function Matching() {
   const navigate = useNavigate();
   const context = getRequestContext();
-  const service = services.find(s => s.id === context.serviceId);
   const { createJob, updateJobDetails, cancelJob, subscribeToJobUpdates } = useJob();
   const { user } = useAuth();
   const jobCreated = useRef(false);
@@ -44,6 +42,7 @@ export function Matching() {
 
     async function startMatching() {
       try {
+        setError(null);
         if (user) {
           // Sync request context into JobContext before creating DB job.
           updateJobDetails({
@@ -62,6 +61,9 @@ export function Matching() {
             requesterPhone: context.requesterPhone || '',
             scheduledFor: context.scheduledFor || null,
             customerNotes: context.notes || '',
+            paymentIntentId: context.paymentIntentId || null,
+            paymentStatus: context.paymentStatus || 'unpaid',
+            paymentCurrency: context.paymentCurrency || 'USD',
           });
 
           const job = await createJob(context.paymentMethodId || null);
@@ -92,10 +94,10 @@ export function Matching() {
           }
         }
       } catch (err: any) {
-        console.warn('Job creation failed, using demo mode:', err.message);
+        console.warn('Job creation failed:', err?.message || err);
+        setError('Could not create your request right now. Please try again.');
+        jobCreated.current = false;
       }
-      const tempId = `demo-${Date.now()}`;
-      setTimeout(() => navigate(`/tracking/${tempId}`), 4000);
     }
 
     startMatching();
@@ -394,7 +396,7 @@ export function Matching() {
                   <MapPin className="w-6 h-6 text-[#2EFFAF]" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-white font-semibold">{service?.name}</h3>
+                  <h3 className="text-white font-semibold">{context.serviceName || 'Roadside Service'}</h3>
                   <p className="text-white/60 text-sm">{context.location?.address}</p>
                 </div>
               </div>
@@ -414,6 +416,27 @@ export function Matching() {
                 </div>
               </div>
             </motion.div>
+
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 rounded-2xl p-4 border border-red-500/30"
+                style={{ backgroundColor: 'rgba(239,68,68,0.08)' }}
+              >
+                <p className="text-red-300 text-sm mb-3">{error}</p>
+                <button
+                  onClick={() => {
+                    setError(null);
+                    jobCreated.current = false;
+                    window.location.reload();
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-[#0A0F1E] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF]"
+                >
+                  Retry
+                </button>
+              </motion.div>
+            )}
 
             {/* Loading steps */}
             <motion.div

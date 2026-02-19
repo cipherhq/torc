@@ -154,16 +154,6 @@ export function ProviderHome() {
               </motion.div>
               <p className="text-white/80 mb-2">Waiting for requests...</p>
               <p className="text-white/50 text-sm">We'll notify you when someone needs help</p>
-              
-              {/* Mock request button for demo */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => navigate('/provider/request/demo-123')}
-                className="mt-6 px-6 py-3 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold shadow-lg shadow-[#2EFFAF]/30"
-              >
-                Simulate Request (Demo)
-              </motion.button>
             </div>
           ) : (
             <div className="text-center py-12">

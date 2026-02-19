@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Star, FileText, CreditCard, Bell, HelpCircle, LogOut, ChevronRight, Wrench, Building2, Sun, Moon, Car } from 'lucide-react';
+import { ArrowLeft, User, Star, FileText, CreditCard, Bell, HelpCircle, LogOut, ChevronRight, Wrench, Building2, Sun, Moon, Car, Shield } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
@@ -44,6 +44,7 @@ export function ProviderProfile() {
       items: [
         { icon: User, label: 'Personal Information', path: '/provider/personal-information', iconColor: '#2EFFAF' },
         { icon: Car, label: 'Vehicles', path: '/provider/vehicles', iconColor: '#007AFF' },
+        { icon: Shield, label: 'Account Security', path: '/provider/account-security', iconColor: '#007AFF' },
         { icon: Wrench, label: 'My Services', path: '/services-list', badge: providerData?.services?.length ? `${providerData.services.length} Active` : null, iconColor: '#007AFF' },
         { icon: FileText, label: 'Documents & Verification', path: '/provider/documents', badge: providerData?.is_verified ? 'Verified' : 'Pending', iconColor: '#F59E0B' },
         { icon: Star, label: 'Ratings & Reviews', path: '/provider/ratings-reviews', value: pRating > 0 ? pRating.toFixed(1) : '-', iconColor: '#2EFFAF' },

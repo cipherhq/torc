@@ -1,6 +1,6 @@
 // Global request context that persists across the booking flow
 export interface RequestContext {
-  whoNeedsHelp: 'me' | 'family' | 'new' | null;
+  whoNeedsHelp: 'me' | 'new' | null;
   personName?: string;
   personPhone?: string;
   location: {
@@ -10,6 +10,9 @@ export interface RequestContext {
   } | null;
   isHazardous: boolean;
   serviceId: string | null;
+  serviceName?: string | null;
+  serviceBasePrice?: number | null;
+  serviceIcon?: string | null;
   vehicleId: string | null;
   notes: string;
   photos: string[];
@@ -17,6 +20,9 @@ export interface RequestContext {
   scheduledFor: Date | null;
   paymentMethodId: string | null;
   estimatedPrice: number;
+  paymentIntentId?: string | null;
+  paymentStatus?: 'unpaid' | 'requires_action' | 'paid' | 'failed' | 'refunded' | null;
+  paymentCurrency?: string | null;
 }
 
 let requestContext: RequestContext = {
@@ -24,12 +30,18 @@ let requestContext: RequestContext = {
   location: null,
   isHazardous: false,
   serviceId: null,
+  serviceName: null,
+  serviceBasePrice: null,
+  serviceIcon: null,
   vehicleId: null,
   notes: '',
   photos: [],
   scheduledFor: null,
   paymentMethodId: null,
   estimatedPrice: 0,
+  paymentIntentId: null,
+  paymentStatus: null,
+  paymentCurrency: null,
 };
 
 export const getRequestContext = () => requestContext;
@@ -44,11 +56,17 @@ export const resetRequestContext = () => {
     location: null,
     isHazardous: false,
     serviceId: null,
+    serviceName: null,
+    serviceBasePrice: null,
+    serviceIcon: null,
     vehicleId: null,
     notes: '',
     photos: [],
     scheduledFor: null,
     paymentMethodId: null,
     estimatedPrice: 0,
+    paymentIntentId: null,
+    paymentStatus: null,
+    paymentCurrency: null,
   };
 };

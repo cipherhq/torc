@@ -9,7 +9,7 @@ import { supabase } from '../../lib/supabase';
 export function Activity() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'family'>('upcoming');
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,10 +41,9 @@ export function Activity() {
   const tabs = [
     { id: 'upcoming' as const, label: 'Upcoming', count: upcomingJobs.length },
     { id: 'past' as const, label: 'Past', count: pastJobs.length },
-    { id: 'family' as const, label: 'Family', count: 0 },
   ];
 
-  const displayJobs = activeTab === 'upcoming' ? upcomingJobs : activeTab === 'past' ? pastJobs : [];
+  const displayJobs = activeTab === 'upcoming' ? upcomingJobs : pastJobs;
 
   return (
     <div className="min-h-screen bg-[#0A0F1E] pb-24 relative overflow-hidden">
@@ -108,17 +107,6 @@ export function Activity() {
               <div className="w-10 h-10 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin" />
             </div>
             <p className="text-white/60">Loading your activity...</p>
-          </motion.div>
-        ) : activeTab === 'family' ? (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-[32px] p-12 text-center"
-          >
-            <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-              <Calendar className="w-10 h-10 text-white/40" />
-            </div>
-            <p className="text-white/60">No family members added yet</p>
           </motion.div>
         ) : displayJobs.length === 0 ? (
           <motion.div

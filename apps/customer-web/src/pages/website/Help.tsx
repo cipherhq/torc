@@ -7,7 +7,7 @@ export function WebsiteHelp() {
   const faqs = [
     { q: 'How quickly will help arrive?', a: 'Average arrival time is under 15 minutes in most areas.' },
     { q: 'What areas do you cover?', a: 'We cover major metropolitan areas with 24/7 service.' },
-    { q: 'Can I request help for someone else?', a: 'Yes! You can request service for family members through the Family feature.' },
+    { q: 'Can I request help for someone else?', a: 'Yes. Choose "Someone else" during request setup and enter their details.' },
     { q: 'How do I pay?', a: 'We accept all major credit cards, debit cards, and digital wallets.' },
     { q: 'Are providers insured?', a: 'Yes, all providers are fully verified, insured, and background checked.' },
   ];
@@ -16,7 +16,7 @@ export function WebsiteHelp() {
     <div className="min-h-screen bg-white">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
-          <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl">
+          <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl" title="Back to website home">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">

@@ -10,75 +10,183 @@ import {
   Clock,
   Target
 } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export function AdminAnalytics() {
-  const revenueData = [
-    { month: 'Jan', revenue: 45000, jobs: 180, providers: 25 },
-    { month: 'Feb', revenue: 52000, jobs: 210, providers: 28 },
-    { month: 'Mar', revenue: 48000, jobs: 195, providers: 30 },
-    { month: 'Apr', revenue: 61000, jobs: 245, providers: 32 },
-    { month: 'May', revenue: 68000, jobs: 270, providers: 35 },
-    { month: 'Jun', revenue: 72000, jobs: 290, providers: 38 },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [providers, setProviders] = useState<any[]>([]);
+  const [serviceNames, setServiceNames] = useState<Record<string, string>>({});
 
-  const serviceData = [
-    { name: 'Towing', value: 45, color: '#2EFFAF' },
-    { name: 'Battery', value: 25, color: '#007AFF' },
-    { name: 'Tire Change', value: 20, color: '#FF6B6B' },
-    { name: 'Fuel Delivery', value: 10, color: '#FFA500' },
-  ];
+  useEffect(() => {
+    async function loadData() {
+      try {
+        setLoading(true);
+        setLoadError(null);
+        const [{ data: jobsData, error: jobsError }, { data: providersData, error: providersError }, { data: servicesData, error: servicesError }] = await Promise.all([
+          supabase
+            .from('jobs')
+            .select('id, service_id, status, total_amount, created_at, completed_at, rating'),
+          supabase
+            .from('provider_profiles')
+            .select('id, is_online, rating, created_at'),
+          supabase
+            .from('services')
+            .select('id, name'),
+        ]);
 
-  const hourlyData = [
-    { hour: '12am', jobs: 5 },
-    { hour: '4am', jobs: 8 },
-    { hour: '8am', jobs: 45 },
-    { hour: '12pm', jobs: 68 },
-    { hour: '4pm', jobs: 72 },
-    { hour: '8pm', jobs: 52 },
-  ];
+        if (jobsError) throw jobsError;
+        if (providersError) throw providersError;
+        if (servicesError) throw servicesError;
+        setJobs(jobsData || []);
+        setProviders(providersData || []);
+        const map: Record<string, string> = {};
+        (servicesData || []).forEach((s: any) => {
+          map[s.id] = s.name;
+        });
+        setServiceNames(map);
+      } catch (error: any) {
+        console.warn('Failed to load analytics data:', error);
+        setLoadError(error?.message || 'Could not load analytics.');
+        setJobs([]);
+        setProviders([]);
+        setServiceNames({});
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
-  const stats = [
-    {
-      icon: DollarSign,
-      label: 'Total Revenue',
-      value: '$346,000',
-      change: '+12.5%',
-      trend: 'up',
-      color: 'from-[#2EFFAF] to-[#00D68F]',
-    },
-    {
-      icon: Briefcase,
-      label: 'Total Jobs',
-      value: '1,390',
-      change: '+8.2%',
-      trend: 'up',
-      color: 'from-[#007AFF] to-[#0051D5]',
-    },
-    {
-      icon: Users,
-      label: 'Active Providers',
-      value: '38',
-      change: '+5 new',
-      trend: 'up',
-      color: 'from-[#FF6B6B] to-[#FF5252]',
-    },
-    {
-      icon: Star,
-      label: 'Avg. Rating',
-      value: '4.8',
-      change: '+0.2',
-      trend: 'up',
-      color: 'from-[#FFA500] to-[#FF8C00]',
-    },
-  ];
+  const revenueData = useMemo(() => {
+    const months = new Map<string, { month: string; revenue: number; jobs: number; providers: number }>();
+    jobs.forEach((job) => {
+      const d = new Date(job.completed_at || job.created_at);
+      const month = d.toLocaleString('en-US', { month: 'short' });
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const current = months.get(key) || { month, revenue: 0, jobs: 0, providers: 0 };
+      current.jobs += 1;
+      if (job.status === 'completed') {
+        current.revenue += Number(job.total_amount || 0);
+      }
+      months.set(key, current);
+    });
+    providers.forEach((provider) => {
+      const d = new Date(provider.created_at);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const current = months.get(key) || { month: d.toLocaleString('en-US', { month: 'short' }), revenue: 0, jobs: 0, providers: 0 };
+      current.providers += 1;
+      months.set(key, current);
+    });
+    return Array.from(months.entries())
+      .map(([k, v]) => ({ k, ...v }))
+      .sort((a, b) => (a.k < b.k ? -1 : 1))
+      .slice(-6)
+      .map(({ month, revenue, jobs: jobCount, providers: providerCount }) => ({
+        month,
+        revenue,
+        jobs: jobCount,
+        providers: providerCount,
+      }));
+  }, [jobs, providers]);
 
-  const metrics = [
-    { label: 'Avg Response Time', value: '3.2 min', icon: Clock, color: '#2EFFAF' },
-    { label: 'Completion Rate', value: '96.5%', icon: Target, color: '#007AFF' },
-    { label: 'Customer Satisfaction', value: '4.7/5', icon: Star, color: '#FFA500' },
-    { label: 'Provider Utilization', value: '78%', icon: TrendingUp, color: '#FF6B6B' },
-  ];
+  const serviceData = useMemo(() => {
+    const colors = ['#2EFFAF', '#007AFF', '#FF6B6B', '#FFA500', '#8B5CF6'];
+    const byService = new Map<string, number>();
+    jobs.forEach((job) => {
+      const key = job.service_id || 'unknown';
+      byService.set(key, (byService.get(key) || 0) + 1);
+    });
+    return Array.from(byService.entries())
+      .map(([id, value], idx) => ({ name: serviceNames[id] || id, value, color: colors[idx % colors.length] }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  }, [jobs, serviceNames]);
+
+  const hourlyData = useMemo(() => {
+    const buckets = new Map<string, number>([
+      ['12am', 0], ['4am', 0], ['8am', 0], ['12pm', 0], ['4pm', 0], ['8pm', 0],
+    ]);
+    jobs.forEach((job) => {
+      const h = new Date(job.created_at).getHours();
+      const key = h < 4 ? '12am' : h < 8 ? '4am' : h < 12 ? '8am' : h < 16 ? '12pm' : h < 20 ? '4pm' : '8pm';
+      buckets.set(key, (buckets.get(key) || 0) + 1);
+    });
+    return Array.from(buckets.entries()).map(([hour, count]) => ({ hour, jobs: count }));
+  }, [jobs]);
+
+  const stats = useMemo(() => {
+    const totalRevenue = jobs.filter((j) => j.status === 'completed').reduce((sum, j) => sum + Number(j.total_amount || 0), 0);
+    const totalJobs = jobs.length;
+    const activeProviders = providers.filter((p) => p.is_online).length;
+    const ratings = jobs.filter((j) => j.rating != null).map((j) => Number(j.rating));
+    const avgRating = ratings.length > 0 ? ratings.reduce((s, r) => s + r, 0) / ratings.length : 0;
+    const currentMonth = revenueData[revenueData.length - 1];
+    const prevMonth = revenueData.length > 1 ? revenueData[revenueData.length - 2] : null;
+    const pct = (curr: number, prev: number) => (prev > 0 ? ((curr - prev) / prev) * 100 : 0);
+    const revenuePct = currentMonth && prevMonth ? pct(currentMonth.revenue, prevMonth.revenue) : 0;
+    const jobsPct = currentMonth && prevMonth ? pct(currentMonth.jobs, prevMonth.jobs) : 0;
+    const providersPct = currentMonth && prevMonth ? pct(currentMonth.providers, prevMonth.providers) : 0;
+    const monthName = currentMonth?.month || 'Current';
+    return [
+      {
+        icon: DollarSign,
+        label: 'Total Revenue',
+        value: `$${totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+        change: `${revenuePct >= 0 ? '+' : ''}${revenuePct.toFixed(1)}% vs prev`,
+        trend: revenuePct >= 0 ? 'up' : 'down',
+        color: 'from-[#2EFFAF] to-[#00D68F]',
+      },
+      {
+        icon: Briefcase,
+        label: 'Total Jobs',
+        value: `${totalJobs.toLocaleString()}`,
+        change: `${jobsPct >= 0 ? '+' : ''}${jobsPct.toFixed(1)}% vs prev`,
+        trend: jobsPct >= 0 ? 'up' : 'down',
+        color: 'from-[#007AFF] to-[#0051D5]',
+      },
+      {
+        icon: Users,
+        label: 'Online Providers',
+        value: `${activeProviders}`,
+        change: `${providersPct >= 0 ? '+' : ''}${providersPct.toFixed(1)}% vs prev`,
+        trend: providersPct >= 0 ? 'up' : 'down',
+        color: 'from-[#FF6B6B] to-[#FF5252]',
+      },
+      {
+        icon: Star,
+        label: 'Avg. Rating',
+        value: avgRating > 0 ? avgRating.toFixed(1) : '-',
+        change: `${monthName} quality`,
+        trend: 'up',
+        color: 'from-[#FFA500] to-[#FF8C00]',
+      },
+    ] as const;
+  }, [jobs, providers, revenueData]);
+
+  const metrics = useMemo(() => {
+    const completed = jobs.filter((j) => j.status === 'completed').length;
+    const completionRate = jobs.length > 0 ? (completed / jobs.length) * 100 : 0;
+    const ratings = jobs.filter((j) => j.rating != null).map((j) => Number(j.rating));
+    const customerSatisfaction = ratings.length > 0 ? ratings.reduce((s, r) => s + r, 0) / ratings.length : 0;
+    const providerUtilization = providers.length > 0 ? (providers.filter((p) => p.is_online).length / providers.length) * 100 : 0;
+    const completionHours = jobs
+      .filter((j) => j.status === 'completed' && j.completed_at)
+      .map((j) => (new Date(j.completed_at).getTime() - new Date(j.created_at).getTime()) / 36e5)
+      .filter((h) => Number.isFinite(h) && h >= 0);
+    const avgCompletionHours = completionHours.length > 0
+      ? completionHours.reduce((sum, h) => sum + h, 0) / completionHours.length
+      : 0;
+    return [
+      { label: 'Avg Time to Complete', value: avgCompletionHours > 0 ? `${avgCompletionHours.toFixed(1)}h` : '-', icon: Clock, color: '#2EFFAF' },
+      { label: 'Completion Rate', value: `${completionRate.toFixed(1)}%`, icon: Target, color: '#007AFF' },
+      { label: 'Customer Satisfaction', value: customerSatisfaction > 0 ? `${customerSatisfaction.toFixed(1)}/5` : '-', icon: Star, color: '#FFA500' },
+      { label: 'Provider Utilization', value: `${providerUtilization.toFixed(1)}%`, icon: TrendingUp, color: '#FF6B6B' },
+    ];
+  }, [jobs, providers]);
 
   return (
     <AdminLayout>
@@ -89,6 +197,12 @@ export function AdminAnalytics() {
           <p className="text-white/60">Platform performance and insights</p>
         </div>
 
+        {loading ? (
+          <div className="glass-light rounded-[24px] p-8 text-white/70">Loading analytics...</div>
+        ) : loadError ? (
+          <div className="glass-light rounded-[24px] p-8 text-red-300">{loadError}</div>
+        ) : (
+          <>
         {/* Stats Grid */}
         <div className="grid grid-cols-4 gap-6 mb-8">
           {stats.map((stat, index) => {
@@ -273,6 +387,8 @@ export function AdminAnalytics() {
             );
           })}
         </div>
+          </>
+        )}
       </div>
     </AdminLayout>
   );

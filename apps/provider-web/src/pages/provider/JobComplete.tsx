@@ -7,15 +7,28 @@ import { useJob } from '../../context/JobContext';
 export function JobComplete() {
   const navigate = useNavigate();
   const { jobId } = useParams();
-  const { currentJob, fetchJob, updateJobStatus } = useJob();
+  const { currentJob, fetchJob, updateJobStatus, rateJob } = useJob();
   const [rating, setRating] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (jobId) {
-      fetchJob(jobId).catch(console.warn);
-      updateJobStatus(jobId, 'completed').catch(console.warn);
+    let cancelled = false;
+    async function loadAndComplete() {
+      if (!jobId) return;
+      try {
+        const job = await fetchJob(jobId);
+        if (cancelled) return;
+        const status = job?.status;
+        if (status === 'inprogress' || status === 'in_progress') {
+          await updateJobStatus(jobId, 'completed');
+        }
+      } catch (e) {
+        console.warn('Failed to complete job:', e);
+      }
     }
+    loadAndComplete();
+    return () => { cancelled = true; };
   }, [jobId]);
 
   const customerName = currentJob?.customer
@@ -42,8 +55,22 @@ export function JobComplete() {
     );
   };
 
-  const handleSubmit = () => {
-    navigate('/home');
+  const handleSubmit = async () => {
+    if (!jobId) {
+      navigate('/home');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (rating > 0) {
+        await rateJob(jobId, rating, tags.join(', '));
+      }
+    } catch (e) {
+      console.warn('Failed to save provider rating tags:', e);
+    } finally {
+      setSubmitting(false);
+      navigate('/home');
+    }
   };
 
   return (
@@ -116,7 +143,7 @@ export function JobComplete() {
             <div className="border-t border-white/10 pt-3 flex items-center justify-between">
               <span className="text-white font-bold text-lg">Total Earned</span>
               <span className="text-white font-bold text-2xl">
-                ${parseInt(job.payout.slice(1)) + parseInt(job.tip.slice(1))}
+                ${(parseFloat(job.payout.slice(1)) || 0) + (parseFloat(job.tip.slice(1)) || 0)}
               </span>
             </div>
           </div>
@@ -185,9 +212,10 @@ export function JobComplete() {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={handleSubmit}
+          disabled={submitting}
           className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30"
         >
-          {rating > 0 ? 'Submit & Continue' : 'Skip Rating'}
+          {submitting ? 'Saving...' : rating > 0 ? 'Submit & Continue' : 'Skip Rating'}
         </motion.button>
       </div>
     </div>

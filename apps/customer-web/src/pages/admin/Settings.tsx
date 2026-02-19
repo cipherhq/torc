@@ -1,19 +1,40 @@
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Settings as SettingsIcon, DollarSign, Bell, Shield, Mail, Globe } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import {
+  DEFAULT_PLATFORM_SETTINGS,
+  invalidatePlatformSettingsCache,
+  loadPlatformSettings,
+  type PlatformSettingsMap,
+} from '../../lib/platformSettings';
 
 export function AdminSettings() {
-  const [settings, setSettings] = useState({
-    platformFee: 15,
-    currency: 'USD',
-    emailNotifications: true,
-    smsNotifications: true,
-    autoApproveProviders: false,
-    maintenanceMode: false,
-    maxJobRadius: 50,
-    providerTimeout: 5,
-  });
+  const { user } = useAuth();
+  const [settings, setSettings] = useState(DEFAULT_PLATFORM_SETTINGS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadPlatformSettings() {
+      try {
+        setLoading(true);
+        setFeedback(null);
+        const loaded = await loadPlatformSettings(true);
+        setSettings(loaded);
+      } catch (error: any) {
+        console.warn('Failed to load settings:', error);
+        setFeedback(error?.message || 'Could not load settings. Using defaults.');
+        setSettings(DEFAULT_PLATFORM_SETTINGS);
+      } finally {
+        setLoading(false);
+      }
+    }
+    void loadPlatformSettings();
+  }, []);
 
   const handleToggle = (key: string) => {
     setSettings(prev => ({
@@ -81,6 +102,20 @@ export function AdminSettings() {
           key: 'providerTimeout',
           suffix: 'min',
         },
+        {
+          label: 'Urgent Ticket SLA',
+          description: 'Max hours before urgent ticket is considered breached',
+          type: 'number',
+          key: 'urgentSlaHours',
+          suffix: 'h',
+        },
+        {
+          label: 'Standard Ticket SLA',
+          description: 'Max hours before non-urgent ticket is considered breached',
+          type: 'number',
+          key: 'standardSlaHours',
+          suffix: 'h',
+        },
       ],
     },
     {
@@ -105,6 +140,45 @@ export function AdminSettings() {
     },
   ];
 
+  async function saveAllSettings() {
+    try {
+      setSaving(true);
+      setFeedback(null);
+
+      const rows = Object.entries(settings).map(([key, value]) => ({
+        key,
+        value,
+        updated_by: user?.id || null,
+      }));
+
+      const { error } = await supabase
+        .from('platform_settings')
+        .upsert(rows, { onConflict: 'key' });
+      if (error) throw error;
+      invalidatePlatformSettingsCache();
+
+      if (user?.id) {
+        const { error: auditError } = await supabase.from('admin_audit_logs').insert({
+          actor_id: user.id,
+          action: 'update_platform_settings',
+          entity_type: 'platform_settings',
+          entity_id: user.id,
+          details: settings,
+        });
+        if (auditError) {
+          console.warn('Audit log write skipped:', auditError.message);
+        }
+      }
+
+      setFeedback('Settings saved.');
+    } catch (error: any) {
+      console.warn('Failed to save settings:', error);
+      setFeedback(error?.message || 'Failed to save settings.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <AdminLayout>
       <div className="p-8">
@@ -114,6 +188,10 @@ export function AdminSettings() {
           <p className="text-white/60">Configure system-wide preferences</p>
         </div>
 
+        {loading ? (
+          <div className="glass-light rounded-[24px] p-8 text-white/70">Loading settings...</div>
+        ) : (
+        <>
         {/* Settings Sections */}
         <div className="space-y-6">
           {settingSections.map((section, sectionIndex) => {
@@ -167,6 +245,7 @@ export function AdminSettings() {
                                 type="number"
                                 value={settings[item.key as keyof typeof settings]}
                                 onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: Number(e.target.value) }))}
+                                title={item.label}
                                 className="w-20 px-3 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white text-center focus:outline-none focus:border-[#2EFFAF]/50"
                               />
                               {item.suffix && (
@@ -179,6 +258,7 @@ export function AdminSettings() {
                             <select
                               value={settings[item.key as keyof typeof settings]}
                               onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: e.target.value }))}
+                              title={item.label}
                               className="px-4 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
                             >
                               {item.options?.map((option) => (
@@ -203,11 +283,16 @@ export function AdminSettings() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            onClick={() => void saveAllSettings()}
+            disabled={saving}
             className="px-8 py-4 rounded-[24px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold text-lg shadow-lg shadow-[#2EFFAF]/30"
           >
-            Save All Changes
+            {saving ? 'Saving...' : 'Save All Changes'}
           </motion.button>
+          {feedback && <p className="text-white/70 mt-3 text-sm">{feedback}</p>}
         </div>
+        </>
+        )}
       </div>
     </AdminLayout>
   );

@@ -83,16 +83,17 @@ export function LiveTracking() {
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
 
   const hasProvider = !!currentJob?.provider;
-  const providerInfo = hasProvider ? {
-    name: `${currentJob.provider.first_name || ''} ${currentJob.provider.last_name || ''}`.trim() || 'Provider',
-    initials: `${(currentJob.provider.first_name || 'P')[0]}${(currentJob.provider.last_name || '')[0] || ''}`.toUpperCase(),
-    phone: currentJob.provider.phone || '',
-    rating: currentJob.provider.rating || 0,
-    rescues: currentJob.provider.total_jobs || 0,
-    vehicle: currentJob.provider.vehicle_make ? `${currentJob.provider.vehicle_make} ${currentJob.provider.vehicle_model || ''}`.trim() : '',
-    license: currentJob.provider.license_number || '',
-    plate: currentJob.provider.vehicle_plate || '',
-    isVerified: currentJob.provider.is_verified || false,
+  const provider = hasProvider ? currentJob?.provider : null;
+  const providerInfo = provider ? {
+    name: `${provider.first_name || ''} ${provider.last_name || ''}`.trim() || 'Provider',
+    initials: `${(provider.first_name || 'P')[0]}${(provider.last_name || '')[0] || ''}`.toUpperCase(),
+    phone: provider.phone || '',
+    rating: provider.rating || 0,
+    rescues: provider.total_jobs || 0,
+    vehicle: provider.vehicle_make ? `${provider.vehicle_make} ${provider.vehicle_model || ''}`.trim() : '',
+    license: provider.license_number || '',
+    plate: provider.vehicle_plate || '',
+    isVerified: provider.is_verified || false,
   } : null;
 
   const customerPos = myPosition || (currentLocation
@@ -252,9 +253,17 @@ export function LiveTracking() {
   const onLoad = useCallback((map: google.maps.Map) => setMap(map), []);
 
   const handleConfirmArrival = async () => {
+    if (status !== 'arrived') {
+      return;
+    }
     setStatus('inprogress');
     if (jobId) {
-      try { await updateJobStatus(jobId, 'inprogress'); } catch (e) { console.warn(e); }
+      try {
+        await updateJobStatus(jobId, 'inprogress');
+      } catch (e) {
+        console.warn(e);
+        setStatus('arrived');
+      }
     }
   };
 

@@ -108,7 +108,13 @@ export function Login() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   className="flex-1 bg-transparent border-none outline-none text-base"
-                  style={{ color: isDark ? '#FFFFFF' : '#1F2937' }}
+                  style={{
+                    color: isDark ? '#FFFFFF' : '#1F2937',
+                    border: 'none',
+                    boxShadow: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                  }}
                 />
               </div>
             </div>
@@ -133,7 +139,13 @@ export function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   className="flex-1 bg-transparent border-none outline-none text-base"
-                  style={{ color: isDark ? '#FFFFFF' : '#1F2937' }}
+                  style={{
+                    color: isDark ? '#FFFFFF' : '#1F2937',
+                    border: 'none',
+                    boxShadow: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                  }}
                 />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="p-1">
                   {showPassword

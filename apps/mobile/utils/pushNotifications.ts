@@ -39,7 +39,14 @@ export async function registerForPushNotifications(): Promise<string | null> {
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+          allowAnnouncements: true,
+        },
+      });
       finalStatus = status;
     }
 
@@ -55,6 +62,17 @@ export async function registerForPushNotifications(): Promise<string | null> {
     ).data;
 
     console.log('📱 Got push token:', pushToken);
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 150, 250, 150, 250],
+        lightColor: '#2EFFAF',
+        sound: 'default',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+    }
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {

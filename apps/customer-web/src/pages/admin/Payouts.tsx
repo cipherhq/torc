@@ -1,49 +1,102 @@
-import { useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { AdminNav } from '../../components/AdminNav';
-import { DollarSign, TrendingUp, Users, Clock, CheckCircle, Send } from 'lucide-react';
+import { DollarSign, TrendingUp, Clock, CheckCircle, Send } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { loadPlatformSettings } from '../../lib/platformSettings';
+
+interface ProviderPayoutRow {
+  id: string;
+  provider: string;
+  providerId: string;
+  jobs: number;
+  totalEarnings: number;
+  platformFee: number;
+  payoutAmount: number;
+  period: string;
+  status: 'pending' | 'completed';
+}
 
 export function AdminPayouts() {
   const [selectedPayouts, setSelectedPayouts] = useState<string[]>([]);
+  const [rows, setRows] = useState<ProviderPayoutRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [platformFeePercent, setPlatformFeePercent] = useState(15);
 
-  const pendingPayouts = [
-    {
-      id: 'PO-2001',
-      provider: 'Marcus Rodriguez',
-      providerId: 'PR-1001',
-      jobs: 12,
-      totalEarnings: 540.00,
-      platformFee: 81.00, // 15%
-      payoutAmount: 459.00,
-      period: 'Feb 3-9, 2026',
-      customer: 'Multiple customers',
-      status: 'pending',
-    },
-    {
-      id: 'PO-2002',
-      provider: 'Sarah Chen',
-      providerId: 'PR-1002',
-      jobs: 8,
-      totalEarnings: 360.00,
-      platformFee: 54.00,
-      payoutAmount: 306.00,
-      period: 'Feb 3-9, 2026',
-      customer: 'Multiple customers',
-      status: 'pending',
-    },
-    {
-      id: 'PO-2003',
-      provider: 'James Wilson',
-      providerId: 'PR-1003',
-      jobs: 15,
-      totalEarnings: 675.00,
-      platformFee: 101.25,
-      payoutAmount: 573.75,
-      period: 'Feb 3-9, 2026',
-      customer: 'Multiple customers',
-      status: 'pending',
-    },
-  ];
+  useEffect(() => {
+    void loadPendingPayouts();
+  }, []);
+
+  async function loadPendingPayouts() {
+    try {
+      setLoading(true);
+      setLoadError(null);
+
+      const [{ data, error }, settings] = await Promise.all([
+        supabase
+          .from('jobs')
+          .select('id, provider_id, total_amount, payment_status, completed_at, created_at, provider:profiles!jobs_provider_id_fkey(first_name, last_name)')
+          .eq('status', 'completed')
+          .not('provider_id', 'is', null)
+          .order('completed_at', { ascending: false }),
+        loadPlatformSettings(),
+      ]);
+
+      if (error) throw error;
+      const feePercent = settings.platformFee;
+      setPlatformFeePercent(feePercent);
+
+      const grouped = new Map<string, any>();
+      (data || []).forEach((job: any) => {
+        const key = job.provider_id;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            providerId: key,
+            providerName: `${job.provider?.first_name || ''} ${job.provider?.last_name || ''}`.trim() || 'Provider',
+            jobs: [],
+          });
+        }
+        grouped.get(key).jobs.push(job);
+      });
+
+      const computed: ProviderPayoutRow[] = Array.from(grouped.values()).map((group: any) => {
+        const jobs = group.jobs as any[];
+        const total = jobs.reduce((sum, j) => sum + (Number(j.total_amount) || 0), 0);
+        const fee = total * (feePercent / 100);
+        const minDate = jobs.reduce(
+          (min, j) => Math.min(min, new Date(j.completed_at || j.created_at).getTime()),
+          Number.MAX_SAFE_INTEGER
+        );
+        const maxDate = jobs.reduce(
+          (max, j) => Math.max(max, new Date(j.completed_at || j.created_at).getTime()),
+          0
+        );
+        const status: 'pending' | 'completed' = jobs.some((j) => j.payment_status !== 'paid') ? 'pending' : 'completed';
+
+        return {
+          id: group.providerId,
+          provider: group.providerName,
+          providerId: group.providerId,
+          jobs: jobs.length,
+          totalEarnings: total,
+          platformFee: fee,
+          payoutAmount: total - fee,
+          period: `${new Date(minDate).toLocaleDateString()} - ${new Date(maxDate).toLocaleDateString()}`,
+          status,
+        };
+      });
+
+      setRows(computed.sort((a, b) => b.payoutAmount - a.payoutAmount));
+    } catch (e) {
+      console.warn('Failed to load pending payouts:', e);
+      setRows([]);
+      setLoadError('Could not load payouts right now.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const togglePayout = (payoutId: string) => {
     setSelectedPayouts(prev =>
@@ -54,14 +107,24 @@ export function AdminPayouts() {
   };
 
   const handleProcessPayouts = () => {
-    console.log('Processing payouts:', selectedPayouts);
-    // In real app: API call to process payouts
-    // This will deduct from customer accounts and pay providers
+    setActionMessage(
+      'Selected payouts are based on live DB totals. Connect your payout processor to execute transfers.'
+    );
   };
 
-  const selectedTotal = pendingPayouts
+  const selectedTotal = rows
     .filter(p => selectedPayouts.includes(p.id))
     .reduce((sum, p) => sum + p.payoutAmount, 0);
+
+  const pendingRows = useMemo(() => rows.filter((r) => r.status === 'pending'), [rows]);
+  const paidThisWeek = useMemo(() => {
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    return rows
+      .filter((r) => r.status === 'completed')
+      .reduce((sum, r) => sum + r.payoutAmount, 0);
+  }, [rows]);
 
   return (
     <div className="min-h-screen bg-[#0F1419] flex">
@@ -80,33 +143,33 @@ export function AdminPayouts() {
             <div className="glass rounded-[24px] p-6">
               <Clock className="w-8 h-8 text-[#007AFF] mb-3" />
               <p className="text-white/60 text-sm">Pending Payouts</p>
-              <p className="text-white text-3xl font-bold">{pendingPayouts.length}</p>
+              <p className="text-white text-3xl font-bold">{pendingRows.length}</p>
             </div>
             <div className="glass rounded-[24px] p-6">
               <DollarSign className="w-8 h-8 text-[#2EFFAF] mb-3" />
               <p className="text-white/60 text-sm">Total Pending</p>
               <p className="text-white text-3xl font-bold">
-                ${pendingPayouts.reduce((sum, p) => sum + p.payoutAmount, 0).toFixed(2)}
+                ${pendingRows.reduce((sum, p) => sum + p.payoutAmount, 0).toFixed(2)}
               </p>
             </div>
             <div className="glass rounded-[24px] p-6">
               <TrendingUp className="w-8 h-8 text-[#2EFFAF] mb-3" />
               <p className="text-white/60 text-sm">Platform Fees</p>
               <p className="text-white text-3xl font-bold">
-                ${pendingPayouts.reduce((sum, p) => sum + p.platformFee, 0).toFixed(2)}
+                ${pendingRows.reduce((sum, p) => sum + p.platformFee, 0).toFixed(2)}
               </p>
             </div>
             <div className="glass rounded-[24px] p-6">
               <CheckCircle className="w-8 h-8 text-[#2EFFAF] mb-3" />
               <p className="text-white/60 text-sm">Paid This Week</p>
-              <p className="text-white text-3xl font-bold">$12,450</p>
+              <p className="text-white text-3xl font-bold">${paidThisWeek.toFixed(2)}</p>
             </div>
           </div>
 
           {/* Pending Payouts */}
           <div className="glass rounded-[24px] p-6 mb-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-white font-bold text-xl">Pending Payouts (Week of Feb 3)</h2>
+              <h2 className="text-white font-bold text-xl">Pending Payouts</h2>
               {selectedPayouts.length > 0 && (
                 <motion.button
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -122,14 +185,28 @@ export function AdminPayouts() {
               )}
             </div>
 
-            {pendingPayouts.length === 0 ? (
+            {loadError && (
+              <div className="mb-4 rounded-2xl p-4 border border-red-500/30 bg-red-500/10 text-red-300 text-sm">
+                {loadError}
+              </div>
+            )}
+            {actionMessage && (
+              <div className="mb-4 rounded-2xl p-4 border border-[#2EFFAF]/30 bg-[#2EFFAF]/10 text-[#9FFFD8] text-sm">
+                {actionMessage}
+              </div>
+            )}
+
+            {loading ? (
+              <div className="p-12 text-center">
+                <p className="text-white/60">Loading payouts...</p>
+              </div>
+            ) : pendingRows.length === 0 ? (
               <div className="p-12 text-center">
                 <p className="text-white/60">No pending payouts</p>
-                <p className="text-white/40 text-sm mt-2">Payout system coming soon</p>
               </div>
             ) : (
             <div className="space-y-3">
-              {pendingPayouts.map((payout) => (
+              {pendingRows.map((payout) => (
                 <motion.div
                   key={payout.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -147,6 +224,7 @@ export function AdminPayouts() {
                         type="checkbox"
                         checked={selectedPayouts.includes(payout.id)}
                         onChange={() => togglePayout(payout.id)}
+                        title={`Select payout for ${payout.provider}`}
                         className="w-5 h-5 rounded bg-white/10 border-white/20 checked:bg-[#2EFFAF]"
                       />
                       <div>
@@ -165,7 +243,7 @@ export function AdminPayouts() {
                         <p className="text-white font-semibold">${payout.totalEarnings.toFixed(2)}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-white/60 text-sm">Platform Fee (15%)</p>
+                        <p className="text-white/60 text-sm">Platform Fee ({platformFeePercent.toFixed(1)}%)</p>
                         <p className="text-red-400 font-semibold">-${payout.platformFee.toFixed(2)}</p>
                       </div>
                       <div className="text-right min-w-[120px]">
@@ -200,11 +278,10 @@ export function AdminPayouts() {
           <div className="glass rounded-[24px] p-6">
             <h3 className="text-white font-semibold mb-3">💡 Payout Process</h3>
             <ul className="space-y-2 text-white/80 text-sm">
-              <li>• Provider earnings are calculated weekly (Monday-Sunday)</li>
-              <li>• Platform fee (15%) is automatically deducted from total earnings</li>
-              <li>• Funds are withdrawn from customer payment methods on file</li>
-              <li>• Providers receive payouts within 2-3 business days</li>
-              <li>• All transactions are logged for accounting and tax purposes</li>
+              <li>• Totals above are computed from live completed jobs in the database.</li>
+              <li>• Platform fee ({platformFeePercent.toFixed(1)}%) is deducted from gross provider earnings.</li>
+              <li>• Connect a payout processor webhook/job to execute transfers.</li>
+              <li>• This dashboard is now data-backed and ready for processor integration.</li>
             </ul>
           </div>
         </div>

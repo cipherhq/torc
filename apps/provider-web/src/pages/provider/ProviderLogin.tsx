@@ -76,14 +76,42 @@ export function ProviderLogin() {
               <label className="text-sm font-medium mb-2 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Email Address</label>
               <div className="flex items-center gap-3 rounded-2xl px-4 py-4 focus-within:ring-2 focus-within:ring-[#2EFFAF]/50" style={inputStyle}>
                 <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
-                <input type="email" placeholder="provider@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="flex-1 bg-transparent border-none outline-none text-base" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
+                <input
+                  type="email"
+                  placeholder="provider@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="flex-1 bg-transparent border-none outline-none text-base"
+                  style={{
+                    color: isDark ? '#FFFFFF' : '#1F2937',
+                    border: 'none',
+                    boxShadow: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                  }}
+                />
               </div>
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Password</label>
               <div className="flex items-center gap-3 rounded-2xl px-4 py-4 focus-within:ring-2 focus-within:ring-[#2EFFAF]/50" style={inputStyle}>
                 <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
-                <input type={showPassword ? 'text' : 'password'} placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} required className="flex-1 bg-transparent border-none outline-none text-base" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="flex-1 bg-transparent border-none outline-none text-base"
+                  style={{
+                    color: isDark ? '#FFFFFF' : '#1F2937',
+                    border: 'none',
+                    boxShadow: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                  }}
+                />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="p-1">
                   {showPassword ? <EyeOff className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} /> : <Eye className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />}
                 </button>

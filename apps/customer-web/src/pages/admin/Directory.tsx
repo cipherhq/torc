@@ -1,10 +1,8 @@
 import { motion } from 'motion/react';
-import { useNavigate } from 'react-router';
-import { ArrowLeft, Plus, MapPin, Edit, Trash } from 'lucide-react';
+import { Plus, MapPin, Edit, Trash } from 'lucide-react';
+import { AdminLayout } from '../../components/AdminLayout';
 
 export function AdminDirectory() {
-  const navigate = useNavigate();
-
   const listings = [
     { id: 1, name: 'AutoZone Downtown', type: 'Auto Parts', address: '123 Main St', verified: true },
     { id: 2, name: 'Shell Gas Station', type: 'Gas Station', address: '456 Oak Ave', verified: true },
@@ -12,17 +10,10 @@ export function AdminDirectory() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA]">
-      <div className="bg-gradient-to-r from-[#1A1F2E] to-[#2F3548] p-8">
-        <div className="max-w-7xl mx-auto flex items-center gap-4">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => navigate('/admin')}
-            className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center"
-          >
-            <ArrowLeft className="w-6 h-6 text-white" />
-          </motion.button>
+    <AdminLayout>
+      <div className="p-8">
+      <div className="bg-gradient-to-r from-[#1A1F2E] to-[#2F3548] p-8 rounded-3xl mb-8">
+        <div className="flex items-center gap-4">
           <div className="flex-1">
             <h1 className="text-3xl font-bold text-white">Directory Management</h1>
           </div>
@@ -33,7 +24,6 @@ export function AdminDirectory() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-8">
         <div className="bg-white rounded-3xl shadow-lg p-6">
           <div className="space-y-4">
             {listings.map((listing) => (
@@ -58,10 +48,10 @@ export function AdminDirectory() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button className="p-2 hover:bg-gray-200 rounded-xl">
+                    <button title="Edit listing" className="p-2 hover:bg-gray-200 rounded-xl">
                       <Edit className="w-5 h-5 text-gray-600" />
                     </button>
-                    <button className="p-2 hover:bg-red-100 rounded-xl">
+                    <button title="Delete listing" className="p-2 hover:bg-red-100 rounded-xl">
                       <Trash className="w-5 h-5 text-red-500" />
                     </button>
                   </div>
@@ -71,6 +61,6 @@ export function AdminDirectory() {
           </div>
         </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

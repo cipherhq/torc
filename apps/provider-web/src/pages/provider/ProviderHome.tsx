@@ -11,35 +11,32 @@ import { supabase } from '../../lib/supabase';
 function playNotificationSound() {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc1.type = 'sine';
-    osc2.type = 'sine';
-    osc1.frequency.setValueAtTime(880, ctx.currentTime);
-    osc2.frequency.setValueAtTime(1100, ctx.currentTime);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(ctx.destination);
-    osc1.start(ctx.currentTime);
-    osc2.start(ctx.currentTime + 0.15);
-    osc1.stop(ctx.currentTime + 0.4);
-    osc2.stop(ctx.currentTime + 0.55);
-    // Second chime
-    setTimeout(() => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(1320, ctx.currentTime);
-      g.gain.setValueAtTime(0.25, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start();
-      o.stop(ctx.currentTime + 0.6);
-    }, 400);
+
+    // Ring pattern: 3 cycles, then stop.
+    const ringOffsets = [0, 0.7, 1.4];
+    ringOffsets.forEach((offset) => {
+      const oscA = ctx.createOscillator();
+      const oscB = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscA.type = 'sine';
+      oscB.type = 'triangle';
+      oscA.frequency.setValueAtTime(880, ctx.currentTime + offset);
+      oscB.frequency.setValueAtTime(1175, ctx.currentTime + offset);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + offset + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.45);
+
+      oscA.connect(gain);
+      oscB.connect(gain);
+      gain.connect(ctx.destination);
+
+      oscA.start(ctx.currentTime + offset);
+      oscB.start(ctx.currentTime + offset + 0.08);
+      oscA.stop(ctx.currentTime + offset + 0.45);
+      oscB.stop(ctx.currentTime + offset + 0.45);
+    });
   } catch { /* Audio not supported */ }
 }
 
@@ -89,7 +86,7 @@ export function ProviderHome() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => setCurrentPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setCurrentPos({ lat: 40.7128, lng: -74.006 }),
+      () => setCurrentPos(null),
       { enableHighAccuracy: true }
     );
 
@@ -155,6 +152,13 @@ export function ProviderHome() {
           // Play notification sound + vibrate
           playNotificationSound();
           if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('New TORC service request', {
+              body: job.pickup_address || 'A customer nearby needs help.',
+              tag: `job-${job.id}`,
+              requireInteraction: true,
+            });
+          }
           // Show incoming job banner
           setIncomingJob(job);
           // Auto-navigate after 3 seconds

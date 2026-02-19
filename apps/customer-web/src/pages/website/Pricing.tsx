@@ -8,7 +8,7 @@ export function WebsitePricing() {
     <div className="min-h-screen bg-white">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
-          <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl">
+          <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl" title="Back to website home">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
@@ -42,19 +42,19 @@ export function WebsitePricing() {
             </div>
 
             <div className="bg-gradient-to-br from-[#2EFFAF]/10 to-[#007AFF]/10 rounded-3xl p-8 border-2 border-[#2EFFAF]">
-              <h3 className="text-2xl font-bold text-gray-900 mb-6">Family Plan</h3>
+              <h3 className="text-2xl font-bold text-gray-900 mb-6">Premium Support</h3>
               <ul className="space-y-4 text-left">
                 <li className="flex items-start gap-3">
                   <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
-                  <span className="text-gray-700">Add up to 5 family members</span>
+                  <span className="text-gray-700">Priority provider matching</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
-                  <span className="text-gray-700">Shared payment method</span>
+                  <span className="text-gray-700">Real-time trip updates</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
-                  <span className="text-gray-700">10% off all services</span>
+                  <span className="text-gray-700">Reduced platform fees on frequent use</span>
                 </li>
               </ul>
             </div>

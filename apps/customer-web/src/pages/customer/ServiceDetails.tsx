@@ -1,12 +1,11 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, Camera, Car, Plus, MapPin, X, Check } from 'lucide-react';
-import { services } from '../../data/services';
+import { ArrowLeft, Camera, Car, Plus, MapPin, X, Check, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useTheme } from '../../context/ThemeContext';
-import { updateRequestContext } from '../../data/requestContext';
+import { getRequestContext, updateRequestContext } from '../../data/requestContext';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Icons from 'lucide-react';
 
@@ -16,7 +15,9 @@ export function ServiceDetails() {
   const { user } = useAuth();
   const { isLoaded } = useGoogleMaps();
   const { isDark } = useTheme();
-  const service = services.find(s => s.id === serviceId);
+  const context = getRequestContext();
+  const [service, setService] = useState<any>(null);
+  const [serviceLoading, setServiceLoading] = useState(true);
 
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
@@ -36,6 +37,31 @@ export function ServiceDetails() {
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
   const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB';
   const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
+
+  useEffect(() => {
+    async function loadService() {
+      if (!serviceId) {
+        setServiceLoading(false);
+        return;
+      }
+      try {
+        setServiceLoading(true);
+        const { data, error } = await supabase
+          .from('services')
+          .select('id, name, description, icon, base_price')
+          .eq('id', serviceId)
+          .maybeSingle();
+        if (error) throw error;
+        setService(data || null);
+      } catch (error) {
+        console.warn('Failed to load service details:', error);
+        setService(null);
+      } finally {
+        setServiceLoading(false);
+      }
+    }
+    void loadService();
+  }, [serviceId]);
 
   useEffect(() => {
     if (isLoaded && !autocompleteService.current) {
@@ -107,10 +133,17 @@ export function ServiceDetails() {
     setSuggestions([]);
   };
 
+  if (serviceLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+        <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#2EFFAF' }} />
+      </div>
+    );
+  }
   if (!service) return null;
 
   const Icon = Icons[service.icon as keyof typeof Icons] as any;
-  const needsDestination = service.id === 'towing';
+  const needsDestination = (service.name || '').toLowerCase().includes('tow');
 
   const handleContinue = () => {
     const validationErrors: string[] = [];
@@ -129,6 +162,10 @@ export function ServiceDetails() {
     }
     setErrors([]);
     updateRequestContext({
+      serviceId: service.id,
+      serviceName: service.name,
+      serviceBasePrice: Number(service.base_price || context.serviceBasePrice || 0),
+      serviceIcon: service.icon || null,
       vehicleId: selectedVehicle,
       notes,
       photos,
@@ -161,11 +198,11 @@ export function ServiceDetails() {
           <div className="grid grid-cols-2 gap-4 pt-4 border-t" style={{ borderColor: cardBorder }}>
             <div>
               <p className="text-xs" style={{ color: subColor }}>Est. Time</p>
-              <p className="font-semibold mt-1" style={{ color: textColor }}>{service.estimatedTime}</p>
+              <p className="font-semibold mt-1" style={{ color: textColor }}>~ 30-60 min</p>
             </div>
             <div>
               <p className="text-xs" style={{ color: subColor }}>Base Price</p>
-              <p className="font-bold text-xl mt-1" style={{ color: '#2EFFAF' }}>${service.basePrice}</p>
+              <p className="font-bold text-xl mt-1" style={{ color: '#2EFFAF' }}>${Number(service.base_price || 0)}</p>
             </div>
           </div>
         </motion.div>

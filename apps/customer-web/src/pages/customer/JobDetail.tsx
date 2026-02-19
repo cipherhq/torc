@@ -2,26 +2,70 @@ import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
 import { ArrowLeft, MapPin, Calendar, Star, Download, RotateCw } from 'lucide-react';
 import { useJob } from '../../context/JobContext';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export function JobDetail() {
   const navigate = useNavigate();
   const { jobId } = useParams();
   const { currentJob, fetchJob } = useJob();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (jobId) {
-      fetchJob(jobId).catch((error) => {
-        console.warn('Error fetching job:', error);
-      });
+    if (!jobId) {
+      setLoading(false);
+      return;
     }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+
+    const withTimeout = Promise.race([
+      fetchJob(jobId),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Request timed out')), 12000);
+      }),
+    ]);
+
+    withTimeout
+      .catch((error: any) => {
+        if (cancelled) return;
+        console.warn('Error fetching job:', error);
+        setLoadError(error?.message || 'Could not load job details.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [jobId, fetchJob]);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0A0F1E] flex items-center justify-center">
+        <div className="w-10 h-10 border-2 border-[#2EFFAF] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   if (!currentJob) {
-    return null;
+    return (
+      <div className="min-h-screen bg-[#0A0F1E] flex items-center justify-center p-6">
+        <div className="glass rounded-2xl p-6 text-center">
+          <p className="text-white/80 mb-3">{loadError || 'Job details are unavailable.'}</p>
+          <button onClick={() => navigate('/customer/history')} className="px-4 py-2 rounded-xl bg-[#2EFFAF] text-[#0A0F1E] font-semibold">
+            Back to History
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const job = currentJob;
+
+  const serviceTotal = job.total_amount || ((job.base_price || 0) + (job.service_fee || 0) + (job.tax || 0));
 
   return (
     <div className="min-h-screen bg-[#0A0F1E] relative overflow-hidden">
@@ -144,7 +188,7 @@ export function JobDetail() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-white/80">Service</span>
-              <span className="text-white font-semibold">${job.total_amount || job.estimated_price || 0}</span>
+              <span className="text-white font-semibold">${serviceTotal}</span>
             </div>
             {job.tip && job.tip > 0 && (
               <div className="flex items-center justify-between">
@@ -156,7 +200,7 @@ export function JobDetail() {
               <div className="flex items-center justify-between">
                 <span className="text-white font-bold">Total</span>
                 <span className="text-[#2EFFAF] font-bold text-xl">
-                  ${((job.total_amount || job.estimated_price || 0) + (job.tip || 0)).toFixed(2)}
+                  ${(serviceTotal + (job.tip || 0)).toFixed(2)}
                 </span>
               </div>
             </div>

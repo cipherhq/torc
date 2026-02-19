@@ -1,13 +1,14 @@
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Search, Download, Filter, Check, Clock, X, DollarSign } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
 
 interface Payout {
   id: string;
   provider: string;
   providerId: string;
-  amount: string;
+  amount: number;
   status: 'completed' | 'pending' | 'failed';
   method: string;
   date: string;
@@ -18,88 +19,146 @@ interface Payout {
 export function AdminPayoutHistory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const payouts: Payout[] = [
-    {
-      id: 'PO-2025-001',
-      provider: 'John Driver',
-      providerId: 'PR-123',
-      amount: '$2,450.00',
-      status: 'completed',
-      method: 'Bank Transfer',
-      date: 'Feb 10, 2025',
-      jobsCount: 15,
-      avatar: 'JD',
-    },
-    {
-      id: 'PO-2025-002',
-      provider: 'Mike Towing',
-      providerId: 'PR-124',
-      amount: '$3,200.50',
-      status: 'completed',
-      method: 'Direct Deposit',
-      date: 'Feb 9, 2025',
-      jobsCount: 22,
-      avatar: 'MT',
-    },
-    {
-      id: 'PO-2025-003',
-      provider: 'Sarah Rescue',
-      providerId: 'PR-125',
-      amount: '$1,890.00',
-      status: 'pending',
-      method: 'PayPal',
-      date: 'Feb 8, 2025',
-      jobsCount: 12,
-      avatar: 'SR',
-    },
-    {
-      id: 'PO-2025-004',
-      provider: 'Tom Service',
-      providerId: 'PR-126',
-      amount: '$4,120.75',
-      status: 'completed',
-      method: 'Bank Transfer',
-      date: 'Feb 7, 2025',
-      jobsCount: 28,
-      avatar: 'TS',
-    },
-    {
-      id: 'PO-2025-005',
-      provider: 'Lisa Helper',
-      providerId: 'PR-127',
-      amount: '$2,680.00',
-      status: 'failed',
-      method: 'Direct Deposit',
-      date: 'Feb 6, 2025',
-      jobsCount: 18,
-      avatar: 'LH',
-    },
-  ];
+  useEffect(() => {
+    void loadPayoutHistory();
+  }, []);
+
+  async function loadPayoutHistory() {
+    try {
+      setLoading(true);
+      setLoadError(null);
+
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('id, provider_id, total_amount, payment_status, completed_at, created_at, provider:profiles!jobs_provider_id_fkey(first_name, last_name)')
+        .eq('status', 'completed')
+        .not('provider_id', 'is', null)
+        .order('completed_at', { ascending: false });
+
+      if (error) throw error;
+
+      const providerIds = Array.from(
+        new Set((data || []).map((job: any) => job.provider_id).filter(Boolean))
+      );
+      const { data: payoutMethods } = providerIds.length > 0
+        ? await supabase
+            .from('provider_payout_methods')
+            .select('provider_id, method_type, is_default')
+            .in('provider_id', providerIds)
+            .order('is_default', { ascending: false })
+        : { data: [] as any[] };
+      const methodByProvider = new Map<string, string>();
+      (payoutMethods || []).forEach((m: any) => {
+        if (!methodByProvider.has(m.provider_id)) {
+          methodByProvider.set(m.provider_id, m.method_type || 'Not set');
+        }
+      });
+
+      const grouped = new Map<string, any>();
+      (data || []).forEach((job: any) => {
+        const completedAt = new Date(job.completed_at || job.created_at);
+        const weekStart = new Date(completedAt);
+        weekStart.setDate(completedAt.getDate() - completedAt.getDay());
+        weekStart.setHours(0, 0, 0, 0);
+        const key = `${job.provider_id}-${weekStart.toISOString().slice(0, 10)}`;
+
+        if (!grouped.has(key)) {
+          const providerName = `${job.provider?.first_name || ''} ${job.provider?.last_name || ''}`.trim() || 'Provider';
+          const initials = providerName
+            .split(' ')
+            .filter(Boolean)
+            .map((p: string) => p[0])
+            .slice(0, 2)
+            .join('')
+            .toUpperCase() || 'PR';
+          grouped.set(key, {
+            id: key,
+            provider: providerName,
+            providerId: job.provider_id,
+            amount: 0,
+            jobsCount: 0,
+            statuses: [] as string[],
+            latestDate: completedAt,
+            avatar: initials,
+            method: methodByProvider.get(job.provider_id) || 'Not set',
+          });
+        }
+
+        const row = grouped.get(key);
+        row.amount += Number(job.total_amount) || 0;
+        row.jobsCount += 1;
+        row.statuses.push(job.payment_status || 'unpaid');
+        if (completedAt > row.latestDate) row.latestDate = completedAt;
+      });
+
+      const mapped: Payout[] = Array.from(grouped.values()).map((row: any) => {
+        const status: 'completed' | 'pending' | 'failed' =
+          row.statuses.some((s: string) => s === 'failed') ? 'failed'
+          : row.statuses.every((s: string) => s === 'paid') ? 'completed'
+          : 'pending';
+        return {
+          id: row.id,
+          provider: row.provider,
+          providerId: row.providerId,
+          amount: row.amount,
+          status,
+          method: row.method,
+          date: row.latestDate.toLocaleDateString(),
+          jobsCount: row.jobsCount,
+          avatar: row.avatar,
+        };
+      });
+
+      setPayouts(mapped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    } catch (e) {
+      console.warn('Failed to load payout history:', e);
+      setPayouts([]);
+      setLoadError('Could not load payout history right now.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filteredPayouts = useMemo(() => {
+    return payouts.filter((p) => {
+      const matchesStatus = selectedStatus === 'all' || p.status === selectedStatus;
+      const query = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        p.provider.toLowerCase().includes(query) ||
+        p.providerId.toLowerCase().includes(query) ||
+        p.id.toLowerCase().includes(query);
+      return matchesStatus && matchesSearch;
+    });
+  }, [payouts, selectedStatus, searchQuery]);
 
   const stats = [
     { 
       label: 'Total Payouts (This Month)', 
-      value: '$124,500', 
-      count: '87 payouts',
+      value: `$${payouts.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}`,
+      count: `${payouts.length} payouts`,
       color: 'from-[#2EFFAF] to-[#00D68F]' 
     },
     { 
       label: 'Completed', 
-      value: '$118,200', 
-      count: '82 payouts',
+      value: `$${payouts.filter((p) => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}`,
+      count: `${payouts.filter((p) => p.status === 'completed').length} payouts`,
       color: 'from-[#007AFF] to-[#0051D5]' 
     },
     { 
       label: 'Pending', 
-      value: '$5,400', 
-      count: '4 payouts',
+      value: `$${payouts.filter((p) => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}`,
+      count: `${payouts.filter((p) => p.status === 'pending').length} payouts`,
       color: 'from-[#FFA500] to-[#FF8C00]' 
     },
     { 
       label: 'Failed', 
-      value: '$900', 
-      count: '1 payout',
+      value: `$${payouts.filter((p) => p.status === 'failed').reduce((sum, p) => sum + p.amount, 0).toFixed(2)}`,
+      count: `${payouts.filter((p) => p.status === 'failed').length} payouts`,
       color: 'from-[#FF6B6B] to-[#FF5252]' 
     },
   ];
@@ -205,10 +264,17 @@ export function AdminPayoutHistory() {
 
         {/* Payouts Table */}
         <div className="glass-light rounded-[24px] overflow-hidden">
-          {payouts.length === 0 ? (
+          {loading ? (
+            <div className="p-12 text-center">
+              <p className="text-white/60">Loading payout history...</p>
+            </div>
+          ) : loadError ? (
+            <div className="p-12 text-center">
+              <p className="text-red-300">{loadError}</p>
+            </div>
+          ) : filteredPayouts.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-white/60">No payout history</p>
-              <p className="text-white/40 text-sm mt-2">Payout system coming soon</p>
             </div>
           ) : (
           <div className="overflow-x-auto">
@@ -226,7 +292,7 @@ export function AdminPayoutHistory() {
                 </tr>
               </thead>
               <tbody>
-                {payouts.map((payout, index) => (
+                {filteredPayouts.map((payout, index) => (
                   <motion.tr
                     key={payout.id}
                     initial={{ opacity: 0, x: -20 }}
@@ -249,7 +315,7 @@ export function AdminPayoutHistory() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-[#2EFFAF] font-bold text-lg">{payout.amount}</span>
+                      <span className="text-[#2EFFAF] font-bold text-lg">${payout.amount.toFixed(2)}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-white/70">{payout.jobsCount} jobs</span>

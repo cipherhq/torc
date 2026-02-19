@@ -1,12 +1,17 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Plus, CreditCard, Check, Trash2, Shield, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, CreditCard, Check, Trash2, Shield, AlertCircle, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, CardElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import type { PaymentMethod as StripePaymentMethod, StripeCardElementOptions } from '@stripe/stripe-js';
 
-interface PaymentMethod {
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+
+interface SavedPaymentMethod {
   id: string;
   type: string;
   last4?: string;
@@ -16,21 +21,149 @@ interface PaymentMethod {
   is_default: boolean;
 }
 
+interface AddCardFormProps {
+  onCancel: () => void;
+  onSubmit: (paymentMethod: StripePaymentMethod) => Promise<void>;
+  saving: boolean;
+  isDark: boolean;
+  textColor: string;
+  subColor: string;
+  inputBg: string;
+  inputBorder: string;
+}
+
+function AddCardForm({
+  onCancel,
+  onSubmit,
+  saving,
+  isDark,
+  textColor,
+  subColor,
+  inputBg,
+  inputBorder,
+}: AddCardFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [name, setName] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
+
+  const cardOptions: StripeCardElementOptions = {
+    style: {
+      base: {
+        color: isDark ? '#FFFFFF' : '#1F2937',
+        fontSize: '15px',
+        '::placeholder': { color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' },
+      },
+      invalid: { color: '#EF4444' },
+    },
+  };
+
+  async function handleSubmit() {
+    if (!stripe || !elements) {
+      setErrors(['Stripe is still loading. Please wait a moment and try again.']);
+      return;
+    }
+    const card = elements.getElement(CardElement);
+    if (!card) {
+      setErrors(['Card input is not ready.']);
+      return;
+    }
+
+    setErrors([]);
+    const result = await stripe.createPaymentMethod({
+      type: 'card',
+      card,
+      billing_details: { name: name.trim() || undefined },
+    });
+
+    if (result.error) {
+      setErrors([result.error.message || 'Could not verify card details.']);
+      return;
+    }
+    if (!result.paymentMethod) {
+      setErrors(['Could not create payment method.']);
+      return;
+    }
+
+    try {
+      await onSubmit(result.paymentMethod);
+    } catch (e: any) {
+      setErrors([e?.message || 'Failed to save card.']);
+    }
+  }
+
+  return (
+    <>
+      {errors.length > 0 && (
+        <div className="mb-4 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
+          {errors.map((err, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+              <p className="text-red-500 text-sm">{err}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>Cardholder Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name on card"
+            className="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#2EFFAF]/50"
+            style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>Card Details *</label>
+          <div className="w-full px-4 py-3 rounded-xl" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}>
+            <CardElement options={cardOptions} />
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl p-3 flex gap-2"
+          style={{
+            backgroundColor: isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.05)',
+            border: `1px solid ${isDark ? 'rgba(0,122,255,0.2)' : 'rgba(0,122,255,0.1)'}`,
+          }}
+        >
+          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#007AFF' }} />
+          <p className="text-xs" style={{ color: subColor }}>Card details are tokenized by Stripe and never stored as raw numbers.</p>
+        </div>
+      </div>
+
+      <div className="flex gap-3 mt-5">
+        <button
+          onClick={onCancel}
+          className="flex-1 px-5 py-3 rounded-xl font-semibold text-sm"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: textColor }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={saving}
+          className="flex-1 px-5 py-3 rounded-xl font-bold text-sm text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save Card'}
+        </button>
+      </div>
+    </>
+  );
+}
+
 export function PaymentMethods() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [formErrors, setFormErrors] = useState<string[]>([]);
-  const [formData, setFormData] = useState({
-    cardNumber: '',
-    expiryDate: '',
-    cvv: '',
-    zipCode: '',
-    nickname: '',
-  });
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
 
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -41,10 +174,10 @@ export function PaymentMethods() {
 
   useEffect(() => {
     if (!user) return;
-    fetchPaymentMethods();
+    void fetchPaymentMethods();
   }, [user]);
 
-  const fetchPaymentMethods = async () => {
+  async function fetchPaymentMethods() {
     try {
       const { data, error } = await supabase
         .from('payment_methods')
@@ -55,83 +188,34 @@ export function PaymentMethods() {
       setPaymentMethods(data || []);
     } catch (e) {
       console.warn('Failed to load payment methods:', e);
+      setPaymentMethods([]);
     }
-  };
+  }
 
-  const formatCardNumber = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 16);
-    return digits.replace(/(.{4})/g, '$1 ').trim();
-  };
-
-  const formatExpiry = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 4);
-    if (digits.length >= 3) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-    return digits;
-  };
-
-  const detectBrand = (number: string) => {
-    const d = number.replace(/\D/g, '');
-    if (d.startsWith('4')) return 'Visa';
-    if (/^5[1-5]/.test(d) || /^2[2-7]/.test(d)) return 'Mastercard';
-    if (/^3[47]/.test(d)) return 'Amex';
-    if (/^6(?:011|5)/.test(d)) return 'Discover';
-    return 'Card';
-  };
-
-  const validateForm = (): string[] => {
-    const errs: string[] = [];
-    const digits = formData.cardNumber.replace(/\D/g, '');
-    if (digits.length < 13 || digits.length > 16) errs.push('Card number must be 13-16 digits');
-    const [mm, yy] = formData.expiryDate.split('/');
-    const month = parseInt(mm);
-    const year = parseInt('20' + (yy || ''));
-    if (!mm || !yy || month < 1 || month > 12) errs.push('Invalid expiry date (MM/YY)');
-    else {
-      const now = new Date();
-      const expiry = new Date(year, month);
-      if (expiry < now) errs.push('Card is expired');
-    }
-    if (formData.cvv.replace(/\D/g, '').length < 3) errs.push('CVV must be at least 3 digits');
-    if (!formData.zipCode.trim()) errs.push('ZIP code is required');
-    return errs;
-  };
-
-  const handleAddCard = async () => {
-    const errs = validateForm();
-    if (errs.length > 0) {
-      setFormErrors(errs);
-      return;
-    }
-    setFormErrors([]);
+  async function handleAddCard(paymentMethod: StripePaymentMethod) {
+    if (!user) throw new Error('You need to be signed in.');
     setSaving(true);
-
-    const digits = formData.cardNumber.replace(/\D/g, '');
-    const [mm, yy] = formData.expiryDate.split('/');
-
     try {
+      const card = paymentMethod.card;
       const { error } = await supabase.from('payment_methods').insert({
         user_id: user.id,
         type: 'card',
-        brand: detectBrand(digits),
-        last4: digits.slice(-4),
-        exp_month: parseInt(mm),
-        exp_year: parseInt('20' + yy),
+        brand: card?.brand ? card.brand[0].toUpperCase() + card.brand.slice(1) : 'Card',
+        last4: card?.last4 || null,
+        exp_month: card?.exp_month || null,
+        exp_year: card?.exp_year || null,
+        stripe_payment_method_id: paymentMethod.id,
         is_default: paymentMethods.length === 0,
       });
-
       if (error) throw error;
-
       setShowAddModal(false);
-      setFormData({ cardNumber: '', expiryDate: '', cvv: '', zipCode: '', nickname: '' });
       await fetchPaymentMethods();
-    } catch (e) {
-      console.error('Failed to save card:', e);
-      setFormErrors(['Failed to save card. Please try again.']);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-  };
+  }
 
-  const setDefaultMethod = async (id: string) => {
+  async function setDefaultMethod(id: string) {
     try {
       await supabase.from('payment_methods').update({ is_default: false }).eq('user_id', user.id);
       await supabase.from('payment_methods').update({ is_default: true }).eq('id', id);
@@ -139,20 +223,19 @@ export function PaymentMethods() {
     } catch (e) {
       console.warn('Failed to set default:', e);
     }
-  };
+  }
 
-  const deleteMethod = async (id: string) => {
+  async function deleteMethod(id: string) {
     try {
       await supabase.from('payment_methods').delete().eq('id', id);
       await fetchPaymentMethods();
     } catch (e) {
       console.warn('Failed to delete method:', e);
     }
-  };
+  }
 
   return (
     <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
-      {/* Header */}
       <div className="sticky top-0 z-10 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderBottom: `1px solid ${cardBorder}` }}>
         <div className="max-w-2xl mx-auto flex items-center gap-4">
           <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
@@ -166,17 +249,16 @@ export function PaymentMethods() {
       </div>
 
       <div className="max-w-2xl mx-auto p-6 space-y-5">
-        {/* Security Banner */}
         <div className="rounded-2xl p-4 flex gap-3" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.05)', border: `1px solid ${isDark ? 'rgba(0,122,255,0.3)' : 'rgba(0,122,255,0.15)'}` }}>
           <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#007AFF' }} />
           <div>
             <h3 className="font-semibold text-sm mb-1" style={{ color: textColor }}>Secure Payments</h3>
-            <p className="text-xs" style={{ color: subColor }}>Your payment information is encrypted and securely stored.</p>
+            <p className="text-xs" style={{ color: subColor }}>Cards are securely tokenized by Stripe.</p>
           </div>
         </div>
 
-        {/* Add Payment Button */}
-        <button onClick={() => { setShowAddModal(true); setFormErrors([]); }}
+        <button
+          onClick={() => setShowAddModal(true)}
           className="w-full rounded-2xl p-5 border-2 border-dashed flex items-center justify-center gap-3 transition-all hover:border-[#2EFFAF]/50"
           style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}
         >
@@ -186,7 +268,6 @@ export function PaymentMethods() {
           <span className="font-semibold" style={{ color: textColor }}>Add Payment Method</span>
         </button>
 
-        {/* Payment Methods List */}
         {paymentMethods.length > 0 ? (
           <div className="space-y-3">
             {paymentMethods.map((method) => (
@@ -234,7 +315,6 @@ export function PaymentMethods() {
         )}
       </div>
 
-      {/* Add Card Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAddModal(false)}>
           <motion.div
@@ -244,101 +324,24 @@ export function PaymentMethods() {
             className="rounded-t-3xl md:rounded-3xl p-6 w-full md:max-w-md max-h-[90vh] overflow-y-auto"
             style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF' }}
           >
-            <h2 className="font-bold text-xl mb-5" style={{ color: textColor }}>Add Credit Card</h2>
-
-            {formErrors.length > 0 && (
-              <div className="mb-4 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
-                {formErrors.map((err, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-                    <p className="text-red-500 text-sm">{err}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>Card Number *</label>
-                <input
-                  type="text"
-                  value={formData.cardNumber}
-                  onChange={(e) => setFormData({ ...formData, cardNumber: formatCardNumber(e.target.value) })}
-                  placeholder="1234 5678 9012 3456"
-                  maxLength={19}
-                  className="w-full px-4 py-3 rounded-xl text-sm outline-none font-mono focus:ring-2 focus:ring-[#2EFFAF]/50"
-                  style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>Expiry *</label>
-                  <input
-                    type="text"
-                    value={formData.expiryDate}
-                    onChange={(e) => setFormData({ ...formData, expiryDate: formatExpiry(e.target.value) })}
-                    placeholder="MM/YY"
-                    maxLength={5}
-                    className="w-full px-4 py-3 rounded-xl text-sm outline-none font-mono focus:ring-2 focus:ring-[#2EFFAF]/50"
-                    style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>CVV *</label>
-                  <input
-                    type="text"
-                    value={formData.cvv}
-                    onChange={(e) => setFormData({ ...formData, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                    placeholder="123"
-                    maxLength={4}
-                    className="w-full px-4 py-3 rounded-xl text-sm outline-none font-mono focus:ring-2 focus:ring-[#2EFFAF]/50"
-                    style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>ZIP Code *</label>
-                <input
-                  type="text"
-                  value={formData.zipCode}
-                  onChange={(e) => setFormData({ ...formData, zipCode: e.target.value.replace(/\D/g, '').slice(0, 5) })}
-                  placeholder="94103"
-                  maxLength={5}
-                  className="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#2EFFAF]/50"
-                  style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
-                />
-              </div>
-
-              <div>
-                <label className="text-sm mb-1.5 block font-medium" style={{ color: subColor }}>Nickname (Optional)</label>
-                <input
-                  type="text"
-                  value={formData.nickname}
-                  onChange={(e) => setFormData({ ...formData, nickname: e.target.value })}
-                  placeholder="Personal Card"
-                  className="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#2EFFAF]/50"
-                  style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
-                />
-              </div>
-
-              <div className="rounded-xl p-3 flex gap-2" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.05)', border: `1px solid ${isDark ? 'rgba(0,122,255,0.2)' : 'rgba(0,122,255,0.1)'}` }}>
-                <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#007AFF' }} />
-                <p className="text-xs" style={{ color: subColor }}>Your card info is encrypted with bank-level security via Stripe.</p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowAddModal(false)} className="flex-1 px-5 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: textColor }}>
-                Cancel
-              </button>
-              <button onClick={handleAddCard} disabled={saving}
-                className="flex-1 px-5 py-3 rounded-xl font-bold text-sm text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Add Card'}
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-bold text-xl" style={{ color: textColor }}>Add Credit Card</h2>
+              <button onClick={() => setShowAddModal(false)} title="Close">
+                <X className="w-5 h-5" style={{ color: subColor }} />
               </button>
             </div>
+            <Elements stripe={stripePromise}>
+              <AddCardForm
+                onCancel={() => setShowAddModal(false)}
+                onSubmit={handleAddCard}
+                saving={saving}
+                isDark={isDark}
+                textColor={textColor}
+                subColor={subColor}
+                inputBg={inputBg}
+                inputBorder={inputBorder}
+              />
+            </Elements>
           </motion.div>
         </div>
       )}
