@@ -2,20 +2,35 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 
 const INTRO_KEY = 'torc_user_intro_seen_v1';
 
 export function Splash() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
+  const { isAuthenticated, loading, profile } = useAuth();
 
   useEffect(() => {
+    // Wait for auth to finish loading before deciding where to go
+    if (loading) return;
+
     const timer = setTimeout(() => {
-      const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
-      navigate(hasSeenIntro ? '/login' : '/intro/user');
-    }, 3000);
+      if (isAuthenticated) {
+        // Already logged in — go straight to home
+        const role = profile?.role;
+        if (role === 'admin') {
+          navigate('/admin', { replace: true });
+        } else {
+          navigate('/customer/home', { replace: true });
+        }
+      } else {
+        const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
+        navigate(hasSeenIntro ? '/login' : '/intro/user', { replace: true });
+      }
+    }, isAuthenticated ? 500 : 3000); // Shorter delay if already authenticated
     return () => clearTimeout(timer);
-  }, [navigate]);
+  }, [navigate, loading, isAuthenticated, profile]);
 
   return (
     <div

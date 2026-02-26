@@ -1,14 +1,21 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { Mail, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 
 export function ProviderLogin() {
   const navigate = useNavigate();
-  const { signIn } = useAuth();
+  const { signIn, isAuthenticated, loading: authLoading } = useAuth();
   const { isDark } = useTheme();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      navigate('/home', { replace: true });
+    }
+  }, [authLoading, isAuthenticated, navigate]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

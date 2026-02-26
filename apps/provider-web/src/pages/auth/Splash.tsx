@@ -2,20 +2,28 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 
 const INTRO_KEY = 'torc_provider_intro_seen_v1';
 
 export function Splash() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
+  const { isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
+    if (loading) return;
+
     const timer = setTimeout(() => {
-      const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
-      navigate(hasSeenIntro ? '/login' : '/intro/provider');
-    }, 3000);
+      if (isAuthenticated) {
+        navigate('/home', { replace: true });
+      } else {
+        const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
+        navigate(hasSeenIntro ? '/login' : '/intro/provider', { replace: true });
+      }
+    }, isAuthenticated ? 500 : 3000);
     return () => clearTimeout(timer);
-  }, [navigate]);
+  }, [navigate, loading, isAuthenticated]);
 
   return (
     <div
