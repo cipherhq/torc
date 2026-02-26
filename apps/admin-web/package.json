@@ -10,10 +10,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",
-    "@torc/api": "*",
-    "@torc/types": "*",
-    "@torc/ui": "*",
-    "@torc/utils": "*",
     "lucide-react": "^0.487.0",
     "motion": "*",
     "react": "^18.3.1",
