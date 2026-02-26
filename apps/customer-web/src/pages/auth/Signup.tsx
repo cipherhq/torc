@@ -4,6 +4,7 @@ import { ArrowLeft, User, Mail, Phone, Lock, AlertCircle, Eye, EyeOff } from 'lu
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
 export function Signup() {
   const navigate = useNavigate();
@@ -67,12 +68,11 @@ export function Signup() {
       const { supabase } = await import('../../lib/supabase');
       const phone = String(formData.phone).trim();
       const phoneFormatted = phone && !phone.startsWith('+') ? `+1${phone.replace(/\D/g, '')}` : phone;
-      const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${siteUrl}/auth/callback`,
+          emailRedirectTo: getAuthCallbackUrl(),
           data: {
             first_name: String(formData.firstName).trim(),
             last_name: String(formData.lastName).trim(),

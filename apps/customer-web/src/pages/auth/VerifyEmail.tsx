@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { Mail, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
 export function VerifyEmail() {
   const navigate = useNavigate();
@@ -18,6 +19,9 @@ export function VerifyEmail() {
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: email,
+        options: {
+          emailRedirectTo: getAuthCallbackUrl(),
+        },
       });
       
       if (error) throw error;

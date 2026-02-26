@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, MapPin, Clock, DollarSign, Star, Download, Calendar, Filter, Loader2 } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, DollarSign, Star, Download, Calendar } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -24,35 +24,74 @@ export function ServiceHistory() {
   const [filter, setFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) { setLoading(false); return; }
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     async function load() {
       try {
-        const { data, error } = await supabase
+        setLoadError(null);
+
+        const { data: jobs, error: jobsError } = await supabase
           .from('jobs')
-          .select('*, service:services(*), provider:profiles!jobs_provider_id_fkey(*)')
-          .eq('customer_id', user!.id)
+          .select('id, created_at, completed_at, status, service_id, provider_id, pickup_address, total_amount, base_price, tip, rating')
+          .eq('customer_id', user.id)
           .in('status', ['completed', 'cancelled'])
           .order('created_at', { ascending: false });
 
-        if (!error && data) {
-          setServices(data.map((j: any) => ({
-            id: j.id?.slice(0, 8)?.toUpperCase() || '-',
-            date: new Date(j.completed_at || j.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            service: j.service?.name || j.service_id || 'Service',
-            provider: j.provider ? `${j.provider.first_name || ''} ${j.provider.last_name || ''}`.trim() : 'Provider',
-            location: j.pickup_address || '-',
-            amount: j.total_amount || j.base_price || 0,
-            tip: j.tip || 0,
-            rating: j.rating || 0,
-            status: j.status,
-          })));
+        if (jobsError) throw jobsError;
+
+        const rows = jobs || [];
+        const serviceIds = Array.from(new Set(rows.map((j: any) => j.service_id).filter(Boolean)));
+        const providerIds = Array.from(new Set(rows.map((j: any) => j.provider_id).filter(Boolean)));
+
+        const [servicesRes, providersRes] = await Promise.all([
+          serviceIds.length
+            ? supabase.from('services').select('id, name').in('id', serviceIds)
+            : Promise.resolve({ data: [], error: null } as any),
+          providerIds.length
+            ? supabase.from('profiles').select('id, first_name, last_name').in('id', providerIds)
+            : Promise.resolve({ data: [], error: null } as any),
+        ]);
+
+        const serviceById = new Map<string, string>();
+        if (!servicesRes.error) {
+          for (const row of servicesRes.data || []) {
+            serviceById.set(row.id, row.name || 'Service');
+          }
         }
-      } catch (e) { console.warn('Failed to load service history:', e); }
-      finally { setLoading(false); }
+
+        const providerById = new Map<string, string>();
+        if (!providersRes.error) {
+          for (const row of providersRes.data || []) {
+            const fullName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
+            providerById.set(row.id, fullName || 'Provider');
+          }
+        }
+
+        setServices(rows.map((j: any) => ({
+          id: j.id || '-',
+          date: new Date(j.completed_at || j.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          service: serviceById.get(j.service_id) || j.service_id || 'Service',
+          provider: providerById.get(j.provider_id) || 'Provider',
+          location: j.pickup_address || '-',
+          amount: Number(j.total_amount || j.base_price || 0),
+          tip: Number(j.tip || 0),
+          rating: Number(j.rating || 0),
+          status: j.status,
+        })));
+      } catch (e: any) {
+        console.warn('Failed to load service history:', e);
+        setServices([]);
+        setLoadError(e?.message || 'Could not load service history right now.');
+      } finally {
+        setLoading(false);
+      }
     }
-    load();
+    void load();
   }, [user]);
 
   // Services loaded from Supabase in useEffect above
@@ -87,6 +126,12 @@ export function ServiceHistory() {
       </div>
 
       <div className="max-w-2xl mx-auto p-6 space-y-6">
+        {loadError && (
+          <div className="glass rounded-[20px] p-4 border border-red-400/30">
+            <p className="text-red-300 text-sm">{loadError}</p>
+          </div>
+        )}
+
         {/* Stats Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

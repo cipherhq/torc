@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
 import { registerNativePushForUser, deactivateNativePushToken } from '../utils/nativePush';
+import { getAuthCallbackUrl } from '../lib/authRedirectUrl';
 
 const AuthContext = createContext({});
 
@@ -135,12 +136,11 @@ export function AuthProvider({ children }) {
   };
 
   const signUp = async (email, password, userData = {}) => {
-    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
+        emailRedirectTo: getAuthCallbackUrl(),
         data: userData,
       },
     });
@@ -149,9 +149,8 @@ export function AuthProvider({ children }) {
   };
 
   const resetPasswordForEmail = async (email) => {
-    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${siteUrl}/auth/callback`,
+      redirectTo: getAuthCallbackUrl(),
     });
     if (error) throw error;
     return data;

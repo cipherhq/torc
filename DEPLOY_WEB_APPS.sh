@@ -1,13 +1,17 @@
 #!/bin/bash
 
-echo "🚀 TORC Web Apps - Vercel Deployment"
-echo "===================================="
+echo "🚀 TORC Demo Release - Vercel Deployment"
+echo "========================================"
 echo ""
-echo "Your PRODUCTION-READY web apps:"
-echo "  ✅ Customer Web (localhost:7000)"
-echo "  ✅ Provider Web (localhost:7001)"
+echo "Apps:"
+echo "  ✅ Website + Admin (/admin)"
+echo "  ✅ Customer Web"
+echo "  ✅ Provider Web"
 echo ""
-echo "-----------------------------------"
+echo "Ports (local dev):"
+echo "  - Customer: http://localhost:7010"
+echo "  - Provider: http://localhost:7001"
+echo "  - Website:  http://localhost:8083"
 echo ""
 
 # Function to deploy an app
@@ -18,7 +22,7 @@ deploy_app() {
     echo "📦 Deploying $app_name..."
     echo "   Path: $app_path"
     cd "$app_path" || exit 1
-    vercel --prod
+    vercel --prod --yes
     echo ""
     echo "✅ $app_name deployed!"
     echo ""
@@ -27,25 +31,30 @@ deploy_app() {
 # Ask which app to deploy
 echo "Which app would you like to deploy?"
 echo ""
-echo "1) Customer Web (for end users)"
-echo "2) Provider Web (for service providers)"
-echo "3) Both (recommended!)"
+echo "1) Website + Admin"
+echo "2) Customer Web"
+echo "3) Provider Web"
+echo "4) All apps (recommended)"
 echo ""
-read -p "Enter choice (1, 2, or 3): " choice
+read -p "Enter choice (1, 2, 3, or 4): " choice
 
 BASE_PATH="/Users/bajideace/Desktop/torc/apps"
 
 case $choice in
     1)
-        deploy_app "Customer Web" "$BASE_PATH/customer-web"
+        deploy_app "Website + Admin" "$BASE_PATH/website"
         ;;
     2)
-        deploy_app "Provider Web" "$BASE_PATH/provider-web"
+        deploy_app "Customer Web" "$BASE_PATH/customer-web"
         ;;
     3)
+        deploy_app "Provider Web" "$BASE_PATH/provider-web"
+        ;;
+    4)
+        deploy_app "Website + Admin" "$BASE_PATH/website"
         deploy_app "Customer Web" "$BASE_PATH/customer-web"
         deploy_app "Provider Web" "$BASE_PATH/provider-web"
-        echo "🎉 Both apps deployed successfully!"
+        echo "🎉 All apps deployed successfully!"
         ;;
     *)
         echo "❌ Invalid choice. Please run the script again."
@@ -57,7 +66,13 @@ echo ""
 echo "🎊 Deployment complete!"
 echo ""
 echo "Next steps:"
-echo "  1. Visit your Vercel dashboard to see the live URLs"
-echo "  2. Test your deployed apps"
-echo "  3. Share the links with your users!"
+echo "  1. Copy production URLs from Vercel output/dashboard"
+echo "  2. Set env vars in each project:"
+echo "     - VITE_SUPABASE_URL"
+echo "     - VITE_SUPABASE_ANON_KEY"
+echo "     - VITE_GOOGLE_MAPS_API_KEY (customer/provider)"
+echo "     - VITE_STRIPE_PUBLISHABLE_KEY (customer)"
+echo "     - VITE_APP_URL (each app's public URL)"
+echo "  3. Redeploy after env vars are set"
+echo "  4. Share demo links"
 echo ""

@@ -4,6 +4,7 @@ import { ArrowLeft, Mail, AlertCircle, CheckCircle, KeyRound } from 'lucide-reac
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
 export function ForgotPassword() {
   const navigate = useNavigate();
@@ -25,9 +26,8 @@ export function ForgotPassword() {
 
     setLoading(true);
     try {
-      const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
       const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
-        redirectTo: `${siteUrl}/auth/callback`,
+        redirectTo: getAuthCallbackUrl(),
       });
       if (error) throw error;
       setSent(true);

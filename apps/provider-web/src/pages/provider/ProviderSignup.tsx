@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { ArrowLeft, User, Mail, Phone, Lock, Building2, Eye, EyeOff, AlertCircle, UserCircle, Briefcase } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
 export function ProviderSignup() {
   const navigate = useNavigate();
@@ -54,12 +55,11 @@ export function ProviderSignup() {
       const phone = String(formData.phone).trim();
       const phoneFormatted = phone && !phone.startsWith('+') ? `+1${phone.replace(/\D/g, '')}` : phone;
 
-      const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${siteUrl}/auth/callback`,
+          emailRedirectTo: getAuthCallbackUrl(),
           data: {
             first_name: String(formData.firstName).trim(),
             last_name: String(formData.lastName).trim(),

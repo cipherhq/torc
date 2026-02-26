@@ -21,7 +21,7 @@
         "NSPhotoLibraryUsageDescription": "Select photos of your vehicle for service requests.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.bajide18.mobile",
+      "bundleIdentifier": "com.torc.mobile",
       "config": {
         "googleMapsApiKey": "REPLACE_WITH_YOUR_GOOGLE_MAPS_API_KEY"
       },
@@ -38,7 +38,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.bajide18.mobile",
+      "package": "com.torc.mobile",
       "permissions": [
         "POST_NOTIFICATIONS",
         "VIBRATE",

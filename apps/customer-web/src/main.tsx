@@ -7,6 +7,7 @@ import { LocationProvider } from './context/LocationContext';
 import { JobProvider } from './context/JobContext';
 import { GoogleMapsProvider } from './context/GoogleMapsContext';
 import "./index.css";
+import "./styles/viewport.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

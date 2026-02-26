@@ -1,0 +1,39 @@
+:root {
+  --safe-top-env: env(safe-area-inset-top, 0px);
+  --safe-bottom-env: env(safe-area-inset-bottom, 0px);
+  --safe-left-env: env(safe-area-inset-left, 0px);
+  --safe-right-env: env(safe-area-inset-right, 0px);
+
+  --safe-top: var(--safe-top-env);
+  --safe-bottom: var(--safe-bottom-env);
+  --safe-left: var(--safe-left-env);
+  --safe-right: var(--safe-right-env);
+
+  --app-height: 100dvh;
+  --app-width: 100vw;
+}
+
+@supports not (height: 100dvh) {
+  :root {
+    --app-height: 100vh;
+  }
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: var(--app-height);
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.h-screen {
+  height: var(--app-height) !important;
+}
+
+.min-h-screen {
+  min-height: var(--app-height) !important;
+}

@@ -23,7 +23,7 @@ export function ProviderBottomNav() {
     <div className="fixed bottom-0 left-0 right-0 z-50">
       <div className="px-4 py-3 backdrop-blur-xl"
         style={{
-          paddingBottom: 'max(calc(12px + env(safe-area-inset-bottom, 0px)), 28px)',
+          paddingBottom: 'max(calc(12px + var(--safe-bottom, 0px)), 28px)',
           backgroundColor: isDark ? 'rgba(15,20,25,0.85)' : 'rgba(255,255,255,0.92)',
           borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
         }}

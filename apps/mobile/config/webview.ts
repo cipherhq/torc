@@ -21,9 +21,9 @@ export const WEBVIEW_LOCAL_CANDIDATES = {
 } as const;
 
 export const WEBVIEW_PROD_URLS = {
-  customer: 'https://app.torcservices.com',
-  provider: 'https://provider.torcservices.com',
-  admin: 'https://www.torcapp.com/admin',
+  customer: 'https://customer-web-rho-three.vercel.app',
+  provider: 'https://provider-web-zeta.vercel.app',
+  admin: 'https://admin-web-black-eight.vercel.app',
 } as const;
 
 export const WEBVIEW_URLS = {

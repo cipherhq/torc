@@ -12,8 +12,18 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
       :root {
-        --safe-top: max(env(safe-area-inset-top, 0px), 54px);
-        --safe-bottom: max(env(safe-area-inset-bottom, 0px), 20px);
+        --safe-top-env: env(safe-area-inset-top, 0px);
+        --safe-bottom-env: env(safe-area-inset-bottom, 0px);
+        --safe-left-env: env(safe-area-inset-left, 0px);
+        --safe-right-env: env(safe-area-inset-right, 0px);
+
+        --safe-top: var(--safe-top-env);
+        --safe-bottom: var(--safe-bottom-env);
+        --safe-left: var(--safe-left-env);
+        --safe-right: var(--safe-right-env);
+
+        --app-height: 100dvh;
+        --app-width: 100vw;
       }
       *, *:focus, *:focus-visible, *:focus-within {
         outline: none !important;

@@ -17,7 +17,7 @@ export function CustomerBottomNav() {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50">
       <div className="glass-light border-t border-white/20 px-4 py-3"
-        style={{ paddingBottom: 'max(calc(12px + env(safe-area-inset-bottom, 0px)), 28px)' }}
+        style={{ paddingBottom: 'max(calc(12px + var(--safe-bottom, 0px)), 28px)' }}
       >
         <div className="flex items-center justify-around max-w-lg mx-auto">
           {tabs.map((tab) => {
