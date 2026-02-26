@@ -12,7 +12,7 @@ export function AppSelector() {
       description: 'Mobile customer experience',
       icon: User,
       path: '/home',
-      gradient: 'from-[#2EFFAF] to-[#007AFF]',
+      gradient: 'from-[#008CE5] to-[#0070B8]',
     },
     {
       id: 'provider',
@@ -20,7 +20,7 @@ export function AppSelector() {
       description: 'Driver dispatch & earnings',
       icon: Truck,
       path: '/provider/home',
-      gradient: 'from-[#007AFF] to-[#2EFFAF]',
+      gradient: 'from-[#0070B8] to-[#008CE5]',
     },
     {
       id: 'admin',
@@ -28,7 +28,7 @@ export function AppSelector() {
       description: 'Operations & management',
       icon: Shield,
       path: '/admin',
-      gradient: 'from-[#2EFFAF] to-[#007AFF]',
+      gradient: 'from-[#008CE5] to-[#0070B8]',
     },
     {
       id: 'website',
@@ -36,7 +36,7 @@ export function AppSelector() {
       description: 'Marketing & information',
       icon: Globe,
       path: '/website',
-      gradient: 'from-[#007AFF] to-[#2EFFAF]',
+      gradient: 'from-[#0070B8] to-[#008CE5]',
     },
   ];
 
@@ -44,8 +44,8 @@ export function AppSelector() {
     <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#0070B8] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       <div className="relative z-10 w-full max-w-4xl">
@@ -91,7 +91,7 @@ export function AppSelector() {
                 <p className="text-white/60">{app.description}</p>
 
                 {/* Arrow */}
-                <svg className="absolute bottom-8 right-8 w-6 h-6 text-[#2EFFAF] group-hover:translate-x-2 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="absolute bottom-8 right-8 w-6 h-6 text-[#008CE5] group-hover:translate-x-2 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </motion.button>

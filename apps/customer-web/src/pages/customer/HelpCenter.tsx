@@ -21,7 +21,7 @@ export function HelpCenter() {
     {
       icon: Zap,
       title: 'Getting Started',
-      color: 'from-[#2EFFAF] to-[#007AFF]',
+      color: 'from-[#008CE5] to-[#0070B8]',
       articles: [
         'How to request roadside assistance',
         'Understanding service pricing',
@@ -80,7 +80,7 @@ export function HelpCenter() {
       icon: MessageCircle,
       title: 'Create Ticket',
       description: 'Send a support request',
-      color: 'from-[#2EFFAF] to-[#007AFF]',
+      color: 'from-[#008CE5] to-[#0070B8]',
       action: () => {
         const form = document.getElementById('support-ticket-form');
         form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -96,9 +96,9 @@ export function HelpCenter() {
     {
       icon: Mail,
       title: 'Email',
-      description: 'support@torc.com',
+      description: 'support@torcapp.com',
       color: 'from-purple-400 to-pink-500',
-      action: () => { window.location.href = 'mailto:support@torc.com'; },
+      action: () => { window.location.href = 'mailto:support@torcapp.com'; },
     },
   ];
 
@@ -186,7 +186,7 @@ export function HelpCenter() {
     <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
       {/* Header */}
       <div className="glass-light border-b border-white/10 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto p-6">
+        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-4">
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -209,7 +209,7 @@ export function HelpCenter() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search for help..."
-              className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[20px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+              className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[20px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
             />
           </div>
         </div>
@@ -245,7 +245,7 @@ export function HelpCenter() {
         </div>
 
         {/* Create ticket */}
-        <div id="support-ticket-form" className="glass-light rounded-[24px] p-6 border border-[#2EFFAF]/20">
+        <div id="support-ticket-form" className="glass-light rounded-[24px] p-6 border border-[#008CE5]/20">
           <h2 className="text-white font-bold text-lg mb-1">Create Support Request</h2>
           <p className="text-white/60 text-sm mb-4">Send an issue to support with details so we can help quickly.</p>
 
@@ -257,7 +257,7 @@ export function HelpCenter() {
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="e.g., Charged twice for a completed job"
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
               />
             </div>
             <div>
@@ -266,7 +266,7 @@ export function HelpCenter() {
                 title="Ticket priority"
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high' | 'urgent')}
-                className="w-full px-4 py-3 bg-[#1E2433] border border-white/10 rounded-[14px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+                className="w-full px-4 py-3 bg-[#1E2433] border border-white/10 rounded-[14px] text-white focus:outline-none focus:border-[#008CE5]/50"
               >
                 <option value="low">Low</option>
                 <option value="normal">Normal</option>
@@ -281,7 +281,7 @@ export function HelpCenter() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe your issue in detail..."
                 rows={4}
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
               />
             </div>
             <motion.button
@@ -289,7 +289,7 @@ export function HelpCenter() {
               whileTap={{ scale: 0.99 }}
               onClick={submitSupportTicket}
               disabled={submitting}
-              className="w-full py-3 rounded-[16px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold disabled:opacity-60"
+              className="w-full py-3 rounded-[16px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold disabled:opacity-60"
             >
               {submitting ? 'Submitting...' : 'Submit Support Request'}
             </motion.button>
@@ -376,7 +376,7 @@ export function HelpCenter() {
                 className="glass-light rounded-[20px] p-5"
               >
                 <div className="flex gap-3 mb-2">
-                  <HelpCircle className="w-5 h-5 text-[#2EFFAF] flex-shrink-0 mt-0.5" />
+                  <HelpCircle className="w-5 h-5 text-[#008CE5] flex-shrink-0 mt-0.5" />
                   <div>
                     <h3 className="text-white font-bold mb-2">{faq.question}</h3>
                     <p className="text-white/70 text-sm leading-relaxed">{faq.answer}</p>
@@ -392,7 +392,7 @@ export function HelpCenter() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8 }}
-          className="glass rounded-[24px] p-6 border border-[#2EFFAF]/30 text-center"
+          className="glass rounded-[24px] p-6 border border-[#008CE5]/30 text-center"
         >
           <h3 className="text-white font-bold text-lg mb-2">Still need help?</h3>
           <p className="text-white/70 text-sm mb-4">
@@ -405,7 +405,7 @@ export function HelpCenter() {
               const form = document.getElementById('support-ticket-form');
               form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }}
-            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold"
+            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold"
           >
             Create Support Ticket
           </motion.button>

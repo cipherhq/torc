@@ -260,12 +260,12 @@ export function AdminPayments() {
 
         <div className="grid grid-cols-3 gap-6 mb-8">
           <div className="bg-white rounded-3xl p-6 shadow-lg">
-            <DollarSign className="w-10 h-10 text-[#2EFFAF] mb-3" />
+            <DollarSign className="w-10 h-10 text-[#008CE5] mb-3" />
             <p className="text-gray-600 text-sm">Today&apos;s Revenue</p>
             <p className="text-3xl font-bold text-gray-900">{money(stats.todayRevenue)}</p>
           </div>
           <div className="bg-white rounded-3xl p-6 shadow-lg">
-            <TrendingUp className="w-10 h-10 text-[#007AFF] mb-3" />
+            <TrendingUp className="w-10 h-10 text-[#0070B8] mb-3" />
             <p className="text-gray-600 text-sm">Pending Refunds</p>
             <p className="text-3xl font-bold text-gray-900">{stats.pendingRefundsCount}</p>
           </div>

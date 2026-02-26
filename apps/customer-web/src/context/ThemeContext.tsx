@@ -28,6 +28,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       root.classList.remove('dark');
     }
     localStorage.setItem('torc-theme', theme);
+
+    // Update status bar cover to match theme
+    const cover = document.getElementById('status-bar-cover');
+    if (cover) {
+      cover.style.backgroundColor = theme === 'dark' ? '#0F1419' : '#FAF8F5';
+      cover.style.borderBottom = theme === 'dark'
+        ? '1px solid rgba(255,255,255,0.08)'
+        : '1px solid #E8E4DE';
+    }
   }, [theme]);
 
   const toggleTheme = () => {

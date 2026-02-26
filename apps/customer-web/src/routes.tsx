@@ -33,6 +33,7 @@ import { PersonalInfo } from "./pages/customer/PersonalInfo";
 import { Vehicles } from "./pages/customer/Vehicles";
 import { AccountSecurity } from "./pages/customer/AccountSecurity";
 import { CustomerMessages } from "./pages/customer/Messages";
+import { CustomerReporting } from "./pages/customer/Reporting";
 import { NotFound } from "./pages/NotFound";
 import { Navigate } from "react-router";
 import { AppSelector } from "./pages/AppSelector";
@@ -65,20 +66,6 @@ import { WebsitePricing } from "./pages/website/Pricing";
 import { WebsiteBecomeProvider } from "./pages/website/BecomeProvider";
 import { WebsiteHelp } from "./pages/website/Help";
 
-// Provider routes (mirrored in customer-web build)
-import { ProviderOnboarding } from "./pages/provider/ProviderOnboarding";
-import { ProviderServiceSelection } from "./pages/provider/ServiceSelection";
-import { ProviderDocuments } from "./pages/provider/Documents";
-import { PayoutSetup } from "./pages/provider/PayoutSetup";
-import { VerificationPending } from "./pages/provider/VerificationPending";
-import { ProviderHome } from "./pages/provider/ProviderHome";
-import { JobRequest } from "./pages/provider/JobRequest";
-import { JobActive } from "./pages/provider/JobActive";
-import { JobComplete } from "./pages/provider/JobComplete";
-import { ProviderEarnings } from "./pages/provider/Earnings";
-import { ProviderProfile } from "./pages/provider/ProviderProfile";
-import { ProviderServices } from "./pages/provider/Services";
-import { ProviderBankAccounts } from "./pages/provider/BankAccounts";
 import { ProtectedRoute } from "./context/AuthContext";
 
 export const router = createBrowserRouter([
@@ -179,6 +166,10 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute requiredRole="customer"><CustomerMessages /></ProtectedRoute>,
   },
   {
+    path: "/customer/reporting",
+    element: <ProtectedRoute requiredRole="customer"><CustomerReporting /></ProtectedRoute>,
+  },
+  {
     path: "/who-needs-help",
     element: <ProtectedRoute requiredRole="customer"><WhoNeedsHelp /></ProtectedRoute>,
   },
@@ -238,62 +229,10 @@ export const router = createBrowserRouter([
     path: "/shop/:shopId",
     element: <ProtectedRoute requiredRole="customer"><ShopDetail /></ProtectedRoute>,
   },
-  // Provider routes
+  // Provider app is served from provider-web to avoid duplicated runtime paths.
   {
-    path: "/provider",
-    element: <Navigate to="/provider/onboarding" replace />,
-  },
-  {
-    path: "/provider/onboarding",
-    Component: ProviderOnboarding,
-  },
-  {
-    path: "/provider/services",
-    Component: ProviderServiceSelection,
-  },
-  {
-    path: "/provider/documents",
-    Component: ProviderDocuments,
-  },
-  {
-    path: "/provider/payout-setup",
-    Component: PayoutSetup,
-  },
-  {
-    path: "/provider/verification-pending",
-    Component: VerificationPending,
-  },
-  {
-    path: "/provider/home",
-    element: <ProtectedRoute requiredRole="provider"><ProviderHome /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/request/:requestId",
-    element: <ProtectedRoute requiredRole="provider"><JobRequest /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/job/:jobId",
-    element: <ProtectedRoute requiredRole="provider"><JobActive /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/complete/:jobId",
-    element: <ProtectedRoute requiredRole="provider"><JobComplete /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/earnings",
-    element: <ProtectedRoute requiredRole="provider"><ProviderEarnings /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/profile",
-    element: <ProtectedRoute requiredRole="provider"><ProviderProfile /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/services-list",
-    element: <ProtectedRoute requiredRole="provider"><ProviderServices /></ProtectedRoute>,
-  },
-  {
-    path: "/provider/bank-accounts",
-    element: <ProtectedRoute requiredRole="provider"><ProviderBankAccounts /></ProtectedRoute>,
+    path: "/provider/*",
+    element: <Navigate to="/apps" replace />,
   },
 
   // Admin routes

@@ -10,11 +10,13 @@ import { supabase } from '../lib/supabase';
  */
 export async function signUp(email, password, userData = {}) {
   try {
+    const siteUrl = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://www.torcapp.com');
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: userData, // Additional user metadata
+        emailRedirectTo: `${siteUrl}/auth/callback`,
+        data: userData,
       },
     });
 
@@ -144,8 +146,9 @@ export async function updateProfile(updates) {
  */
 export async function resetPassword(email) {
   try {
+    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${siteUrl}/auth/callback`,
     });
 
     if (error) throw error;

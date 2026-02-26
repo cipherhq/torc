@@ -63,13 +63,13 @@ function IconField({
   return (
     <div
       className="w-full rounded-xl px-3 py-2 flex items-center gap-2.5"
-      style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB'}`, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }}
+      style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#E8E4DE'}`, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }}
     >
       <div
         className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: isDark ? 'rgba(46,255,175,0.14)' : 'rgba(46,255,175,0.12)' }}
+        style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.14)' : 'rgba(0,140,229,0.12)' }}
       >
-        <Icon className="w-4 h-4" style={{ color: '#2EFFAF' }} />
+        <Icon className="w-4 h-4" style={{ color: '#008CE5' }} />
       </div>
       <input
         type={type}
@@ -250,11 +250,11 @@ export function PayoutSetup() {
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#2EFFAF', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />
+        <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#008CE5', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />
       </div>
 
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
         </motion.button>
@@ -262,9 +262,9 @@ export function PayoutSetup() {
       </div>
 
       <div className="relative z-10 flex-1 px-6 pb-8">
-        <div className="rounded-2xl p-5 mb-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+        <div className="rounded-2xl p-5 mb-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
           <div className="flex items-center gap-3 mb-2">
-            <DollarSign className="w-5 h-5 text-[#2EFFAF]" />
+            <DollarSign className="w-5 h-5 text-[#008CE5]" />
             <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>How you get paid</p>
           </div>
           <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : '#6B7280' }}>
@@ -294,13 +294,13 @@ export function PayoutSetup() {
         ) : (
           <div className="space-y-3">
             {methods.map((method) => (
-              <div key={method.id} className="rounded-2xl p-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+              <div key={method.id} className="rounded-2xl p-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.12)' }}>
-                      {method.method_type === 'bank' && <Building2 className="w-5 h-5 text-[#2EFFAF]" />}
-                      {method.method_type === 'paypal' && <Mail className="w-5 h-5 text-[#2EFFAF]" />}
-                      {method.method_type === 'venmo' && <AtSign className="w-5 h-5 text-[#2EFFAF]" />}
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.12)' }}>
+                      {method.method_type === 'bank' && <Building2 className="w-5 h-5 text-[#008CE5]" />}
+                      {method.method_type === 'paypal' && <Mail className="w-5 h-5 text-[#008CE5]" />}
+                      {method.method_type === 'venmo' && <AtSign className="w-5 h-5 text-[#008CE5]" />}
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold truncate" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
@@ -312,7 +312,7 @@ export function PayoutSetup() {
                     </div>
                   </div>
                   {method.is_default && (
-                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1" style={{ backgroundColor: 'rgba(46,255,175,0.15)', color: '#2EFFAF' }}>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>
                       <CheckCircle2 className="w-3 h-3" />
                       Default
                     </span>
@@ -320,11 +320,11 @@ export function PayoutSetup() {
                 </div>
                 <div className="flex gap-2 mt-3">
                   {!method.is_default && (
-                    <button onClick={() => setDefaultMethod(method.id)} className="px-3 py-2 rounded-xl text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+                    <button onClick={() => setDefaultMethod(method.id)} className="px-3 py-2 rounded-xl text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
                       Set Default
                     </button>
                   )}
-                  <button onClick={() => openEdit(method)} className="px-3 py-2 rounded-xl text-sm flex items-center gap-1" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+                  <button onClick={() => openEdit(method)} className="px-3 py-2 rounded-xl text-sm flex items-center gap-1" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
                     <Pencil className="w-3 h-3" />
                     Edit
                   </button>
@@ -341,19 +341,19 @@ export function PayoutSetup() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="w-full md:max-w-lg rounded-t-3xl md:rounded-3xl p-6" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} className="w-full md:max-w-lg rounded-t-3xl md:rounded-3xl p-6" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-xl" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
                 {editingId ? 'Update Payout Method' : 'Add Payout Method'}
               </h2>
-              <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6' }} title="Close">
+              <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED' }} title="Close">
                 <X className="w-4 h-4" style={{ color: isDark ? '#FFFFFF' : '#6B7280' }} />
               </button>
             </div>
 
             <div className="grid grid-cols-3 gap-2 mb-4">
               {(['bank', 'paypal', 'venmo'] as MethodType[]).map((type) => (
-                <button key={type} onClick={() => setForm({ ...form, methodType: type })} className="rounded-xl py-2 text-sm font-semibold" style={{ backgroundColor: form.methodType === type ? 'rgba(46,255,175,0.18)' : (isDark ? 'rgba(255,255,255,0.06)' : '#F3F4F6'), color: form.methodType === type ? '#2EFFAF' : (isDark ? '#FFFFFF' : '#1A1F2E') }}>
+                <button key={type} onClick={() => setForm({ ...form, methodType: type })} className="rounded-xl py-2 text-sm font-semibold" style={{ backgroundColor: form.methodType === type ? 'rgba(0,140,229,0.18)' : (isDark ? 'rgba(255,255,255,0.06)' : '#F5F2ED'), color: form.methodType === type ? '#008CE5' : (isDark ? '#FFFFFF' : '#1A1F2E') }}>
                   {type === 'bank' ? 'Bank' : type === 'paypal' ? 'PayPal' : 'Venmo'}
                 </button>
               ))}
@@ -424,8 +424,8 @@ export function PayoutSetup() {
             </div>
 
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowModal(false)} className="flex-1 rounded-xl py-3 font-medium" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: isDark ? '#FFFFFF' : '#6B7280' }}>Cancel</button>
-              <button onClick={saveMethod} disabled={!canSave || saving} className="flex-1 rounded-xl py-3 font-bold text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50">
+              <button onClick={() => setShowModal(false)} className="flex-1 rounded-xl py-3 font-medium" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: isDark ? '#FFFFFF' : '#6B7280' }}>Cancel</button>
+              <button onClick={saveMethod} disabled={!canSave || saving} className="flex-1 rounded-xl py-3 font-bold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50">
                 {saving ? 'Saving...' : editingId ? 'Update' : 'Add'}
               </button>
             </div>

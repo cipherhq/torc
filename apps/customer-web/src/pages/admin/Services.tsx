@@ -171,8 +171,8 @@ export function AdminServices() {
     const avgPrice = total > 0 ? services.reduce((sum, s) => sum + Number(s.base_price || 0), 0) / total : 0;
     const highestPrice = services.reduce((max, s) => Math.max(max, Number(s.base_price || 0)), 0);
     return [
-      { label: 'Total Services', value: String(total), color: 'from-[#2EFFAF] to-[#00D68F]' },
-      { label: 'Active Services', value: String(active), color: 'from-[#007AFF] to-[#0051D5]' },
+      { label: 'Total Services', value: String(total), color: 'from-[#008CE5] to-[#00D68F]' },
+      { label: 'Active Services', value: String(active), color: 'from-[#0070B8] to-[#0051D5]' },
       { label: 'Avg Base Price', value: formatMoney(avgPrice), color: 'from-[#FF6B6B] to-[#FF5252]' },
       { label: 'Highest Price', value: formatMoney(highestPrice), color: 'from-[#FFA500] to-[#FF8C00]' },
     ];
@@ -190,7 +190,7 @@ export function AdminServices() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={openCreate}
-            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold flex items-center gap-2 shadow-lg shadow-[#2EFFAF]/30"
+            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold flex items-center gap-2 shadow-lg shadow-[#008CE5]/30"
           >
             <Plus className="w-5 h-5" />
             Add Service
@@ -232,11 +232,11 @@ export function AdminServices() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`glass-light rounded-[24px] p-6 border-2 ${enabled ? 'border-[#2EFFAF]/30' : 'border-white/10'}`}
+                  className={`glass-light rounded-[24px] p-6 border-2 ${enabled ? 'border-[#008CE5]/30' : 'border-white/10'}`}
                 >
                   <div className="flex items-start gap-4 mb-4">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-8 h-8 text-[#0F1419]" />
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center flex-shrink-0">
+                      <Icon className="w-8 h-8 text-white" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-start justify-between gap-3 mb-2">
@@ -246,7 +246,7 @@ export function AdminServices() {
                         </div>
                         <button
                           onClick={() => toggleActive(service)}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${enabled ? 'bg-[#2EFFAF]/20 text-[#2EFFAF]' : 'bg-white/10 text-white/70'}`}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${enabled ? 'bg-[#008CE5]/20 text-[#008CE5]' : 'bg-white/10 text-white/70'}`}
                         >
                           {enabled ? 'Active' : 'Disabled'}
                         </button>
@@ -261,7 +261,7 @@ export function AdminServices() {
                     </div>
                     <div className="glass rounded-2xl p-3">
                       <p className="text-white/50 text-xs mb-1">Icon</p>
-                      <p className="text-[#2EFFAF] font-bold text-sm">{service.icon || 'Wrench'}</p>
+                      <p className="text-[#008CE5] font-bold text-sm">{service.icon || 'Wrench'}</p>
                     </div>
                   </div>
 
@@ -307,7 +307,7 @@ export function AdminServices() {
                     value={form.name}
                     onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                     placeholder="e.g., Emergency Roadside Assistance"
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
                   />
                 </div>
 
@@ -318,7 +318,7 @@ export function AdminServices() {
                     onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
                     placeholder="Describe the service..."
                     rows={3}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
                   />
                 </div>
 
@@ -332,7 +332,7 @@ export function AdminServices() {
                       value={form.base_price}
                       onChange={(e) => setForm((prev) => ({ ...prev, base_price: e.target.value }))}
                       placeholder="e.g., 75"
-                      className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
                     />
                   </div>
                   <div>
@@ -341,7 +341,7 @@ export function AdminServices() {
                       title="Service icon"
                       value={form.icon}
                       onChange={(e) => setForm((prev) => ({ ...prev, icon: e.target.value }))}
-                      className="w-full px-4 py-3 bg-[#1A1F2E] border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+                      className="w-full px-4 py-3 bg-[#1A1F2E] border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
                     >
                       {ICON_OPTIONS.map((icon) => (
                         <option key={icon} value={icon}>
@@ -380,7 +380,7 @@ export function AdminServices() {
                   whileTap={{ scale: 0.98 }}
                   onClick={saveService}
                   disabled={saving}
-                  className="flex-1 px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold disabled:opacity-60"
+                  className="flex-1 px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold disabled:opacity-60"
                 >
                   {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Service'}
                 </motion.button>

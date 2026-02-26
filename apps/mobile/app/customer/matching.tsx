@@ -1,8 +1,7 @@
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
-import { supabase } from '../../lib/supabase';
 
 export default function MatchingScreen() {
   const router = useRouter();
@@ -11,6 +10,24 @@ export default function MatchingScreen() {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [timeWaiting, setTimeWaiting] = useState(0);
+
+  const loadJob = useCallback(async () => {
+    if (!jobId) return;
+
+    try {
+      const data = await fetchJob(jobId as string);
+      setJob(data);
+
+      // If provider accepted, navigate to tracking
+      if (data.provider_id && data.status === 'accepted') {
+        router.replace(`/customer/tracking?jobId=${jobId}`);
+      }
+    } catch (error) {
+      console.error('Error loading job:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchJob, jobId, router]);
 
   useEffect(() => {
     if (jobId) {
@@ -31,23 +48,7 @@ export default function MatchingScreen() {
         clearInterval(timer);
       };
     }
-  }, [jobId]);
-
-  const loadJob = async () => {
-    try {
-      const data = await fetchJob(jobId as string);
-      setJob(data);
-      
-      // If provider accepted, navigate to tracking
-      if (data.provider_id && data.status === 'accepted') {
-        router.replace(`/customer/tracking?jobId=${jobId}`);
-      }
-    } catch (error) {
-      console.error('Error loading job:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [jobId, loadJob, subscribeToJobUpdates]);
 
   const handleCancel = async () => {
     Alert.alert(
@@ -96,7 +97,7 @@ export default function MatchingScreen() {
         </View>
         <Text className="text-white text-2xl font-bold mb-2">Finding Provider...</Text>
         <Text className="text-white/60 text-center mb-4">
-          We're matching you with the best available provider
+          We&apos;re matching you with the best available provider
         </Text>
         <Text className="text-[#2EFFAF] text-lg font-semibold">
           {formatTime(timeWaiting)}

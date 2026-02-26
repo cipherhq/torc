@@ -50,11 +50,11 @@ export function ResetPassword() {
       <div className="absolute inset-0 pointer-events-none">
         <div
           className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full"
-          style={{ backgroundColor: '#2EFFAF', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
+          style={{ backgroundColor: '#008CE5', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pb-8">
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pb-8" style={{ paddingTop: 'var(--safe-top)' }}>
         {success ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -66,9 +66,9 @@ export function ResetPassword() {
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
               className="w-24 h-24 rounded-full mx-auto mb-6 flex items-center justify-center"
-              style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}
+              style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}
             >
-              <CheckCircle className="w-12 h-12" style={{ color: '#2EFFAF' }} />
+              <CheckCircle className="w-12 h-12" style={{ color: '#008CE5' }} />
             </motion.div>
 
             <h1 className="text-3xl font-bold mb-3" style={{ color: textColor }}>
@@ -82,7 +82,7 @@ export function ResetPassword() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => navigate('/login', { replace: true })}
-              className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30"
+              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30"
             >
               Go to Login
             </motion.button>
@@ -95,9 +95,9 @@ export function ResetPassword() {
           >
             <div
               className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, rgba(46,255,175,0.2), rgba(0,122,255,0.2))' }}
+              style={{ background: 'linear-gradient(135deg, rgba(0,140,229,0.2), rgba(0,122,255,0.2))' }}
             >
-              <KeyRound className="w-10 h-10" style={{ color: '#2EFFAF' }} />
+              <KeyRound className="w-10 h-10" style={{ color: '#008CE5' }} />
             </div>
 
             <h1 className="text-3xl font-bold mb-2" style={{ color: textColor }}>
@@ -131,13 +131,13 @@ export function ResetPassword() {
                   New Password
                 </label>
                 <div
-                  className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#2EFFAF]/50"
+                  className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                   style={{
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
                   }}
                 >
-                  <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                  <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Min 6 characters"
@@ -169,13 +169,13 @@ export function ResetPassword() {
                   Confirm New Password
                 </label>
                 <div
-                  className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#2EFFAF]/50"
+                  className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                   style={{
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
                   }}
                 >
-                  <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                  <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                   <input
                     type="password"
                     placeholder="Confirm your password"
@@ -198,7 +198,7 @@ export function ResetPassword() {
                         (/[A-Z]/.test(password) ? 1 : 0) +
                         (/[0-9]/.test(password) ? 1 : 0) +
                         (/[^A-Za-z0-9]/.test(password) ? 1 : 0);
-                      const colors = ['#EF4444', '#F59E0B', '#2EFFAF', '#2EFFAF'];
+                      const colors = ['#EF4444', '#F59E0B', '#008CE5', '#008CE5'];
                       return (
                         <div
                           key={level}
@@ -206,7 +206,7 @@ export function ResetPassword() {
                           style={{
                             backgroundColor: level <= strength
                               ? colors[strength - 1]
-                              : (isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'),
+                              : (isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'),
                           }}
                         />
                       );
@@ -223,7 +223,7 @@ export function ResetPassword() {
                 whileTap={{ scale: 0.98 }}
                 type="submit"
                 disabled={!password || !confirmPassword || loading}
-                className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+                className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
               >
                 {loading ? (
                   <>

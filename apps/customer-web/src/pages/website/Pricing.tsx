@@ -11,7 +11,7 @@ export function WebsitePricing() {
           <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl" title="Back to website home">
             <ArrowLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#008CE5] to-[#0070B8] bg-clip-text text-transparent">
             TORC
           </h1>
         </div>
@@ -27,33 +27,33 @@ export function WebsitePricing() {
               <h3 className="text-2xl font-bold text-gray-900 mb-6">Pay Per Use</h3>
               <ul className="space-y-4 text-left">
                 <li className="flex items-start gap-3">
-                  <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
+                  <Check className="w-6 h-6 text-[#008CE5] flex-shrink-0" />
                   <span className="text-gray-700">No monthly fees</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
+                  <Check className="w-6 h-6 text-[#008CE5] flex-shrink-0" />
                   <span className="text-gray-700">Transparent pricing before booking</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
+                  <Check className="w-6 h-6 text-[#008CE5] flex-shrink-0" />
                   <span className="text-gray-700">Services start at $35</span>
                 </li>
               </ul>
             </div>
 
-            <div className="bg-gradient-to-br from-[#2EFFAF]/10 to-[#007AFF]/10 rounded-3xl p-8 border-2 border-[#2EFFAF]">
+            <div className="bg-gradient-to-br from-[#008CE5]/10 to-[#0070B8]/10 rounded-3xl p-8 border-2 border-[#008CE5]">
               <h3 className="text-2xl font-bold text-gray-900 mb-6">Premium Support</h3>
               <ul className="space-y-4 text-left">
                 <li className="flex items-start gap-3">
-                  <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
+                  <Check className="w-6 h-6 text-[#008CE5] flex-shrink-0" />
                   <span className="text-gray-700">Priority provider matching</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
+                  <Check className="w-6 h-6 text-[#008CE5] flex-shrink-0" />
                   <span className="text-gray-700">Real-time trip updates</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <Check className="w-6 h-6 text-[#2EFFAF] flex-shrink-0" />
+                  <Check className="w-6 h-6 text-[#008CE5] flex-shrink-0" />
                   <span className="text-gray-700">Reduced platform fees on frequent use</span>
                 </li>
               </ul>

@@ -6,6 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useJob } from '../../context/JobContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../context/ThemeContext';
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3959; // miles
@@ -22,8 +23,14 @@ export function Matching() {
   const context = getRequestContext();
   const { createJob, updateJobDetails, cancelJob, subscribeToJobUpdates } = useJob();
   const { user } = useAuth();
+  const { isDark } = useTheme();
   const jobCreated = useRef(false);
   const [error, setError] = useState<string | null>(null);
+
+  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
 
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -44,8 +51,9 @@ export function Matching() {
       try {
         setError(null);
         if (user) {
-          // Sync request context into JobContext before creating DB job.
-          updateJobDetails({
+          // Build job details from request context and pass directly to createJob
+          // (avoids React state race condition with updateJobDetails)
+          const jobDetailsFromContext = {
             serviceId: context.serviceId || null,
             pickupLocation: context.location
               ? { latitude: context.location.lat, longitude: context.location.lng }
@@ -55,18 +63,21 @@ export function Matching() {
               ? { latitude: context.destination.lat, longitude: context.destination.lng }
               : null,
             destinationAddress: context.destination?.address || '',
-            isHazardLocation: !!context.isHazardLocation,
-            requesterType: context.requesterType || 'self',
-            requesterName: context.requesterName || '',
-            requesterPhone: context.requesterPhone || '',
+            isHazardLocation: !!context.isHazardous,
+            requesterType: context.whoNeedsHelp === 'new' ? 'other' : 'self',
+            requesterName: context.personName || '',
+            requesterPhone: context.personPhone || '',
             scheduledFor: context.scheduledFor || null,
             customerNotes: context.notes || '',
             paymentIntentId: context.paymentIntentId || null,
             paymentStatus: context.paymentStatus || 'unpaid',
             paymentCurrency: context.paymentCurrency || 'USD',
-          });
+          };
 
-          const job = await createJob(context.paymentMethodId || null);
+          // Also update JobContext state for other consumers
+          updateJobDetails(jobDetailsFromContext);
+
+          const job = await createJob(context.paymentMethodId || null, jobDetailsFromContext);
           if (job?.id) {
             setCreatedJobId(job.id);
             if (job.pickup_latitude && job.pickup_longitude) {
@@ -103,7 +114,7 @@ export function Matching() {
     startMatching();
   }, []);
 
-  // ✅ NEW: Subscribe to real-time job updates via JobContext
+  // Subscribe to real-time job updates via JobContext
   useEffect(() => {
     if (!createdJobId) return;
 
@@ -217,27 +228,65 @@ export function Matching() {
       })
       .subscribe();
 
+    // Polling fallback: check job status every 5 seconds in case broadcast/postgres_changes miss it
+    const pollInterval = setInterval(async () => {
+      if (providerFoundRef.current) return;
+      try {
+        const { data: job } = await supabase
+          .from('jobs')
+          .select('status, provider_id')
+          .eq('id', createdJobId)
+          .single();
+
+        if (job && (job.status === 'accepted' || job.status === 'enroute' || job.status === 'en_route') && !providerFoundRef.current) {
+          // Fetch provider info
+          let provName = 'Your Provider';
+          let provRating = 0;
+          let provPhoto = null;
+          if (job.provider_id) {
+            try {
+              const { data: prof } = await supabase
+                .from('profiles')
+                .select('first_name, last_name')
+                .eq('id', job.provider_id)
+                .maybeSingle();
+              const { data: pp } = await supabase
+                .from('provider_profiles')
+                .select('rating, avatar_url')
+                .eq('id', job.provider_id)
+                .maybeSingle();
+              if (prof) provName = `${prof.first_name || ''} ${prof.last_name || ''}`.trim() || provName;
+              if (pp) { provRating = pp.rating || 0; provPhoto = pp.avatar_url || null; }
+            } catch {}
+          }
+          handleProviderAccepted({ provider_id: job.provider_id, provider_name: provName, provider_rating: provRating, provider_photo: provPhoto });
+        }
+      } catch {}
+    }, 5000);
+
     // Fallback timeout: if no provider accepts within 60s, go to tracking anyway
     const fallbackTimer = setTimeout(() => {
-      navigate(`/tracking/${createdJobId}`);
+      if (!providerFoundRef.current) navigate(`/tracking/${createdJobId}`);
     }, 60000);
 
     return () => {
       supabase.removeChannel(broadcastChannel);
       supabase.removeChannel(dbChannel);
+      clearInterval(pollInterval);
       clearTimeout(fallbackTimer);
     };
   }, [createdJobId, navigate, pickupCoords]);
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingTop: 'var(--safe-top)' }}>
       {/* Background effects */}
       <div className="absolute inset-0">
         <motion.div
-          className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-20 blur-[120px] rounded-full"
+          className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] blur-[120px] rounded-full"
+          style={{ opacity: isDark ? 0.2 : 0.1 }}
           animate={{
             scale: [1, 1.3, 1],
-            opacity: [0.2, 0.3, 0.2],
+            opacity: isDark ? [0.2, 0.3, 0.2] : [0.1, 0.15, 0.1],
           }}
           transition={{
             duration: 3,
@@ -246,10 +295,11 @@ export function Matching() {
           }}
         />
         <motion.div
-          className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#007AFF] opacity-20 blur-[120px] rounded-full"
+          className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#0070B8] blur-[120px] rounded-full"
+          style={{ opacity: isDark ? 0.2 : 0.1 }}
           animate={{
             scale: [1.3, 1, 1.3],
-            opacity: [0.3, 0.2, 0.3],
+            opacity: isDark ? [0.3, 0.2, 0.3] : [0.15, 0.1, 0.15],
           }}
           transition={{
             duration: 3,
@@ -278,10 +328,10 @@ export function Matching() {
               className="mb-6"
             >
               <div
-                className="w-28 h-28 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#00C98D] flex items-center justify-center mx-auto"
+                className="w-28 h-28 rounded-full bg-gradient-to-br from-[#008CE5] to-[#00C98D] flex items-center justify-center mx-auto"
                 style={{ boxShadow: '0 25px 60px -12px rgba(46, 255, 175, 0.6)' }}
               >
-                <CheckCircle className="w-14 h-14 text-[#0A0F1E]" />
+                <CheckCircle className="w-14 h-14" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
               </div>
             </motion.div>
 
@@ -289,7 +339,8 @@ export function Matching() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="text-3xl font-bold text-white mb-2"
+              className="text-3xl font-bold mb-2"
+              style={{ color: textColor }}
             >
               Provider Found!
             </motion.h1>
@@ -298,7 +349,8 @@ export function Matching() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="text-white/60 text-base mb-8"
+              className="text-base mb-8"
+              style={{ color: subColor }}
             >
               Your request has been accepted
             </motion.p>
@@ -308,40 +360,41 @@ export function Matching() {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
-              className="glass rounded-[28px] p-6"
+              className="rounded-2xl p-6"
+              style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
             >
               <div className="flex items-center gap-4 mb-5">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center overflow-hidden flex-shrink-0">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center overflow-hidden flex-shrink-0">
                   {providerFound.photo ? (
                     <img src={providerFound.photo} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <User className="w-8 h-8 text-[#0A0F1E]" />
+                    <User className="w-8 h-8" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
                   )}
                 </div>
                 <div className="flex-1 text-left">
-                  <h3 className="text-white font-bold text-xl">{providerFound.name}</h3>
+                  <h3 className="font-bold text-xl" style={{ color: textColor }}>{providerFound.name}</h3>
                   {providerFound.rating > 0 && (
                     <div className="flex items-center gap-1.5 mt-1">
                       <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                      <span className="text-white/80 text-sm font-medium">{providerFound.rating.toFixed(1)}</span>
+                      <span className="text-sm font-medium" style={{ color: subColor }}>{providerFound.rating.toFixed(1)}</span>
                     </div>
                   )}
                 </div>
               </div>
 
               {providerFound.distance && (
-                <div className="flex items-center gap-3 rounded-2xl p-4" style={{ backgroundColor: 'rgba(46,255,175,0.08)', border: '1px solid rgba(46,255,175,0.15)' }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}>
-                    <Navigation className="w-5 h-5 text-[#2EFFAF]" />
+                <div className="flex items-center gap-3 rounded-2xl p-4" style={{ backgroundColor: 'rgba(0,140,229,0.08)', border: '1px solid rgba(0,140,229,0.15)' }}>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
+                    <Navigation className="w-5 h-5 text-[#008CE5]" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className="text-white/50 text-xs">Distance</p>
-                    <p className="text-[#2EFFAF] font-bold text-base">{providerFound.distance}</p>
+                    <p className="text-xs" style={{ color: subColor }}>Distance</p>
+                    <p className="text-[#008CE5] font-bold text-base">{providerFound.distance}</p>
                   </div>
                 </div>
               )}
 
-              <p className="text-white/40 text-sm mt-4">Redirecting to live tracking...</p>
+              <p className="text-sm mt-4" style={{ color: subColor }}>Redirecting to live tracking...</p>
             </motion.div>
           </motion.div>
         ) : (
@@ -358,14 +411,14 @@ export function Matching() {
               transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
             >
               <div
-                className="w-32 h-32 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto"
+                className="w-32 h-32 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto"
                 style={{ boxShadow: '0 25px 50px -12px rgba(46, 255, 175, 0.5)' }}
               >
                 <motion.div
                   animate={{ rotate: -360 }}
                   transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                 >
-                  <Loader className="w-16 h-16 text-[#0A0F1E]" />
+                  <Loader className="w-16 h-16" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
                 </motion.div>
               </div>
             </motion.div>
@@ -376,10 +429,10 @@ export function Matching() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
             >
-              <h1 className="text-3xl font-bold text-white mb-3">
+              <h1 className="text-3xl font-bold mb-3" style={{ color: textColor }}>
                 Finding the Best Provider
               </h1>
-              <p className="text-white/60 text-lg mb-8">
+              <p className="text-lg mb-8" style={{ color: subColor }}>
                 Matching you with a qualified professional near your location
               </p>
             </motion.div>
@@ -389,28 +442,29 @@ export function Matching() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="glass rounded-[32px] p-6 text-left"
+              className="rounded-2xl p-6 text-left"
+              style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 flex items-center justify-center">
-                  <MapPin className="w-6 h-6 text-[#2EFFAF]" />
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(to bottom right, rgba(78,205,196,0.2), rgba(42,157,143,0.2))' }}>
+                  <MapPin className="w-6 h-6 text-[#008CE5]" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-white font-semibold">{context.serviceName || 'Roadside Service'}</h3>
-                  <p className="text-white/60 text-sm">{context.location?.address}</p>
+                  <h3 className="font-semibold" style={{ color: textColor }}>{context.serviceName || 'Roadside Service'}</h3>
+                  <p className="text-sm" style={{ color: subColor }}>{context.location?.address}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
+              <div className="grid grid-cols-2 gap-4 pt-4" style={{ borderTop: '1px solid ' + cardBorder }}>
                 <div>
-                  <p className="text-white/60 text-xs">Timing</p>
-                  <p className="text-white font-semibold text-sm mt-1">
+                  <p className="text-xs" style={{ color: subColor }}>Timing</p>
+                  <p className="font-semibold text-sm mt-1" style={{ color: textColor }}>
                     {context.scheduledFor ? 'Scheduled' : 'Right Now'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-white/60 text-xs">Estimated Cost</p>
-                  <p className="text-[#2EFFAF] font-bold text-sm mt-1">
+                  <p className="text-xs" style={{ color: subColor }}>Estimated Cost</p>
+                  <p className="text-[#008CE5] font-bold text-sm mt-1">
                     ${context.estimatedPrice.toFixed(2)}
                   </p>
                 </div>
@@ -431,7 +485,7 @@ export function Matching() {
                     jobCreated.current = false;
                     window.location.reload();
                   }}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-[#0A0F1E] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF]"
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-[#0A0F1E] bg-gradient-to-r from-[#008CE5] to-[#0070B8]"
                 >
                   Retry
                 </button>
@@ -458,7 +512,7 @@ export function Matching() {
                   className="flex items-center gap-3 text-left"
                 >
                   <motion.div
-                    className="w-2 h-2 rounded-full bg-[#2EFFAF]"
+                    className="w-2 h-2 rounded-full bg-[#008CE5]"
                     animate={{
                       scale: [1, 1.5, 1],
                       opacity: [0.5, 1, 0.5],
@@ -469,18 +523,13 @@ export function Matching() {
                       delay: step.delay,
                     }}
                   />
-                  <p className="text-white/60 text-sm">{step.text}</p>
+                  <p className="text-sm" style={{ color: subColor }}>{step.text}</p>
                 </motion.div>
               ))}
             </motion.div>
 
             {/* Cancel button */}
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.5 }}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={async () => {
                 try {
                   if (createdJobId) await cancelJob(createdJobId, 'user_cancelled');
@@ -489,10 +538,11 @@ export function Matching() {
                 }
                 navigate('/home');
               }}
-              className="mt-12 text-white/60 hover:text-white transition-colors"
+              className="torc-btn-secondary mt-12"
+              style={{ color: subColor }}
             >
               Cancel Request
-            </motion.button>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

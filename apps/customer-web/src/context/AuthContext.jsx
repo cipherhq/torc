@@ -1,8 +1,12 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
+import { Capacitor } from '@capacitor/core';
+import { registerNativePushForUser, deactivateNativePushToken } from '../utils/nativePush';
 
 const AuthContext = createContext({});
+
+const isNative = typeof window !== 'undefined' && (window.__TORC_NATIVE__ === true || Capacitor.isNativePlatform());
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -34,8 +38,35 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Listen for native bridge messages (session updates from the native app)
+  useEffect(() => {
+    if (!isNative) return;
+
+    function handleNativeMessage(event) {
+      try {
+        const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (msg?.type === 'AUTH_SESSION' && msg.session) {
+          // Native sent a refreshed session — update Supabase client
+          supabase.auth.setSession({
+            access_token: msg.session.access_token,
+            refresh_token: msg.session.refresh_token,
+          });
+        }
+      } catch { /* ignore non-JSON messages */ }
+    }
+
+    window.addEventListener('message', handleNativeMessage);
+    // Signal to native that the web app is ready
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'READY' }));
+    }
+    return () => window.removeEventListener('message', handleNativeMessage);
+  }, []);
+
   useEffect(() => {
     if (!user) return;
+    // Skip browser notification prompts when inside native wrapper
+    if (isNative) return;
     if (typeof Notification === 'undefined') return;
     const key = 'torc_customer_notification_prompted_v1';
     if (localStorage.getItem(key) === '1') return;
@@ -44,6 +75,13 @@ export function AuthProvider({ children }) {
       Notification.requestPermission().catch(() => {});
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!isNative || !user?.id) return;
+    registerNativePushForUser({ userId: user.id, role: 'customer' }).catch((error) => {
+      console.warn('Native push setup failed:', error);
+    });
+  }, [user?.id]);
 
   async function fetchProfile(userId) {
     try {
@@ -97,24 +135,37 @@ export function AuthProvider({ children }) {
   };
 
   const signUp = async (email, password, userData = {}) => {
+    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: userData },
+      options: {
+        emailRedirectTo: `${siteUrl}/auth/callback`,
+        data: userData,
+      },
     });
     if (error) throw error;
     return data;
   };
 
   const resetPasswordForEmail = async (email) => {
+    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${siteUrl}/auth/callback`,
     });
     if (error) throw error;
     return data;
   };
 
   const signOut = async () => {
+    if (user?.id) {
+      deactivateNativePushToken(user.id).catch(() => {});
+    }
+    // When inside native wrapper, tell the native app to handle sign-out
+    if (isNative && window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SIGN_OUT' }));
+      return;
+    }
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     setUser(null);
@@ -187,7 +238,7 @@ export function ProtectedRoute({ children, requiredRole = null }) {
     return (
       <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/60">Loading...</p>
         </div>
       </div>

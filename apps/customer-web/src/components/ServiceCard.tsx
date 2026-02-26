@@ -34,16 +34,16 @@ export function ServiceCard({ service, index }: ServiceCardProps) {
       className="glass rounded-[32px] p-6 flex flex-col items-center justify-center gap-4 cursor-pointer relative overflow-hidden group min-w-[160px]"
     >
       {/* Hover glow effect */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+      <div className="absolute inset-0 bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
       {/* Icon container */}
       <div className="relative z-10">
         <motion.div
-          className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 flex items-center justify-center relative"
+          className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 flex items-center justify-center relative"
           whileHover={{ rotateY: 10, rotateX: 10 }}
         >
           {LucideIcon ? (
-            <LucideIcon className="w-8 h-8 text-[#2EFFAF]" />
+            <LucideIcon className="w-8 h-8 text-[#008CE5]" />
           ) : (
             <span className="text-3xl leading-none" role="img" aria-label={service.name}>{service.icon}</span>
           )}
@@ -56,7 +56,7 @@ export function ServiceCard({ service, index }: ServiceCardProps) {
       {/* Service name */}
       <div className="relative z-10 text-center">
         <h3 className="text-white font-semibold text-sm">{service.name}</h3>
-        <p className="text-[#2EFFAF] text-xs mt-1">${service.basePrice}</p>
+        <p className="text-[#008CE5] text-xs mt-1">${service.basePrice}</p>
       </div>
 
       {/* Shine effect on hover */}

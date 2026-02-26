@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TORC Provider</string>
+    <string name="title_activity_main">TORC Provider</string>
+    <string name="package_name">com.torc.provider</string>
+    <string name="custom_url_scheme">com.torc.provider</string>
+</resources>

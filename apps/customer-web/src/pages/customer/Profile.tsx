@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
-import { User, Car, Bell, HelpCircle, ChevronRight, LogOut, CreditCard, History, Shield } from 'lucide-react';
+import { User, Car, Bell, HelpCircle, ChevronRight, LogOut, CreditCard, History, Shield, BarChart3 } from 'lucide-react';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -11,8 +11,9 @@ import { useState, useEffect } from 'react';
 export function Profile() {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useTheme();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, refreshProfile } = useAuth();
   const [vehicleCount, setVehicleCount] = useState(0);
+  const [totalSaves, setTotalSaves] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -21,7 +22,20 @@ export function Profile() {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
       .then(({ count }) => setVehicleCount(count || 0));
+
+    // Count completed jobs (same source as HomeMap)
+    supabase
+      .from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_id', user.id)
+      .eq('status', 'completed')
+      .then(({ count }) => setTotalSaves(count ?? 0));
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    Promise.resolve(refreshProfile?.()).catch(() => {});
+  }, [user?.id]);
 
   const getInitials = () => {
     if (profile?.first_name && profile?.last_name) {
@@ -48,13 +62,12 @@ export function Profile() {
     return 'No phone added';
   };
 
-  const getMemberYears = () => {
-    const dateStr = profile?.member_since || profile?.created_at || user?.created_at;
-    if (!dateStr) return 'New';
-    const memberDate = new Date(dateStr);
-    const now = new Date();
-    const years = Math.floor((now.getTime() - memberDate.getTime()) / (1000 * 60 * 60 * 24 * 365));
-    return years > 0 ? years.toString() : 'New';
+  const getMemberSince = () => {
+    const dateStr = profile?.created_at || user?.created_at;
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[d.getMonth()]} ${d.getFullYear()}`;
   };
 
   const handleLogout = async () => {
@@ -80,6 +93,7 @@ export function Profile() {
       items: [
         { icon: History, label: 'Service History', count: null, path: '/customer/service-history' },
         { icon: CreditCard, label: 'Payment Methods', count: null, path: '/customer/payment-methods' },
+        { icon: BarChart3, label: 'Reporting', count: null, path: '/customer/reporting' },
       ],
     },
     {
@@ -97,14 +111,14 @@ export function Profile() {
   ];
 
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Header */}
-      <div className="p-6">
+      <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
         <h1 className="text-3xl font-bold mb-1" style={{ color: textColor }}>Profile</h1>
         <p style={{ color: subColor }}>Manage your account and preferences</p>
       </div>
@@ -116,7 +130,7 @@ export function Profile() {
           style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)' }}
         >
           <div className="flex items-center gap-4 mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center text-2xl font-bold text-[#0A0F1E]">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-2xl font-bold text-[#0A0F1E]">
               {getInitials()}
             </div>
             <div className="flex-1">
@@ -128,16 +142,16 @@ export function Profile() {
 
           <div className="grid grid-cols-3 gap-4 pt-5 border-t" style={{ borderColor: cardBorder }}>
             <div className="text-center">
-              <p className="text-xl font-bold" style={{ color: '#2EFFAF' }}>{profile?.total_jobs ?? 0}</p>
+              <p className="text-xl font-bold" style={{ color: '#008CE5' }}>{totalSaves}</p>
               <p className="text-xs mt-0.5" style={{ color: subColor }}>Total Saves</p>
             </div>
             <div className="text-center border-x" style={{ borderColor: cardBorder }}>
-              <p className="text-xl font-bold" style={{ color: '#2EFFAF' }}>{profile?.rating || '-'}</p>
-              <p className="text-xs mt-0.5" style={{ color: subColor }}>Your Rating</p>
+              <p className="text-base font-bold" style={{ color: '#0070B8' }}>{getMemberSince()}</p>
+              <p className="text-xs mt-0.5" style={{ color: subColor }}>Member Since</p>
             </div>
             <div className="text-center">
-              <p className="text-xl font-bold" style={{ color: '#2EFFAF' }}>{getMemberYears()}</p>
-              <p className="text-xs mt-0.5" style={{ color: subColor }}>Years Member</p>
+              <p className="text-xl font-bold" style={{ color: '#008CE5' }}>{profile?.rating ?? '-'}</p>
+              <p className="text-xs mt-0.5" style={{ color: subColor }}>Your Rating</p>
             </div>
           </div>
         </motion.div>
@@ -161,12 +175,12 @@ export function Profile() {
                     style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)' }}
                     onClick={() => navigate(item.path)}
                   >
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-                      <Icon className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+                      <Icon className="w-5 h-5" style={{ color: '#008CE5' }} />
                     </div>
                     <p className="flex-1 text-left font-medium" style={{ color: textColor }}>{item.label}</p>
                     {item.count !== null && (
-                      <span className="text-sm font-semibold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: subColor }}>{item.count}</span>
+                      <span className="text-sm font-semibold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: subColor }}>{item.count}</span>
                     )}
                     <ChevronRight className="w-4 h-4" style={{ color: subColor }} />
                   </motion.button>
@@ -186,12 +200,12 @@ export function Profile() {
           >
             <ThemeToggle
               size="md"
-              className="pointer-events-none bg-transparent border-0 text-[#2EFFAF]"
+              className="pointer-events-none bg-transparent border-0 text-[#008CE5]"
             />
             <div className="flex-1 text-left">
               <p className="font-medium" style={{ color: textColor }}>{isDark ? 'Dark Mode' : 'Light Mode'}</p>
             </div>
-            <div className="w-12 h-7 rounded-full p-0.5 transition-colors" style={{ backgroundColor: isDark ? '#2EFFAF' : '#D1D5DB' }}>
+            <div className="w-12 h-7 rounded-full p-0.5 transition-colors" style={{ backgroundColor: isDark ? '#008CE5' : '#D1D5DB' }}>
               <motion.div className="w-6 h-6 rounded-full bg-white shadow-sm" animate={{ x: isDark ? 20 : 0 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
             </div>
           </button>

@@ -1,34 +1,66 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Torc",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "icon": "./assets/images/torc-app-icon.png",
+    "scheme": "torc",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
-        ]
-      }
+        ],
+        "NSLocationWhenInUseUsageDescription": "Torc needs your location to connect you with nearby roadside assistance.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Torc needs location for live tracking during service.",
+        "NSCameraUsageDescription": "Take photos of your vehicle for service requests.",
+        "NSPhotoLibraryUsageDescription": "Select photos of your vehicle for service requests.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.bajide18.mobile",
+      "config": {
+        "googleMapsApiKey": "REPLACE_WITH_YOUR_GOOGLE_MAPS_API_KEY"
+      },
+      "associatedDomains": [
+        "applinks:app.torcservices.com",
+        "applinks:provider.torcservices.com"
+      ]
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/torc-app-icon.png",
+        "monochromeImage": "./assets/images/torc-app-icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.bajide18.mobile",
       "permissions": [
         "POST_NOTIFICATIONS",
-        "VIBRATE"
+        "VIBRATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "REPLACE_WITH_YOUR_GOOGLE_MAPS_API_KEY"
+        }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "torc" },
+            { "scheme": "https", "host": "app.torcservices.com" },
+            { "scheme": "https", "host": "provider.torcservices.com" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "web": {
@@ -48,7 +80,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/torc-splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -60,7 +92,7 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "router": {},

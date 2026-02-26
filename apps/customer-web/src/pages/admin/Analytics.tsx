@@ -94,7 +94,7 @@ export function AdminAnalytics() {
   }, [jobs, providers]);
 
   const serviceData = useMemo(() => {
-    const colors = ['#2EFFAF', '#007AFF', '#FF6B6B', '#FFA500', '#8B5CF6'];
+    const colors = ['#008CE5', '#0070B8', '#FF6B6B', '#FFA500', '#8B5CF6'];
     const byService = new Map<string, number>();
     jobs.forEach((job) => {
       const key = job.service_id || 'unknown';
@@ -138,7 +138,7 @@ export function AdminAnalytics() {
         value: `$${totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
         change: `${revenuePct >= 0 ? '+' : ''}${revenuePct.toFixed(1)}% vs prev`,
         trend: revenuePct >= 0 ? 'up' : 'down',
-        color: 'from-[#2EFFAF] to-[#00D68F]',
+        color: 'from-[#008CE5] to-[#00D68F]',
       },
       {
         icon: Briefcase,
@@ -146,7 +146,7 @@ export function AdminAnalytics() {
         value: `${totalJobs.toLocaleString()}`,
         change: `${jobsPct >= 0 ? '+' : ''}${jobsPct.toFixed(1)}% vs prev`,
         trend: jobsPct >= 0 ? 'up' : 'down',
-        color: 'from-[#007AFF] to-[#0051D5]',
+        color: 'from-[#0070B8] to-[#0051D5]',
       },
       {
         icon: Users,
@@ -181,8 +181,8 @@ export function AdminAnalytics() {
       ? completionHours.reduce((sum, h) => sum + h, 0) / completionHours.length
       : 0;
     return [
-      { label: 'Avg Time to Complete', value: avgCompletionHours > 0 ? `${avgCompletionHours.toFixed(1)}h` : '-', icon: Clock, color: '#2EFFAF' },
-      { label: 'Completion Rate', value: `${completionRate.toFixed(1)}%`, icon: Target, color: '#007AFF' },
+      { label: 'Avg Time to Complete', value: avgCompletionHours > 0 ? `${avgCompletionHours.toFixed(1)}h` : '-', icon: Clock, color: '#008CE5' },
+      { label: 'Completion Rate', value: `${completionRate.toFixed(1)}%`, icon: Target, color: '#0070B8' },
       { label: 'Customer Satisfaction', value: customerSatisfaction > 0 ? `${customerSatisfaction.toFixed(1)}/5` : '-', icon: Star, color: '#FFA500' },
       { label: 'Provider Utilization', value: `${providerUtilization.toFixed(1)}%`, icon: TrendingUp, color: '#FF6B6B' },
     ];
@@ -221,11 +221,11 @@ export function AdminAnalytics() {
                   </div>
                   <div className="flex items-center gap-1">
                     {stat.trend === 'up' ? (
-                      <TrendingUp className="w-4 h-4 text-[#2EFFAF]" />
+                      <TrendingUp className="w-4 h-4 text-[#008CE5]" />
                     ) : (
                       <TrendingDown className="w-4 h-4 text-red-400" />
                     )}
-                    <span className={stat.trend === 'up' ? 'text-[#2EFFAF] text-sm font-semibold' : 'text-red-400 text-sm font-semibold'}>
+                    <span className={stat.trend === 'up' ? 'text-[#008CE5] text-sm font-semibold' : 'text-red-400 text-sm font-semibold'}>
                       {stat.change}
                     </span>
                   </div>
@@ -251,8 +251,8 @@ export function AdminAnalytics() {
               <AreaChart data={revenueData}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2EFFAF" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#2EFFAF" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#008CE5" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#008CE5" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
@@ -267,7 +267,7 @@ export function AdminAnalytics() {
                   }}
                   labelStyle={{ color: '#fff' }}
                 />
-                <Area type="monotone" dataKey="revenue" stroke="#2EFFAF" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                <Area type="monotone" dataKey="revenue" stroke="#008CE5" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
               </AreaChart>
             </ResponsiveContainer>
           </motion.div>
@@ -337,7 +337,7 @@ export function AdminAnalytics() {
                     borderRadius: '12px'
                   }}
                 />
-                <Bar dataKey="jobs" fill="#007AFF" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="jobs" fill="#0070B8" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </motion.div>
@@ -362,7 +362,7 @@ export function AdminAnalytics() {
                     borderRadius: '12px'
                   }}
                 />
-                <Line type="monotone" dataKey="providers" stroke="#2EFFAF" strokeWidth={3} dot={{ fill: '#2EFFAF', r: 6 }} />
+                <Line type="monotone" dataKey="providers" stroke="#008CE5" strokeWidth={3} dot={{ fill: '#008CE5', r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
           </motion.div>

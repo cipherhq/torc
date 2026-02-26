@@ -10,7 +10,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@torc/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
   },
 });

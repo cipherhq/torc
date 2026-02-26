@@ -31,11 +31,11 @@ export function VerifyEmail() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1A1F2E] flex flex-col p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#1A1F2E] flex flex-col p-6 relative overflow-hidden" style={{ paddingTop: 'var(--safe-top)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <motion.div
-          className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full"
+          className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full"
           animate={{
             scale: [1, 1.2, 1],
             opacity: [0.1, 0.2, 0.1],
@@ -67,7 +67,7 @@ export function VerifyEmail() {
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: 'spring', duration: 0.6 }}
         >
-          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mb-8 mx-auto">
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-8 mx-auto">
             <Mail className="w-16 h-16 text-[#0A0F1E]" />
           </div>
         </motion.div>
@@ -83,7 +83,7 @@ export function VerifyEmail() {
           <p className="text-white/60 text-lg mb-2">
             We sent a verification link to
           </p>
-          <p className="text-[#2EFFAF] font-semibold text-lg mb-8">
+          <p className="text-[#008CE5] font-semibold text-lg mb-8">
             {email || 'your email'}
           </p>
 
@@ -91,15 +91,15 @@ export function VerifyEmail() {
             <h3 className="text-white font-semibold mb-3">What's next?</h3>
             <ol className="space-y-2 text-white/60 text-sm">
               <li className="flex gap-3">
-                <span className="text-[#2EFFAF] font-bold">1.</span>
+                <span className="text-[#008CE5] font-bold">1.</span>
                 <span>Check your email inbox (and spam folder)</span>
               </li>
               <li className="flex gap-3">
-                <span className="text-[#2EFFAF] font-bold">2.</span>
+                <span className="text-[#008CE5] font-bold">2.</span>
                 <span>Click the verification link in the email</span>
               </li>
               <li className="flex gap-3">
-                <span className="text-[#2EFFAF] font-bold">3.</span>
+                <span className="text-[#008CE5] font-bold">3.</span>
                 <span>You'll be redirected back to sign in</span>
               </li>
             </ol>
@@ -118,7 +118,7 @@ export function VerifyEmail() {
 
           <button
             onClick={() => navigate('/login')}
-            className="text-[#2EFFAF] font-semibold hover:underline"
+            className="text-[#008CE5] font-semibold hover:underline"
           >
             Back to Login
           </button>

@@ -47,12 +47,12 @@ export function NotificationsPage() {
   }
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB' }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE' }}
           title="Back to profile"
         >
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
@@ -60,16 +60,16 @@ export function NotificationsPage() {
         <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Notifications</h1>
       </div>
 
-      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-          <Bell className="w-5 h-5" style={{ color: '#007AFF' }} />
+          <Bell className="w-5 h-5" style={{ color: '#0070B8' }} />
             <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
               {unread > 0 ? `${unread} unread notification(s)` : 'All caught up'}
             </p>
           </div>
           {unread > 0 && (
-            <button onClick={markAllRead} className="text-sm font-semibold flex items-center gap-1" style={{ color: '#2EFFAF' }}>
+            <button onClick={markAllRead} className="text-sm font-semibold flex items-center gap-1" style={{ color: '#008CE5' }}>
               <Check className="w-4 h-4" />
               Mark all read
             </button>
@@ -83,10 +83,10 @@ export function NotificationsPage() {
         ) : (
           <div className="space-y-3">
             {rows.map((row) => (
-              <div key={row.id} className="rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+              <div key={row.id} className="rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
                 <div className="flex items-center justify-between gap-3 mb-1">
                   <p className="font-medium" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{row.title}</p>
-                  {!row.read && <span className="text-xs px-2 py-0.5 rounded-full bg-[#2EFFAF]/20 text-[#2EFFAF]">New</span>}
+                  {!row.read && <span className="text-xs px-2 py-0.5 rounded-full bg-[#008CE5]/20 text-[#008CE5]">New</span>}
                 </div>
                 <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#4B5563' }}>{row.message}</p>
               </div>

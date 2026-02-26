@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "ea8088c6-cc4d-4f19-be4e-e319d2cebe0f"
+      }
+    },
+    "android": {
+      "package": "com.torc"
+    }
+  }
+}

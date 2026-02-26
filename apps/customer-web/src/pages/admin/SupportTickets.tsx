@@ -262,7 +262,7 @@ export function AdminSupportTickets() {
             <button
               onClick={exportTicketsCsv}
               disabled={filtered.length === 0}
-              className="rounded-2xl bg-[#2EFFAF]/20 border border-[#2EFFAF]/30 text-[#9FFFD8] px-4 py-2 flex items-center gap-2 disabled:opacity-60"
+              className="rounded-2xl bg-[#008CE5]/20 border border-[#008CE5]/30 text-[#9FFFD8] px-4 py-2 flex items-center gap-2 disabled:opacity-60"
             >
               <Download className="w-4 h-4" />
               Export CSV
@@ -276,12 +276,12 @@ export function AdminSupportTickets() {
             <p className="text-white text-2xl font-bold">{sla.openCount}</p>
           </div>
           <div className="glass-light rounded-[20px] p-4">
-            <Clock3 className="w-5 h-5 text-[#007AFF] mb-1" />
+            <Clock3 className="w-5 h-5 text-[#0070B8] mb-1" />
             <p className="text-white/60 text-sm">Avg Open Age</p>
             <p className="text-white text-2xl font-bold">{sla.avgOpenAgeHours.toFixed(1)}h</p>
           </div>
           <div className="glass-light rounded-[20px] p-4">
-            <Clock3 className="w-5 h-5 text-[#2EFFAF] mb-1" />
+            <Clock3 className="w-5 h-5 text-[#008CE5] mb-1" />
             <p className="text-white/60 text-sm">Avg Resolution Time</p>
             <p className="text-white text-2xl font-bold">{sla.avgResolutionHours.toFixed(1)}h</p>
           </div>
@@ -351,7 +351,7 @@ export function AdminSupportTickets() {
                     whileTap={{ scale: 0.99 }}
                     onClick={() => setSelectedId(ticket.id)}
                     className={`w-full text-left rounded-2xl p-3 border ${
-                      selectedId === ticket.id ? 'border-[#2EFFAF]/50 bg-[#2EFFAF]/10' : 'border-white/10 bg-white/5'
+                      selectedId === ticket.id ? 'border-[#008CE5]/50 bg-[#008CE5]/10' : 'border-white/10 bg-white/5'
                     }`}
                   >
                     <p className="text-white font-semibold text-sm">{ticket.subject}</p>
@@ -473,7 +473,7 @@ export function AdminSupportTickets() {
                         resolved_at: selectedTicket.status === 'resolved' ? new Date().toISOString() : null,
                       })
                     }
-                    className="rounded-xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold px-4 py-2 disabled:opacity-50 flex items-center gap-2"
+                    className="rounded-xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold px-4 py-2 disabled:opacity-50 flex items-center gap-2"
                   >
                     <Save className="w-4 h-4" />
                     Save

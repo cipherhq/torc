@@ -8,7 +8,7 @@ export function PulsePin() {
       {[...Array(3)].map((_, i) => (
         <motion.div
           key={i}
-          className="absolute w-24 h-24 rounded-full border-2 border-[#2EFFAF]"
+          className="absolute w-24 h-24 rounded-full border-2 border-[#008CE5]"
           animate={{
             scale: [1, 2.5, 2.5],
             opacity: [0.8, 0.2, 0],
@@ -24,7 +24,7 @@ export function PulsePin() {
       
       {/* Center pin */}
       <motion.div
-        className="relative z-10 w-16 h-16 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center shadow-lg shadow-[#2EFFAF]/50"
+        className="relative z-10 w-16 h-16 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center shadow-lg shadow-[#008CE5]/50"
         animate={{
           scale: [1, 1.1, 1],
         }}

@@ -32,18 +32,18 @@ export function BottomNav() {
                 {isActive && (
                   <motion.div
                     layoutId="activeTab"
-                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20"
+                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20"
                     transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                   />
                 )}
                 <Icon 
                   className={`w-6 h-6 relative z-10 ${
-                    isActive ? 'text-[#2EFFAF]' : 'text-white/40'
+                    isActive ? 'text-[#008CE5]' : 'text-white/40'
                   }`}
                 />
                 <span 
                   className={`text-xs relative z-10 ${
-                    isActive ? 'text-[#2EFFAF] font-semibold' : 'text-white/40'
+                    isActive ? 'text-[#008CE5] font-semibold' : 'text-white/40'
                   }`}
                 >
                   {tab.label}

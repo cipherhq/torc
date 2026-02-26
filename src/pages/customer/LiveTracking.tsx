@@ -101,36 +101,34 @@ export function LiveTracking() {
           </div>
         </div>
 
-        {/* Provider location (moving toward customer) */}
-        {status !== 'arrived' && status !== 'inprogress' && (
+        {/* Provider location (kept visible so the map stays active on arrival) */}
+        <motion.div
+          animate={{
+            left: `${providerPosition.x}%`,
+            top: `${providerPosition.y}%`,
+          }}
+          transition={{ duration: 1, ease: "easeInOut" }}
+          className="absolute -translate-x-1/2 -translate-y-1/2"
+        >
           <motion.div
             animate={{
-              left: `${providerPosition.x}%`,
-              top: `${providerPosition.y}%`,
+              rotate: status === 'enroute' || status === 'accepted' ? [0, 360] : 0,
             }}
-            transition={{ duration: 1, ease: "easeInOut" }}
-            className="absolute -translate-x-1/2 -translate-y-1/2"
+            transition={{
+              duration: 3,
+              repeat: status === 'enroute' || status === 'accepted' ? Infinity : 0,
+              ease: "linear",
+            }}
+            className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center shadow-lg shadow-[#2EFFAF]/50"
           >
-            <motion.div
-              animate={{
-                rotate: [0, 360],
-              }}
-              transition={{
-                duration: 3,
-                repeat: Infinity,
-                ease: "linear",
-              }}
-              className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center shadow-lg shadow-[#2EFFAF]/50"
-            >
-              <Navigation className="w-8 h-8 text-[#0A0F1E]" />
-            </motion.div>
-            <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
-              <div className="glass rounded-full px-3 py-1">
-                <span className="text-[#2EFFAF] text-xs font-semibold">🚗 Provider</span>
-              </div>
-            </div>
+            <Navigation className="w-8 h-8 text-[#0A0F1E]" />
           </motion.div>
-        )}
+          <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
+            <div className="glass rounded-full px-3 py-1">
+              <span className="text-[#2EFFAF] text-xs font-semibold">🚗 Provider</span>
+            </div>
+          </div>
+        </motion.div>
       </div>
 
       {/* Bottom sheet - Provider info */}

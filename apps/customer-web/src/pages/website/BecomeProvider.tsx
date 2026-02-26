@@ -19,7 +19,7 @@ export function WebsiteBecomeProvider() {
           <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl">
             <ArrowLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#008CE5] to-[#0070B8] bg-clip-text text-transparent">
             TORC
           </h1>
         </div>
@@ -36,7 +36,7 @@ export function WebsiteBecomeProvider() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => navigate('/provider/onboarding')}
-              className="px-12 py-5 rounded-3xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white font-bold text-xl shadow-2xl shadow-[#2EFFAF]/30 inline-flex items-center gap-3"
+              className="px-12 py-5 rounded-3xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold text-xl shadow-2xl shadow-[#008CE5]/30 inline-flex items-center gap-3"
             >
               Start Application <ArrowRight className="w-6 h-6" />
             </motion.button>
@@ -47,7 +47,7 @@ export function WebsiteBecomeProvider() {
               const Icon = benefit.icon;
               return (
                 <div key={benefit.title} className="bg-gray-50 rounded-3xl p-8">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mb-6">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-6">
                     <Icon className="w-8 h-8 text-white" />
                   </div>
                   <h3 className="text-2xl font-bold text-gray-900 mb-3">{benefit.title}</h3>
@@ -57,7 +57,7 @@ export function WebsiteBecomeProvider() {
             })}
           </div>
 
-          <div className="bg-gradient-to-br from-[#2EFFAF]/10 to-[#007AFF]/10 rounded-3xl p-8">
+          <div className="bg-gradient-to-br from-[#008CE5]/10 to-[#0070B8]/10 rounded-3xl p-8">
             <h2 className="text-3xl font-bold text-gray-900 mb-6">Requirements</h2>
             <ul className="space-y-3 text-gray-700">
               <li>• Valid driver's license</li>

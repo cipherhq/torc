@@ -3116,6 +3116,19 @@ html:not(.dark) ::-webkit-scrollbar-track { background: #F3F4F6; }
 html:not(.dark) ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
 html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 
+/* --- Global blue accent normalization (all themes) --- */
+.text-\[\#4DA8FF\], .text-\[\#2EFFAF\] { color: #008CE5 !important; }
+.bg-\[\#4DA8FF\], .bg-\[\#2EFFAF\] { background-color: #008CE5 !important; }
+.border-\[\#4DA8FF\], .border-\[\#2EFFAF\] { border-color: #008CE5 !important; }
+.fill-\[\#4DA8FF\], .fill-\[\#2EFFAF\] { fill: #008CE5 !important; }
+.ring-\[\#4DA8FF\], .ring-\[\#2EFFAF\] { --tw-ring-color: #008CE5 !important; }
+.from-\[\#4DA8FF\], .from-\[\#2EFFAF\] { --tw-gradient-from: #008CE5 !important; }
+.to-\[\#4DA8FF\], .to-\[\#2EFFAF\] { --tw-gradient-to: #0070B8 !important; }
+.via-\[\#4DA8FF\], .via-\[\#2EFFAF\] { --tw-gradient-via: #0087F0 !important; }
+.shadow-\[\#4DA8FF\]\/30, .shadow-\[\#2EFFAF\]\/30 { --tw-shadow-color: rgba(0, 140, 229, 0.3) !important; }
+.shadow-\[\#4DA8FF\]\/40, .shadow-\[\#2EFFAF\]\/40 { --tw-shadow-color: rgba(0, 140, 229, 0.4) !important; }
+.shadow-\[\#4DA8FF\]\/50, .shadow-\[\#2EFFAF\]\/50 { --tw-shadow-color: rgba(0, 140, 229, 0.5) !important; }
+
 *, :before, :after {
   box-sizing: border-box;
 }

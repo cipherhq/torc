@@ -78,7 +78,7 @@ export function AdminSidebar() {
       key: 'financial',
       items: [
         { icon: DollarSign, label: 'Payments', path: '/admin/payments' },
-        { icon: LineChart, label: 'Finance (P&L)', path: '/admin/finance' },
+        { icon: LineChart, label: 'Financial Hub', path: '/admin/finance' },
         { icon: CreditCard, label: 'Payouts', path: '/admin/payouts' },
         { icon: DollarSign, label: 'Payout History', path: '/admin/payout-history' },
       ],
@@ -107,8 +107,8 @@ export function AdminSidebar() {
           onClick={() => navigate('/admin')}
           className="flex items-center gap-3 w-full"
         >
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center">
-            <span className="text-[#0F1419] font-bold text-xl">T</span>
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
+            <span className="text-white font-bold text-xl">T</span>
           </div>
           <div className="text-left">
             <h1 className="text-white font-bold text-xl">TORC Admin</h1>
@@ -153,18 +153,18 @@ export function AdminSidebar() {
                       onClick={() => navigate(item.path)}
                       className={`w-full flex items-center justify-between px-3 py-3 rounded-2xl transition-all ${
                         active
-                          ? 'bg-gradient-to-r from-[#2EFFAF]/20 to-[#007AFF]/20 border border-[#2EFFAF]/30'
+                          ? 'bg-gradient-to-r from-[#008CE5]/20 to-[#0070B8]/20 border border-[#008CE5]/30'
                           : 'hover:bg-white/5'
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <Icon className={active ? 'w-5 h-5 text-[#2EFFAF]' : 'w-5 h-5 text-white/60'} />
+                        <Icon className={active ? 'w-5 h-5 text-[#008CE5]' : 'w-5 h-5 text-white/60'} />
                         <span className={active ? 'text-white font-semibold' : 'text-white/70'}>
                           {item.label}
                         </span>
                       </div>
                       {item.badge && (
-                        <div className="px-2 py-0.5 rounded-full bg-[#2EFFAF]/20 text-[#2EFFAF] text-xs font-bold">
+                        <div className="px-2 py-0.5 rounded-full bg-[#008CE5]/20 text-[#008CE5] text-xs font-bold">
                           {item.badge}
                         </div>
                       )}

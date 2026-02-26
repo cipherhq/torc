@@ -9,12 +9,13 @@ interface Profile {
   last_name?: string;
   full_name?: string;
   phone?: string;
-  role?: 'customer' | 'provider';
+  role?: 'customer' | 'provider' | 'admin';
   avatar_url?: string;
 }
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   profile: Profile | null;
   loading: boolean;
   isAuthenticated: boolean;
@@ -31,25 +32,33 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
+    // Check active session - catch to prevent unhandled rejection crash
+    supabase.auth.getSession()
+      .then(({ data: { session: s } }) => {
+        setSession(s ?? null);
+        setUser(s?.user ?? null);
+        if (s?.user) {
+          fetchProfile(s.user.id);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('Auth getSession failed:', err);
         setLoading(false);
-      }
-    });
+      });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s ?? null);
+      setUser(s?.user ?? null);
+      if (s?.user) {
+        fetchProfile(s.user.id);
       } else {
         setProfile(null);
         setLoading(false);
@@ -112,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     setUser(null);
+    setSession(null);
     setProfile(null);
   };
 
@@ -132,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextType = {
     user,
+    session,
     profile,
     loading,
     isAuthenticated: !!user,

@@ -15,8 +15,10 @@ export function CustomerBottomNav() {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 pb-safe">
-      <div className="glass-light border-t border-white/20 px-4 py-3">
+    <div className="fixed bottom-0 left-0 right-0 z-50">
+      <div className="glass-light border-t border-white/20 px-4 py-3"
+        style={{ paddingBottom: 'max(calc(12px + env(safe-area-inset-bottom, 0px)), 28px)' }}
+      >
         <div className="flex items-center justify-around max-w-lg mx-auto">
           {tabs.map((tab) => {
             const isActive = location.pathname === tab.path;
@@ -32,18 +34,18 @@ export function CustomerBottomNav() {
                 {isActive && (
                   <motion.div
                     layoutId="activeCustomerTab"
-                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF]/30 to-[#007AFF]/30"
+                    className="absolute -top-1 left-1/2 -translate-x-1/2 w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5]/30 to-[#0070B8]/30"
                     transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                   />
                 )}
                 <Icon 
                   className={`w-6 h-6 relative z-10 ${
-                    isActive ? 'text-[#2EFFAF]' : 'text-white/60'
+                    isActive ? 'text-[#008CE5]' : 'text-white/60'
                   }`}
                 />
                 <span 
                   className={`text-xs relative z-10 ${
-                    isActive ? 'text-[#2EFFAF] font-semibold' : 'text-white/60'
+                    isActive ? 'text-[#008CE5] font-semibold' : 'text-white/60'
                   }`}
                 >
                   {tab.label}

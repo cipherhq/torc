@@ -69,7 +69,7 @@ export function ServiceHistory() {
     <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
       {/* Header */}
       <div className="glass-light border-b border-white/10 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto p-6">
+        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-2">
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -95,22 +95,22 @@ export function ServiceHistory() {
         >
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto mb-2">
-                <Calendar className="w-6 h-6 text-[#0F1419]" />
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-2">
+                <Calendar className="w-6 h-6 text-white" />
               </div>
               <p className="text-white/60 text-xs mb-1">Total</p>
               <p className="text-white font-bold text-xl">{services.length}</p>
             </div>
             <div className="text-center">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto mb-2">
-                <DollarSign className="w-6 h-6 text-[#0F1419]" />
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-2">
+                <DollarSign className="w-6 h-6 text-white" />
               </div>
               <p className="text-white/60 text-xs mb-1">Spent</p>
               <p className="text-white font-bold text-xl">${totalSpent}</p>
             </div>
             <div className="text-center">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto mb-2">
-                <Star className="w-6 h-6 text-[#0F1419]" />
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-2">
+                <Star className="w-6 h-6 text-white" />
               </div>
               <p className="text-white/60 text-xs mb-1">Avg Rating</p>
               <p className="text-white font-bold text-xl">{services.length > 0 ? (services.reduce((sum, s) => sum + s.rating, 0) / services.filter(s => s.rating > 0).length || 0).toFixed(1) : '-'}</p>
@@ -127,7 +127,7 @@ export function ServiceHistory() {
               onClick={() => setFilter(f)}
               className={`flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm transition-all ${
                 filter === f
-                  ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                  ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                   : 'glass text-white/70'
               }`}
             >
@@ -153,7 +153,7 @@ export function ServiceHistory() {
                 </div>
                 <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
                   service.status === 'completed'
-                    ? 'bg-[#2EFFAF]/20 text-[#2EFFAF]'
+                    ? 'bg-[#008CE5]/20 text-[#008CE5]'
                     : 'bg-red-400/20 text-red-400'
                 }`}>
                   {service.status === 'completed' ? '✓ Completed' : '✕ Cancelled'}
@@ -162,11 +162,11 @@ export function ServiceHistory() {
 
               <div className="space-y-2 mb-4">
                 <div className="flex items-center gap-2 text-white/70 text-sm">
-                  <MapPin className="w-4 h-4 text-[#2EFFAF]" />
+                  <MapPin className="w-4 h-4 text-[#008CE5]" />
                   {service.location}
                 </div>
                 <div className="flex items-center gap-2 text-white/70 text-sm">
-                  <Clock className="w-4 h-4 text-[#007AFF]" />
+                  <Clock className="w-4 h-4 text-[#0070B8]" />
                   {service.date}
                 </div>
               </div>
@@ -179,7 +179,7 @@ export function ServiceHistory() {
                   </div>
                   <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
                     <span className="text-white/60 text-sm">Tip</span>
-                    <span className="text-[#2EFFAF] font-semibold">${service.tip}</span>
+                    <span className="text-[#008CE5] font-semibold">${service.tip}</span>
                   </div>
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-white/60 text-sm">Total</span>
@@ -195,7 +195,7 @@ export function ServiceHistory() {
                           key={star}
                           className={`w-4 h-4 ${
                             star <= service.rating
-                              ? 'fill-[#2EFFAF] text-[#2EFFAF]'
+                              ? 'fill-[#008CE5] text-[#008CE5]'
                               : 'text-white/20'
                           }`}
                         />
@@ -216,7 +216,7 @@ export function ServiceHistory() {
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      className="flex-1 px-4 py-3 rounded-[16px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold text-sm"
+                      className="flex-1 px-4 py-3 rounded-[16px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold text-sm"
                     >
                       Book Again
                     </motion.button>

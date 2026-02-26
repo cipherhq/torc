@@ -7,8 +7,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { getRequestContext, updateRequestContext } from '../../data/requestContext';
 import { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, CardElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import type { StripeCardElementOptions, PaymentMethod } from '@stripe/stripe-js';
+import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import type { StripeCardNumberElementOptions, PaymentMethod } from '@stripe/stripe-js';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -38,15 +38,13 @@ function AddCardForm({
   const [name, setName] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
 
-  const cardElementOptions: StripeCardElementOptions = {
-    style: {
-      base: {
-        color: isDark ? '#FFFFFF' : '#1F2937',
-        fontSize: '15px',
-        '::placeholder': { color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' },
-      },
-      invalid: { color: '#EF4444' },
+  const elementStyle: StripeCardNumberElementOptions['style'] = {
+    base: {
+      color: isDark ? '#FFFFFF' : '#1F2937',
+      fontSize: '15px',
+      '::placeholder': { color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' },
     },
+    invalid: { color: '#EF4444' },
   };
 
   async function submit() {
@@ -55,8 +53,8 @@ function AddCardForm({
       return;
     }
 
-    const card = elements.getElement(CardElement);
-    if (!card) {
+    const cardNumber = elements.getElement(CardNumberElement);
+    if (!cardNumber) {
       setErrors(['Card input not ready.']);
       return;
     }
@@ -64,7 +62,7 @@ function AddCardForm({
     setErrors([]);
     const result = await stripe.createPaymentMethod({
       type: 'card',
-      card,
+      card: cardNumber,
       billing_details: { name: name.trim() || undefined },
     });
 
@@ -105,30 +103,56 @@ function AddCardForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name on card"
-            className="w-full px-3 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#2EFFAF]/50"
+            className="w-full px-3 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/50"
             style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
           />
         </div>
         <div>
-          <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>Card Details *</label>
-          <div className="w-full px-3 py-3 rounded-xl" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}>
-            <CardElement options={cardElementOptions} />
+          <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>Card Number *</label>
+          <div
+            className="w-full px-3 py-3 rounded-xl"
+            style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
+            onClick={() => elements?.getElement(CardNumberElement)?.focus()}
+          >
+            <CardNumberElement options={{ style: elementStyle, showIcon: true }} />
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>Expiry *</label>
+            <div
+              className="w-full px-3 py-3 rounded-xl"
+              style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
+              onClick={() => elements?.getElement(CardExpiryElement)?.focus()}
+            >
+              <CardExpiryElement options={{ style: elementStyle }} />
+            </div>
+          </div>
+          <div className="flex-1">
+            <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>CVC *</label>
+            <div
+              className="w-full px-3 py-3 rounded-xl"
+              style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
+              onClick={() => elements?.getElement(CardCvcElement)?.focus()}
+            >
+              <CardCvcElement options={{ style: elementStyle }} />
+            </div>
           </div>
         </div>
         <div className="rounded-xl p-2.5 flex gap-2" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.05)' }}>
-          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#007AFF' }} />
+          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#0070B8' }} />
           <p className="text-xs" style={{ color: subColor }}>Card details are tokenized by Stripe and never stored as raw numbers.</p>
         </div>
       </div>
 
       <div className="flex gap-3 mt-5">
-        <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: textColor }}>
+        <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: textColor }}>
           Cancel
         </button>
         <button
           onClick={submit}
           disabled={saving}
-          className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50"
+          className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save Card'}
         </button>
@@ -154,9 +178,9 @@ export function PricingPayment() {
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
 
   useEffect(() => {
     if (!user) return;
@@ -248,7 +272,13 @@ export function PricingPayment() {
           },
         },
       });
-      if (error) throw error;
+      if (error) {
+        // Extract the real error from edge function response
+        // supabase-js v2: error.context is the parsed response body
+        const ctx = error.context;
+        const msg = ctx?.error || ctx?.message || data?.error || error.message;
+        throw new Error(msg);
+      }
       if (!data?.clientSecret) throw new Error('Missing client secret from payment intent.');
 
       const stripe = await stripePromise;
@@ -283,9 +313,9 @@ export function PricingPayment() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
@@ -298,7 +328,7 @@ export function PricingPayment() {
           className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
         >
           <div className="flex items-center gap-2 mb-5">
-            <DollarSign className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+            <DollarSign className="w-5 h-5" style={{ color: '#008CE5' }} />
             <h2 className="font-semibold" style={{ color: textColor }}>Price Estimate</h2>
           </div>
 
@@ -332,12 +362,12 @@ export function PricingPayment() {
             <div className="pt-3 mt-3" style={{ borderTop: `1px solid ${cardBorder}` }}>
               <div className="flex items-center justify-between">
                 <span className="font-bold" style={{ color: textColor }}>Total</span>
-                <span className="font-bold text-xl" style={{ color: '#2EFFAF' }}>${total.toFixed(2)}</span>
+                <span className="font-bold text-xl" style={{ color: '#008CE5' }}>${total.toFixed(2)}</span>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB' }}>
+          <div className="mt-4 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8' }}>
             <p className="text-xs" style={{ color: subColor }}>Final price may vary based on actual time and distance</p>
           </div>
         </motion.div>
@@ -345,7 +375,7 @@ export function PricingPayment() {
         {/* Payment methods */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-4">
-            <CreditCard className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+            <CreditCard className="w-5 h-5" style={{ color: '#008CE5' }} />
             <p className="font-semibold" style={{ color: textColor }}>Payment Method</p>
           </div>
 
@@ -355,43 +385,51 @@ export function PricingPayment() {
               <p className="text-sm" style={{ color: subColor }}>Add a payment method to continue</p>
             </div>
           ) : (
-            <div className="space-y-2 mb-3">
-              {paymentMethods.map((method: any) => (
-                <button key={method.id} onClick={() => setSelectedPayment(method.id)}
-                  className="w-full rounded-2xl p-4 flex items-center gap-3 transition-all"
-                  style={{
-                    backgroundColor: selectedPayment === method.id ? (isDark ? 'rgba(46,255,175,0.08)' : 'rgba(46,255,175,0.05)') : cardBg,
-                    border: `2px solid ${selectedPayment === method.id ? '#2EFFAF' : cardBorder}`,
-                  }}
-                >
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: selectedPayment === method.id ? 'rgba(46,255,175,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6') }}>
-                    <CreditCard className="w-5 h-5" style={{ color: selectedPayment === method.id ? '#2EFFAF' : subColor }} />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-sm" style={{ color: textColor }}>{method.brand || 'Card'} •••• {method.last4 || '****'}</p>
-                    {method.is_default && <p className="text-xs mt-0.5" style={{ color: '#2EFFAF' }}>Default</p>}
-                  </div>
-                  <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center" style={{ borderColor: selectedPayment === method.id ? '#2EFFAF' : subColor }}>
-                    {selectedPayment === method.id && <div className="w-2.5 h-2.5 rounded-full bg-[#2EFFAF]" />}
-                  </div>
-                </button>
-              ))}
+            <div className="space-y-3 mb-3">
+              {paymentMethods.map((method: any) => {
+                const isSelected = selectedPayment === method.id;
+                return (
+                  <motion.button key={method.id} whileTap={{ scale: 0.97 }}
+                    onClick={() => setSelectedPayment(method.id)}
+                    className="w-full rounded-2xl p-4 flex items-center gap-3 transition-all active:opacity-80"
+                    style={{
+                      backgroundColor: isSelected ? (isDark ? 'rgba(78,205,196,0.12)' : 'rgba(78,205,196,0.08)') : cardBg,
+                      border: `2px solid ${isSelected ? '#008CE5' : cardBorder}`,
+                      boxShadow: isSelected ? '0 4px 16px rgba(78,205,196,0.25)' : 'none',
+                    }}
+                  >
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: isSelected ? 'rgba(78,205,196,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED') }}>
+                      <CreditCard className="w-5 h-5" style={{ color: isSelected ? '#008CE5' : subColor }} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="font-semibold" style={{ color: textColor }}>{method.brand || 'Card'} •••• {method.last4 || '****'}</p>
+                      {method.is_default && <p className="text-xs mt-0.5 font-medium" style={{ color: '#008CE5' }}>Default</p>}
+                    </div>
+                    <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{
+                      borderColor: isSelected ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.25)' : '#D1D5DB'),
+                      backgroundColor: isSelected ? '#008CE5' : 'transparent',
+                    }}>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                  </motion.button>
+                );
+              })}
             </div>
           )}
 
           <button onClick={() => { setShowAddCard(true); }}
-            className="w-full rounded-2xl p-4 flex items-center gap-3 border-2 border-dashed transition-all hover:border-[#2EFFAF]/50"
+            className="w-full rounded-2xl p-4 flex items-center gap-3 border-2 border-dashed transition-all hover:border-[#008CE5]/50"
             style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}
           >
-            <Plus className="w-5 h-5" style={{ color: '#2EFFAF' }} />
-            <p className="font-semibold text-sm" style={{ color: '#2EFFAF' }}>Add New Card</p>
+            <Plus className="w-5 h-5" style={{ color: '#008CE5' }} />
+            <p className="font-semibold text-sm" style={{ color: '#008CE5' }}>Add New Card</p>
           </button>
         </div>
 
         {/* Save card toggle */}
         <button onClick={() => setSaveCard(!saveCard)} className="w-full rounded-2xl p-4 flex items-center gap-3 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-          <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors" style={{ borderColor: saveCard ? '#2EFFAF' : subColor, backgroundColor: saveCard ? '#2EFFAF' : 'transparent' }}>
-            {saveCard && <Check className="w-3 h-3 text-[#0F1419]" />}
+          <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors" style={{ borderColor: saveCard ? '#008CE5' : subColor, backgroundColor: saveCard ? '#008CE5' : 'transparent' }}>
+            {saveCard && <Check className="w-3 h-3 text-white" />}
           </div>
           <p className="font-semibold text-sm flex-1 text-left" style={{ color: textColor }}>Save card for future use</p>
         </button>
@@ -411,14 +449,14 @@ export function PricingPayment() {
         )}
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm" style={{ color: subColor }}>Total Amount</span>
-          <span className="font-bold text-xl" style={{ color: '#2EFFAF' }}>${total.toFixed(2)}</span>
+          <span className="font-bold text-xl" style={{ color: '#008CE5' }}>${total.toFixed(2)}</span>
         </div>
-        <motion.button whileTap={{ scale: 0.98 }} onClick={handleConfirm}
+        <button onClick={handleConfirm}
           disabled={processingPayment}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50"
+          className="torc-btn-primary"
         >
           {processingPayment ? 'Processing Payment...' : 'Confirm & Request'}
-        </motion.button>
+        </button>
       </div>
 
       {/* Add Card Modal */}

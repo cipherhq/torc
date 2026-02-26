@@ -94,9 +94,9 @@ export function ProviderDocuments() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'approved':
-        return <CheckCircle className="w-5 h-5 text-[#2EFFAF]" />;
+        return <CheckCircle className="w-5 h-5 text-[#008CE5]" />;
       case 'uploaded':
-        return <Clock className="w-5 h-5 text-[#007AFF]" />;
+        return <Clock className="w-5 h-5 text-[#0070B8]" />;
       case 'rejected':
         return <AlertCircle className="w-5 h-5 text-red-400" />;
       default:
@@ -112,7 +112,7 @@ export function ProviderDocuments() {
     <div className="min-h-screen bg-[#252B3D] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -235,7 +235,7 @@ export function ProviderDocuments() {
                   className={`w-full rounded-2xl py-4 font-semibold flex items-center justify-center gap-2 ${
                     upload.preview
                       ? 'bg-white/5 border border-white/10 text-white/80'
-                      : 'bg-gradient-to-r from-[#2EFFAF]/20 to-[#007AFF]/20 border border-[#2EFFAF]/30 text-[#2EFFAF]'
+                      : 'bg-gradient-to-r from-[#008CE5]/20 to-[#0070B8]/20 border border-[#008CE5]/30 text-[#008CE5]'
                   }`}
                 >
                   <Upload className="w-5 h-5" />
@@ -257,7 +257,7 @@ export function ProviderDocuments() {
               type="checkbox"
               checked={consentChecked}
               onChange={(e) => setConsentChecked(e.target.checked)}
-              className="mt-1 w-5 h-5 rounded bg-white/10 border-white/20 checked:bg-[#2EFFAF]"
+              className="mt-1 w-5 h-5 rounded bg-white/10 border-white/20 checked:bg-[#008CE5]"
             />
             <div>
               <h3 className="text-white font-semibold mb-2">Background Check Consent</h3>
@@ -276,7 +276,7 @@ export function ProviderDocuments() {
           disabled={!allRequiredUploaded || !consentChecked}
           className={`w-full rounded-[32px] py-5 font-bold text-lg transition-all ${
             allRequiredUploaded && consentChecked
-              ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] shadow-lg shadow-[#2EFFAF]/30'
+              ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white shadow-lg shadow-[#008CE5]/30'
               : 'bg-white/10 text-white/40 cursor-not-allowed'
           }`}
         >

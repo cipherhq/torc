@@ -77,7 +77,7 @@ export function AdminTeam() {
       description: 'Full platform access and control',
       permissions: ['all'],
       membersCount: 1,
-      color: 'from-[#2EFFAF] to-[#00D68F]',
+      color: 'from-[#008CE5] to-[#00D68F]',
     },
     {
       id: 'admin',
@@ -85,7 +85,7 @@ export function AdminTeam() {
       description: 'Manage operations and users',
       permissions: ['jobs', 'users', 'providers', 'directory', 'analytics'],
       membersCount: 1,
-      color: 'from-[#007AFF] to-[#0051D5]',
+      color: 'from-[#0070B8] to-[#0051D5]',
     },
     {
       id: 'manager',
@@ -117,8 +117,8 @@ export function AdminTeam() {
 
   const getRoleColor = (role: string) => {
     switch (role) {
-      case 'super_admin': return 'text-[#2EFFAF] bg-[#2EFFAF]/20';
-      case 'admin': return 'text-[#007AFF] bg-[#007AFF]/20';
+      case 'super_admin': return 'text-[#008CE5] bg-[#008CE5]/20';
+      case 'admin': return 'text-[#0070B8] bg-[#0070B8]/20';
       case 'manager': return 'text-[#FF6B6B] bg-[#FF6B6B]/20';
       case 'support': return 'text-[#FFA500] bg-[#FFA500]/20';
       default: return 'text-white/60 bg-white/10';
@@ -138,7 +138,7 @@ export function AdminTeam() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setShowAddMember(true)}
-            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold flex items-center gap-2 shadow-lg shadow-[#2EFFAF]/30"
+            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold flex items-center gap-2 shadow-lg shadow-[#008CE5]/30"
           >
             <UserPlus className="w-5 h-5" />
             Invite Member
@@ -152,7 +152,7 @@ export function AdminTeam() {
             onClick={() => setActiveTab('members')}
             className={`px-6 py-3 rounded-[20px] font-semibold transition-all ${
               activeTab === 'members'
-                ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                 : 'glass text-white/70'
             }`}
           >
@@ -163,7 +163,7 @@ export function AdminTeam() {
             onClick={() => setActiveTab('roles')}
             className={`px-6 py-3 rounded-[20px] font-semibold transition-all ${
               activeTab === 'roles'
-                ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                 : 'glass text-white/70'
             }`}
           >
@@ -186,8 +186,8 @@ export function AdminTeam() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center">
-                        <span className="text-[#0F1419] font-bold text-xl">{member.avatar}</span>
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
+                        <span className="text-white font-bold text-xl">{member.avatar}</span>
                       </div>
                       <div>
                         <div className="flex items-center gap-3 mb-2">
@@ -314,13 +314,13 @@ export function AdminTeam() {
                   <input
                     type="email"
                     placeholder="email@torc.com"
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
                   />
                 </div>
 
                 <div>
                   <label className="text-white/70 text-sm mb-2 block">Role</label>
-                  <select className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#2EFFAF]/50">
+                  <select className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50">
                     <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
                     <option value="support">Support</option>
@@ -332,7 +332,7 @@ export function AdminTeam() {
                   <textarea
                     placeholder="Welcome to the team..."
                     rows={3}
-                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
                   />
                 </div>
               </div>
@@ -349,7 +349,7 @@ export function AdminTeam() {
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="flex-1 px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold"
+                  className="flex-1 px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold"
                 >
                   Send Invite
                 </motion.button>

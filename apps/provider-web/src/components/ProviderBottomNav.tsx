@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Home, DollarSign, User, MessageCircle } from 'lucide-react';
+import { Home, DollarSign, User, MessageCircle, Compass } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 
@@ -10,6 +10,7 @@ export function ProviderBottomNav() {
 
   const tabs = [
     { icon: Home, label: 'Home', path: '/home' },
+    { icon: Compass, label: 'Explore', path: '/explore' },
     { icon: MessageCircle, label: 'Messages', path: '/provider/messages' },
     { icon: DollarSign, label: 'Earnings', path: '/earnings' },
     { icon: User, label: 'Profile', path: '/profile' },
@@ -19,11 +20,12 @@ export function ProviderBottomNav() {
   const activePath = location.pathname;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 pb-safe">
+    <div className="fixed bottom-0 left-0 right-0 z-50">
       <div className="px-4 py-3 backdrop-blur-xl"
         style={{
+          paddingBottom: 'max(calc(12px + env(safe-area-inset-bottom, 0px)), 28px)',
           backgroundColor: isDark ? 'rgba(15,20,25,0.85)' : 'rgba(255,255,255,0.92)',
-          borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`,
+          borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
         }}
       >
         <div className="flex items-center justify-around max-w-lg mx-auto">
@@ -45,17 +47,17 @@ export function ProviderBottomNav() {
                   <motion.div
                     layoutId="activeProviderTab"
                     className="absolute -top-1 left-1/2 -translate-x-1/2 w-12 h-12 rounded-2xl"
-                    style={{ backgroundColor: isDark ? 'rgba(46,255,175,0.12)' : 'rgba(46,255,175,0.1)' }}
+                    style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : 'rgba(0,140,229,0.1)' }}
                     transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                   />
                 )}
                 <Icon
                   className="w-6 h-6 relative z-10"
-                  style={{ color: isActive ? '#2EFFAF' : inactiveColor }}
+                  style={{ color: isActive ? '#008CE5' : inactiveColor }}
                 />
                 <span
                   className="text-xs relative z-10"
-                  style={{ color: isActive ? '#2EFFAF' : inactiveColor, fontWeight: isActive ? 600 : 400 }}
+                  style={{ color: isActive ? '#008CE5' : inactiveColor, fontWeight: isActive ? 600 : 400 }}
                 >
                   {tab.label}
                 </span>

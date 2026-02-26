@@ -47,12 +47,12 @@ export function RatingsReviews() {
   }, [rows]);
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB' }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE' }}
           title="Back to profile"
         >
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
@@ -60,9 +60,9 @@ export function RatingsReviews() {
         <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Ratings & Reviews</h1>
       </div>
 
-      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <div className="flex items-center gap-3 mb-2">
-          <Star className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+          <Star className="w-5 h-5" style={{ color: '#008CE5' }} />
           <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
             {rows.length ? `${averageRating.toFixed(2)} average from ${rows.length} review(s)` : 'No ratings yet'}
           </p>
@@ -78,10 +78,10 @@ export function RatingsReviews() {
         ) : (
           <div className="space-y-3">
             {rows.map((row) => (
-              <div key={row.id} className="rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+              <div key={row.id} className="rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
                 <div className="flex items-center justify-between mb-1">
                   <p className="font-medium" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{row.requester_name || 'Customer'}</p>
-                  <p className="text-sm" style={{ color: '#2EFFAF' }}>{Number(row.rating || 0).toFixed(1)} / 5</p>
+                  <p className="text-sm" style={{ color: '#008CE5' }}>{Number(row.rating || 0).toFixed(1)} / 5</p>
                 </div>
                 <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#4B5563' }}>{row.review || 'No written review provided.'}</p>
               </div>

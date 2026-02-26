@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1073110036723",
+    "project_id": "torc-app",
+    "storage_bucket": "torc-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1073110036723:android:5b850d6c0fad68b2a58786",
+        "android_client_info": {
+          "package_name": "com.torc.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCN_k8er6YFZYWWxnVod2NjAqoFx4-7now"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1073110036723:android:7f10da69cd9dae79a58786",
+        "android_client_info": {
+          "package_name": "com.torc.provider"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCN_k8er6YFZYWWxnVod2NjAqoFx4-7now"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

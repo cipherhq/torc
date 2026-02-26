@@ -1,12 +1,52 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
 const JobContext = createContext({});
 
+// Default platform settings (used as fallback)
+const DEFAULT_PLATFORM_SETTINGS = {
+  cancellation_fee_pct: 25,
+  platform_commission_pct: 15,
+  tax_rate_pct: 8,
+  service_fee_pct: 10,
+  hazard_fee: 15,
+  scheduling_fee: 5,
+};
+
 export function JobProvider({ children }) {
   const { user } = useAuth();
   const [currentJob, setCurrentJob] = useState(null);
+  const [platformSettings, setPlatformSettings] = useState(DEFAULT_PLATFORM_SETTINGS);
+  const settingsLoaded = useRef(false);
+
+  // Fetch platform settings from DB once on mount
+  useEffect(() => {
+    if (settingsLoaded.current) return;
+    settingsLoaded.current = true;
+
+    async function loadSettings() {
+      try {
+        const { data, error } = await supabase
+          .from('platform_settings')
+          .select('key, value');
+
+        if (!error && data && data.length > 0) {
+          const loaded = { ...DEFAULT_PLATFORM_SETTINGS };
+          data.forEach((row) => {
+            if (row.key in loaded) {
+              loaded[row.key] = typeof row.value === 'number' ? row.value : Number(row.value) || loaded[row.key];
+            }
+          });
+          setPlatformSettings(loaded);
+        }
+      } catch (e) {
+        console.warn('Using default platform settings:', e);
+      }
+    }
+    loadSettings();
+  }, []);
+
   const [jobDetails, setJobDetails] = useState({
     serviceId: null,
     vehicleId: null,
@@ -50,47 +90,51 @@ export function JobProvider({ children }) {
     setCurrentJob(null);
   }
 
-  async function createJob(paymentMethodId) {
+  async function createJob(paymentMethodId, overrides) {
+    // Merge any overrides with current jobDetails (fixes async state race condition)
+    const details = overrides ? { ...jobDetails, ...overrides } : jobDetails;
+
     if (!user) throw new Error('User must be authenticated');
-    if (!jobDetails.serviceId) throw new Error('Service selection is required');
-    if (!jobDetails.pickupLocation || !jobDetails.pickupAddress) {
+    if (!details.serviceId) throw new Error('Service selection is required');
+    if (!details.pickupLocation || !details.pickupAddress) {
       throw new Error('Pickup location is required');
     }
 
     const insertData = {
       customer_id: user.id,
-      service_id: jobDetails.serviceId,
-      vehicle_id: jobDetails.vehicleId || null,
-      pickup_latitude: jobDetails.pickupLocation?.latitude || null,
-      pickup_longitude: jobDetails.pickupLocation?.longitude || null,
-      pickup_address: jobDetails.pickupAddress,
-      destination_latitude: jobDetails.destinationLocation?.latitude || null,
-      destination_longitude: jobDetails.destinationLocation?.longitude || null,
-      destination_address: jobDetails.destinationAddress,
-      requester_type: jobDetails.requesterType,
-      requester_name: jobDetails.requesterName,
-      requester_phone: jobDetails.requesterPhone,
-      scheduled_for: jobDetails.scheduledFor || new Date().toISOString(),
-      customer_notes: jobDetails.customerNotes,
+      service_id: details.serviceId,
+      vehicle_id: details.vehicleId || null,
+      pickup_latitude: details.pickupLocation?.latitude || null,
+      pickup_longitude: details.pickupLocation?.longitude || null,
+      pickup_address: details.pickupAddress,
+      destination_latitude: details.destinationLocation?.latitude || null,
+      destination_longitude: details.destinationLocation?.longitude || null,
+      destination_address: details.destinationAddress,
+      requester_type: details.requesterType,
+      requester_name: details.requesterName,
+      requester_phone: details.requesterPhone,
+      scheduled_for: details.scheduledFor || new Date().toISOString(),
+      customer_notes: details.customerNotes,
       status: 'pending',
       payment_method_id: paymentMethodId || null,
-      payment_intent_id: jobDetails.paymentIntentId || null,
-      payment_status: jobDetails.paymentStatus || 'unpaid',
-      payment_currency: (jobDetails.paymentCurrency || 'USD').toUpperCase(),
-      paid_at: jobDetails.paymentStatus === 'paid' ? new Date().toISOString() : null,
+      payment_intent_id: details.paymentIntentId || null,
+      payment_status: details.paymentStatus || 'unpaid',
+      payment_currency: (details.paymentCurrency || 'USD').toUpperCase(),
+      paid_at: details.paymentStatus === 'paid' ? new Date().toISOString() : null,
       base_price: null,
     };
 
-    // Get service base price
-    if (jobDetails.serviceId) {
-      const { data: svc } = await supabase.from('services').select('base_price').eq('id', jobDetails.serviceId).single();
+    // Get service base price and apply admin-configured fees
+    if (details.serviceId) {
+      const { data: svc } = await supabase.from('services').select('base_price').eq('id', details.serviceId).single();
       if (svc) {
-        const hazardFee = jobDetails.isHazardLocation ? 15 : 0;
-        const schedulingFee = jobDetails.scheduledFor ? 5 : 0;
+        const ps = platformSettings;
+        const hazardFee = details.isHazardLocation ? ps.hazard_fee : 0;
+        const schedulingFee = details.scheduledFor ? ps.scheduling_fee : 0;
         insertData.base_price = svc.base_price;
-        insertData.service_fee = Math.round(svc.base_price * 0.1 * 100) / 100;
+        insertData.service_fee = Math.round(svc.base_price * (ps.service_fee_pct / 100) * 100) / 100;
         const subtotal = svc.base_price + hazardFee + schedulingFee;
-        insertData.tax = Math.round(subtotal * 0.08 * 100) / 100;
+        insertData.tax = Math.round(subtotal * (ps.tax_rate_pct / 100) * 100) / 100;
         insertData.total_amount = subtotal + insertData.service_fee + insertData.tax;
       }
     }
@@ -151,9 +195,18 @@ export function JobProvider({ children }) {
   }
 
   async function updateJobStatus(jobId, status) {
+    const updateData = { status };
+    if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
+    if (status === 'in_progress' || status === 'inprogress') {
+      updateData.started_at = new Date().toISOString();
+    }
+    if (status === 'completed') {
+      updateData.completed_at = new Date().toISOString();
+    }
+
     const { data, error } = await supabase
       .from('jobs')
-      .update({ status })
+      .update(updateData)
       .eq('id', jobId)
       .select()
       .single();
@@ -163,7 +216,66 @@ export function JobProvider({ children }) {
     // Refetch enriched job data with all relationships
     await fetchJob(jobId);
 
+    // Send completion emails when job is completed (fire-and-forget)
+    if (status === 'completed' && data) {
+      sendCompletionEmails(data).catch((e) => console.warn('Completion emails failed:', e));
+    }
+
     return data;
+  }
+
+  async function sendCompletionEmails(job) {
+    try {
+      const { sendCustomerInvoiceEmail, sendProviderCompletionEmail } = await import('../services/email.service');
+      const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const amount = job.total_amount ? `$${Number(job.total_amount).toFixed(2)}` : (job.base_price ? `$${Number(job.base_price).toFixed(2)}` : '$0.00');
+
+      // Fetch customer & provider profiles
+      const [customerRes, providerRes, serviceRes] = await Promise.all([
+        job.customer_id ? supabase.from('profiles').select('email, first_name, last_name').eq('id', job.customer_id).maybeSingle() : { data: null },
+        job.provider_id ? supabase.from('profiles').select('email, first_name, last_name').eq('id', job.provider_id).maybeSingle() : { data: null },
+        job.service_id ? supabase.from('services').select('name').eq('id', job.service_id).maybeSingle() : { data: null },
+      ]);
+
+      const customerProfile = customerRes?.data;
+      const providerProfile = providerRes?.data;
+      const serviceName = serviceRes?.data?.name || 'Roadside Assistance';
+      const customerName = customerProfile ? `${customerProfile.first_name || ''} ${customerProfile.last_name || ''}`.trim() : (job.requester_name || 'Customer');
+      const providerName = providerProfile ? `${providerProfile.first_name || ''} ${providerProfile.last_name || ''}`.trim() : 'Provider';
+
+      // Send invoice to customer
+      if (customerProfile?.email) {
+        sendCustomerInvoiceEmail(customerProfile.email, {
+          customerName,
+          serviceName,
+          providerName,
+          date: now,
+          amount,
+          address: job.pickup_address || 'N/A',
+          jobId: job.id,
+        });
+      }
+
+      // Send completion summary to provider
+      if (providerProfile?.email) {
+        const duration = (job.started_at && job.completed_at)
+          ? `${Math.round((new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 60000)} min`
+          : undefined;
+
+        sendProviderCompletionEmail(providerProfile.email, {
+          providerName,
+          customerName,
+          serviceName,
+          date: now,
+          payout: amount,
+          address: job.pickup_address || 'N/A',
+          jobId: job.id,
+          duration,
+        });
+      }
+    } catch (e) {
+      console.warn('sendCompletionEmails error:', e);
+    }
   }
 
   async function cancelJob(jobId, reason) {
@@ -207,18 +319,65 @@ export function JobProvider({ children }) {
   }
 
   async function rateJob(jobId, rating, review) {
+    if (!Number.isFinite(Number(rating)) || Number(rating) < 1 || Number(rating) > 5) {
+      throw new Error('A rating from 1 to 5 stars is required.');
+    }
+
     const { data, error} = await supabase
       .from('jobs')
-      .update({ 
+      .update({
         rating,
         review,
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', jobId)
-      .select()
+      .select('*, provider_id')
       .single();
 
     if (error) throw error;
+
+    // Explicitly recalculate provider rating (in case DB trigger is missing)
+    if (data?.provider_id) {
+      try {
+        // First try the DB function if it exists
+        await supabase.rpc('recalculate_provider_rating', { p_provider_id: data.provider_id });
+      } catch {
+        // Fallback: compute average from completed jobs and update directly
+        try {
+          const { data: completedJobs } = await supabase
+            .from('jobs')
+            .select('rating')
+            .eq('provider_id', data.provider_id)
+            .eq('status', 'completed')
+            .not('rating', 'is', null);
+
+          if (completedJobs && completedJobs.length > 0) {
+            const avgRating = completedJobs.reduce((sum, j) => sum + Number(j.rating), 0) / completedJobs.length;
+            const roundedRating = Math.round(avgRating * 100) / 100;
+
+            await supabase
+              .from('provider_profiles')
+              .update({
+                rating: roundedRating,
+                total_jobs: completedJobs.length,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', data.provider_id);
+
+            // Also sync to profiles table
+            await supabase
+              .from('profiles')
+              .update({
+                rating: roundedRating,
+                total_jobs: completedJobs.length,
+              })
+              .eq('id', data.provider_id);
+          }
+        } catch (calcErr) {
+          console.warn('Failed to recalculate provider rating:', calcErr);
+        }
+      }
+    }
 
     // Refetch enriched job data
     await fetchJob(jobId);
@@ -282,6 +441,7 @@ export function JobProvider({ children }) {
     rateJob,
     subscribeToJobUpdates,
     fetchProviderStats,
+    platformSettings,
   };
 
   return <JobContext.Provider value={value}>{children}</JobContext.Provider>;

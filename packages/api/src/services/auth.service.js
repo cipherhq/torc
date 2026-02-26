@@ -144,8 +144,9 @@ export async function updateProfile(updates) {
  */
 export async function resetPassword(email) {
   try {
+    const siteUrl = process.env.VITE_APP_URL || process.env.APP_URL || 'https://www.torcapp.com';
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${siteUrl}/auth/callback`,
     });
 
     if (error) throw error;

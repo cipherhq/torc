@@ -71,7 +71,7 @@ export function ProviderEarnings() {
     <div className="min-h-screen bg-[#252B3D] relative overflow-hidden pb-24">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -102,7 +102,7 @@ export function ProviderEarnings() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold flex items-center gap-2"
+              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold flex items-center gap-2"
             >
               <Download className="w-5 h-5" />
               Instant Payout
@@ -122,7 +122,7 @@ export function ProviderEarnings() {
             transition={{ delay: 0.1 }}
             className="glass rounded-[24px] p-5"
           >
-            <Calendar className="w-6 h-6 text-[#2EFFAF] mb-2" />
+            <Calendar className="w-6 h-6 text-[#008CE5] mb-2" />
             <p className="text-white/60 text-sm">This Week</p>
             <p className="text-white font-bold text-2xl">${earnings.thisWeek}</p>
           </motion.div>
@@ -132,7 +132,7 @@ export function ProviderEarnings() {
             transition={{ delay: 0.1 }}
             className="glass rounded-[24px] p-5"
           >
-            <TrendingUp className="w-6 h-6 text-[#007AFF] mb-2" />
+            <TrendingUp className="w-6 h-6 text-[#0070B8] mb-2" />
             <p className="text-white/60 text-sm">This Month</p>
             <p className="text-white font-bold text-2xl">${earnings.thisMonth}</p>
           </motion.div>
@@ -149,8 +149,8 @@ export function ProviderEarnings() {
           className="w-full mt-3 glass rounded-[24px] p-4 flex items-center justify-between"
         >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#007AFF]/20 flex items-center justify-center">
-              <Building2 className="w-5 h-5 text-[#007AFF]" />
+            <div className="w-10 h-10 rounded-full bg-[#0070B8]/20 flex items-center justify-center">
+              <Building2 className="w-5 h-5 text-[#0070B8]" />
             </div>
             <div className="text-left">
               <p className="text-white font-semibold text-sm">Manage Bank Accounts</p>
@@ -190,8 +190,8 @@ export function ProviderEarnings() {
               />
               <defs>
                 <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2EFFAF" />
-                  <stop offset="100%" stopColor="#007AFF" />
+                  <stop offset="0%" stopColor="#008CE5" />
+                  <stop offset="100%" stopColor="#0070B8" />
                 </linearGradient>
               </defs>
             </BarChart>
@@ -218,7 +218,7 @@ export function ProviderEarnings() {
                 </div>
                 <div className="text-right">
                   <p className="text-white font-bold">${job.amount + job.tip}</p>
-                  <p className="text-[#2EFFAF] text-sm">+${job.tip} tip</p>
+                  <p className="text-[#008CE5] text-sm">+${job.tip} tip</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-white/40 text-xs">

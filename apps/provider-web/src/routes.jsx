@@ -31,6 +31,8 @@ import { PersonalInformation } from "./pages/provider/PersonalInformation";
 import { ProviderVehicles } from "./pages/provider/Vehicles";
 import { ProviderMessages } from "./pages/provider/Messages";
 import { AccountSecurity } from "./pages/provider/AccountSecurity";
+import { Explore } from "./pages/provider/Explore";
+import { ProviderReporting } from "./pages/provider/Reporting";
 import { AppShell } from "./components/AppShell";
 
 export const router = createBrowserRouter([
@@ -102,6 +104,10 @@ export const router = createBrowserRouter([
         Component: ProviderHome,
       },
       {
+        path: "/explore",
+        Component: Explore,
+      },
+      {
         path: "/request/:requestId",
         Component: JobRequest,
       },
@@ -164,6 +170,14 @@ export const router = createBrowserRouter([
       {
         path: "/provider/account-security",
         Component: AccountSecurity,
+      },
+      {
+        path: "/provider/reporting",
+        Component: ProviderReporting,
+      },
+      {
+        path: "/reporting",
+        Component: ProviderReporting,
       },
       {
         path: "/messages",

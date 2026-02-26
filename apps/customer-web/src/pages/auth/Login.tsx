@@ -41,24 +41,22 @@ export function Login() {
       {/* Ambient glow */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full"
-          style={{ backgroundColor: '#2EFFAF', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
+          style={{ backgroundColor: '#008CE5', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-6 pt-12 pb-8">
+      <div className="relative z-10 flex-1 flex flex-col px-6 pb-8" style={{ paddingTop: 'var(--safe-top)' }}>
         {/* Logo + Welcome */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-10"
         >
-          <div className={`inline-block ${isDark ? 'bg-white/95 rounded-2xl p-3' : ''}`}>
-            <img
-              src="/logo.png"
-              alt="Torc"
-              className="w-36 h-36 mx-auto object-contain"
-            />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="Torc"
+            className="w-48 h-auto mx-auto object-contain mb-4"
+          />
           <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
             Welcome Back
           </h1>
@@ -94,13 +92,13 @@ export function Login() {
                 Email Address
               </label>
               <div
-                className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#2EFFAF]/50"
+                className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                 style={{
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
                 }}
               >
-                <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <input
                   type="email"
                   placeholder="you@example.com"
@@ -125,13 +123,13 @@ export function Login() {
                 Password
               </label>
               <div
-                className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#2EFFAF]/50"
+                className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                 style={{
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
                 }}
               >
-                <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Your password"
@@ -159,18 +157,16 @@ export function Login() {
 
           {/* Forgot password */}
           <div className="text-right mb-6">
-            <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm font-semibold" style={{ color: '#2EFFAF' }}>
+            <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm font-semibold" style={{ color: '#008CE5' }}>
               Forgot Password?
             </button>
           </div>
 
           {/* Submit */}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+          <button
             type="submit"
             disabled={!email || !password || loading}
-            className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="torc-btn-primary flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
@@ -180,13 +176,13 @@ export function Login() {
             ) : (
               'Sign In'
             )}
-          </motion.button>
+          </button>
 
           {/* Divider */}
           <div className="flex items-center gap-4 my-6">
-            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB' }} />
+            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE' }} />
             <span className="text-xs font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF' }}>OR</span>
-            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB' }} />
+            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE' }} />
           </div>
 
           {/* Social login placeholders */}
@@ -196,7 +192,7 @@ export function Login() {
               className="w-full flex items-center justify-center gap-3 rounded-2xl py-4 font-semibold text-sm transition-all"
               style={{
                 backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
                 color: isDark ? '#FFFFFF' : '#1F2937',
               }}
             >
@@ -221,7 +217,7 @@ export function Login() {
           <div className="text-center mt-8">
             <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
               Don't have an account?{' '}
-              <button type="button" onClick={() => navigate('/signup')} className="font-bold" style={{ color: '#2EFFAF' }}>
+              <button type="button" onClick={() => navigate('/signup')} className="font-bold" style={{ color: '#008CE5' }}>
                 Sign Up
               </button>
             </p>

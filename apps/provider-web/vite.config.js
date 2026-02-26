@@ -10,14 +10,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 7001,
+    host: true,
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@torc/api': path.resolve(__dirname, '../../packages/api/src'),
-      '@torc/ui': path.resolve(__dirname, '../../packages/ui/src'),
-      '@torc/types': path.resolve(__dirname, '../../packages/types/src'),
-      '@torc/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
   },
 });

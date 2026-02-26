@@ -113,7 +113,7 @@ function AddCardForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name on card"
-            className="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#2EFFAF]/50"
+            className="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/50"
             style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
           />
         </div>
@@ -132,7 +132,7 @@ function AddCardForm({
             border: `1px solid ${isDark ? 'rgba(0,122,255,0.2)' : 'rgba(0,122,255,0.1)'}`,
           }}
         >
-          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#007AFF' }} />
+          <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#0070B8' }} />
           <p className="text-xs" style={{ color: subColor }}>Card details are tokenized by Stripe and never stored as raw numbers.</p>
         </div>
       </div>
@@ -141,14 +141,14 @@ function AddCardForm({
         <button
           onClick={onCancel}
           className="flex-1 px-5 py-3 rounded-xl font-semibold text-sm"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: textColor }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: textColor }}
         >
           Cancel
         </button>
         <button
           onClick={handleSubmit}
           disabled={saving}
-          className="flex-1 px-5 py-3 rounded-xl font-bold text-sm text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50"
+          className="flex-1 px-5 py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save Card'}
         </button>
@@ -168,9 +168,9 @@ export function PaymentMethods() {
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
 
   useEffect(() => {
     if (!user) return;
@@ -235,8 +235,8 @@ export function PaymentMethods() {
   }
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
-      <div className="sticky top-0 z-10 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderBottom: `1px solid ${cardBorder}` }}>
+    <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="sticky top-0 z-10 p-6" style={{ paddingTop: 'var(--safe-top)', backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderBottom: `1px solid ${cardBorder}` }}>
         <div className="max-w-2xl mx-auto flex items-center gap-4">
           <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
             <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
@@ -250,7 +250,7 @@ export function PaymentMethods() {
 
       <div className="max-w-2xl mx-auto p-6 space-y-5">
         <div className="rounded-2xl p-4 flex gap-3" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.05)', border: `1px solid ${isDark ? 'rgba(0,122,255,0.3)' : 'rgba(0,122,255,0.15)'}` }}>
-          <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#007AFF' }} />
+          <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#0070B8' }} />
           <div>
             <h3 className="font-semibold text-sm mb-1" style={{ color: textColor }}>Secure Payments</h3>
             <p className="text-xs" style={{ color: subColor }}>Cards are securely tokenized by Stripe.</p>
@@ -259,11 +259,11 @@ export function PaymentMethods() {
 
         <button
           onClick={() => setShowAddModal(true)}
-          className="w-full rounded-2xl p-5 border-2 border-dashed flex items-center justify-center gap-3 transition-all hover:border-[#2EFFAF]/50"
+          className="w-full rounded-2xl p-5 border-2 border-dashed flex items-center justify-center gap-3 transition-all hover:border-[#008CE5]/50"
           style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}
         >
-          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] flex items-center justify-center">
-            <Plus className="w-5 h-5 text-[#0F1419]" />
+          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] flex items-center justify-center">
+            <Plus className="w-5 h-5 text-white" />
           </div>
           <span className="font-semibold" style={{ color: textColor }}>Add Payment Method</span>
         </button>
@@ -271,10 +271,10 @@ export function PaymentMethods() {
         {paymentMethods.length > 0 ? (
           <div className="space-y-3">
             {paymentMethods.map((method) => (
-              <div key={method.id} className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `2px solid ${method.is_default ? 'rgba(46,255,175,0.4)' : cardBorder}` }}>
+              <div key={method.id} className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `2px solid ${method.is_default ? 'rgba(0,140,229,0.4)' : cardBorder}` }}>
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center flex-shrink-0">
-                    <CreditCard className="w-6 h-6 text-[#0F1419]" />
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center flex-shrink-0">
+                    <CreditCard className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-1">
@@ -285,7 +285,7 @@ export function PaymentMethods() {
                         </p>
                       </div>
                       {method.is_default && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1" style={{ backgroundColor: 'rgba(46,255,175,0.15)', color: '#2EFFAF' }}>
+                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>
                           <Check className="w-3 h-3" />Default
                         </span>
                       )}
@@ -293,7 +293,7 @@ export function PaymentMethods() {
                     <div className="flex gap-2 mt-3">
                       {!method.is_default && (
                         <>
-                          <button onClick={() => setDefaultMethod(method.id)} className="px-3 py-1.5 rounded-xl text-xs font-semibold text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF]">
+                          <button onClick={() => setDefaultMethod(method.id)} className="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8]">
                             Set as Default
                           </button>
                           <button onClick={() => deleteMethod(method.id)} className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#EF4444' }}>

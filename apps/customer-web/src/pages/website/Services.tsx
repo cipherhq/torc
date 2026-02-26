@@ -13,7 +13,7 @@ export function WebsiteServices() {
           <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl">
             <ArrowLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#008CE5] to-[#0070B8] bg-clip-text text-transparent">
             TORC
           </h1>
         </div>
@@ -29,12 +29,12 @@ export function WebsiteServices() {
               const Icon = Icons[service.icon as keyof typeof Icons] as any;
               return (
                 <div key={service.id} className="bg-white rounded-3xl p-8 shadow-lg hover:shadow-xl transition-all border border-gray-100">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 flex items-center justify-center mb-6">
-                    {Icon && <Icon className="w-8 h-8 text-[#2EFFAF]" />}
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 flex items-center justify-center mb-6">
+                    {Icon && <Icon className="w-8 h-8 text-[#008CE5]" />}
                   </div>
                   <h3 className="text-2xl font-bold text-gray-900 mb-3">{service.name}</h3>
                   <p className="text-gray-600 mb-4">{service.description}</p>
-                  <p className="text-[#007AFF] font-bold">From ${service.basePrice}</p>
+                  <p className="text-[#0070B8] font-bold">From ${service.basePrice}</p>
                 </div>
               );
             })}

@@ -20,7 +20,7 @@ export function Splash() {
       {/* Background glow effects */}
       <div className="absolute inset-0">
         <motion.div
-          className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-20 blur-[120px] rounded-full"
+          className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-20 blur-[120px] rounded-full"
           animate={{
             scale: [1, 1.2, 1],
             opacity: [0.2, 0.3, 0.2],
@@ -55,7 +55,7 @@ export function Splash() {
         >
           <div className="relative inline-block">
             <motion.div
-              className="w-32 h-32 rounded-[32px] bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center"
+              className="w-32 h-32 rounded-[32px] bg-gradient-to-br from-[#008CE5] to-[#007AFF] flex items-center justify-center"
               animate={{
                 rotate: [0, 5, -5, 0],
               }}
@@ -65,10 +65,10 @@ export function Splash() {
                 ease: "easeInOut",
               }}
               style={{
-                boxShadow: '0 25px 50px -12px rgba(46, 255, 175, 0.5)',
+                boxShadow: '0 25px 50px -12px rgba(0, 140, 229, 0.5)',
               }}
             >
-              <Shield className="w-16 h-16 text-[#0A0F1E]" />
+              <Shield className="w-16 h-16 text-white" />
             </motion.div>
 
             {/* Orbiting icon */}
@@ -98,7 +98,7 @@ export function Splash() {
           transition={{ delay: 0.3, duration: 0.5 }}
         >
           <h1 className="text-5xl font-bold mb-3">
-            <span className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-[#008CE5] to-[#007AFF] bg-clip-text text-transparent">
               TORC
             </span>
           </h1>
@@ -116,7 +116,7 @@ export function Splash() {
             {[0, 1, 2].map((i) => (
               <motion.div
                 key={i}
-                className="w-2 h-2 rounded-full bg-[#2EFFAF]"
+                className="w-2 h-2 rounded-full bg-[#008CE5]"
                 animate={{
                   scale: [1, 1.5, 1],
                   opacity: [0.5, 1, 0.5],

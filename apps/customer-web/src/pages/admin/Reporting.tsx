@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
@@ -9,7 +9,9 @@ interface JobRow {
   id: string;
   total_amount: number | null;
   status: string;
+  payment_status: string | null;
   created_at: string;
+  started_at: string | null;
   completed_at: string | null;
 }
 
@@ -41,6 +43,24 @@ interface AuditRow {
   created_at: string;
 }
 
+interface ProviderRow {
+  id: string;
+  is_online: boolean | null;
+  is_verified: boolean | null;
+  created_at: string;
+}
+
+interface PayoutRow {
+  id: string;
+  provider_id: string;
+  period_start: string;
+  period_end: string;
+  net_payout: number | null;
+  status: 'pending' | 'processing' | 'paid' | 'failed';
+  created_at: string;
+  paid_at: string | null;
+}
+
 function escapeCsv(value: unknown) {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
 }
@@ -61,6 +81,8 @@ export function AdminReporting() {
   const [refunds, setRefunds] = useState([] as RefundRow[]);
   const [tickets, setTickets] = useState([] as TicketRow[]);
   const [audits, setAudits] = useState([] as AuditRow[]);
+  const [providers, setProviders] = useState([] as ProviderRow[]);
+  const [payouts, setPayouts] = useState([] as PayoutRow[]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null as string | null);
   const [slaThresholds, setSlaThresholds] = useState({
@@ -73,10 +95,10 @@ export function AdminReporting() {
     try {
       setLoading(true);
       setLoadError(null);
-      const [jobsRes, refundsRes, ticketsRes, auditsRes, settings] = await Promise.all([
+      const [jobsRes, refundsRes, ticketsRes, auditsRes, providersRes, payoutsRes, settings] = await Promise.all([
         supabase
           .from('jobs')
-          .select('id, total_amount, status, created_at, completed_at')
+          .select('id, total_amount, status, payment_status, created_at, started_at, completed_at')
           .not('total_amount', 'is', null)
           .order('created_at', { ascending: false })
           .limit(500),
@@ -95,6 +117,15 @@ export function AdminReporting() {
           .select('id, actor_id, action, entity_type, entity_id, details, created_at')
           .order('created_at', { ascending: false })
           .limit(1000),
+        supabase
+          .from('provider_profiles')
+          .select('id, is_online, is_verified, created_at')
+          .limit(1000),
+        supabase
+          .from('provider_payouts')
+          .select('id, provider_id, period_start, period_end, net_payout, status, created_at, paid_at')
+          .order('created_at', { ascending: false })
+          .limit(1000),
         loadPlatformSettings(),
       ]);
 
@@ -102,11 +133,15 @@ export function AdminReporting() {
       if (refundsRes.error && !String(refundsRes.error.message || '').toLowerCase().includes('does not exist')) throw refundsRes.error;
       if (ticketsRes.error && !String(ticketsRes.error.message || '').toLowerCase().includes('does not exist')) throw ticketsRes.error;
       if (auditsRes.error && !String(auditsRes.error.message || '').toLowerCase().includes('does not exist')) throw auditsRes.error;
+      if (providersRes.error && !String(providersRes.error.message || '').toLowerCase().includes('does not exist')) throw providersRes.error;
+      if (payoutsRes.error && !String(payoutsRes.error.message || '').toLowerCase().includes('does not exist')) throw payoutsRes.error;
 
       setJobs((jobsRes.data || []) as JobRow[]);
       setRefunds((refundsRes.data || []) as RefundRow[]);
       setTickets((ticketsRes.data || []) as TicketRow[]);
       setAudits((auditsRes.data || []) as AuditRow[]);
+      setProviders((providersRes.data || []) as ProviderRow[]);
+      setPayouts((payoutsRes.data || []) as PayoutRow[]);
 
       setSlaThresholds({
         urgentHours: settings.urgentSlaHours,
@@ -120,6 +155,8 @@ export function AdminReporting() {
       setRefunds([]);
       setTickets([]);
       setAudits([]);
+      setProviders([]);
+      setPayouts([]);
     } finally {
       setLoading(false);
     }
@@ -147,6 +184,20 @@ export function AdminReporting() {
     const auditLast7d = audits.filter((a) => new Date(a.created_at) >= last7d);
     const bulkLast7d = auditLast7d.filter((a) => Boolean(a.details?.bulk_action)).length;
 
+    const lifecycleRows = jobs.filter((j) => j.started_at && j.completed_at);
+    const avgServiceDurationMinutes = lifecycleRows.length > 0
+      ? lifecycleRows.reduce((sum, row) => sum + ((new Date(row.completed_at!).getTime() - new Date(row.started_at!).getTime()) / 60000), 0) / lifecycleRows.length
+      : 0;
+    const startDelayRows = jobs.filter((j) => j.started_at);
+    const avgStartDelayMinutes = startDelayRows.length > 0
+      ? startDelayRows.reduce((sum, row) => sum + ((new Date(row.started_at!).getTime() - new Date(row.created_at).getTime()) / 60000), 0) / startDelayRows.length
+      : 0;
+
+    const paidPayouts = payouts.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.net_payout || 0), 0);
+    const queuedPayouts = payouts
+      .filter((p) => p.status === 'pending' || p.status === 'processing')
+      .reduce((sum, p) => sum + Number(p.net_payout || 0), 0);
+
     return {
       grossSales,
       netRevenue,
@@ -155,13 +206,34 @@ export function AdminReporting() {
       breaches,
       auditLast7d: auditLast7d.length,
       bulkLast7d,
+      providerCount: providers.length,
+      onlineProviders: providers.filter((p) => Boolean(p.is_online)).length,
+      unverifiedProviders: providers.filter((p) => !p.is_verified).length,
+      paidPayouts,
+      queuedPayouts,
+      avgServiceDurationMinutes,
+      avgStartDelayMinutes,
     };
-  }, [jobs, refunds, tickets, audits, slaThresholds, platformFeePercent]);
+  }, [jobs, refunds, tickets, audits, providers, payouts, slaThresholds, platformFeePercent]);
 
   function exportPayments() {
     saveCsv(`report-payments-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ['job_id', 'amount', 'status', 'created_at', 'completed_at'],
-      ...jobs.map((j) => [j.id, Number(j.total_amount || 0).toFixed(2), j.status, j.created_at, j.completed_at || '']),
+      ['job_id', 'amount', 'status', 'payment_status', 'created_at', 'started_at', 'completed_at', 'service_duration_minutes'],
+      ...jobs.map((j) => {
+        const duration = j.started_at && j.completed_at
+          ? Math.round((new Date(j.completed_at).getTime() - new Date(j.started_at).getTime()) / 60000)
+          : '';
+        return [
+          j.id,
+          Number(j.total_amount || 0).toFixed(2),
+          j.status,
+          j.payment_status || '',
+          j.created_at,
+          j.started_at || '',
+          j.completed_at || '',
+          duration,
+        ];
+      }),
     ]);
   }
 
@@ -188,11 +260,36 @@ export function AdminReporting() {
     ]);
   }
 
+  function exportPayouts() {
+    saveCsv(`report-payouts-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['payout_id', 'provider_id', 'period_start', 'period_end', 'net_payout', 'status', 'created_at', 'paid_at'],
+      ...payouts.map((p) => [
+        p.id,
+        p.provider_id,
+        p.period_start,
+        p.period_end,
+        Number(p.net_payout || 0).toFixed(2),
+        p.status,
+        p.created_at,
+        p.paid_at || '',
+      ]),
+    ]);
+  }
+
+  function exportProviders() {
+    saveCsv(`report-providers-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['provider_id', 'is_online', 'is_verified', 'created_at'],
+      ...providers.map((p) => [p.id, Boolean(p.is_online), Boolean(p.is_verified), p.created_at]),
+    ]);
+  }
+
   function exportAll() {
     exportPayments();
     setTimeout(exportRefunds, 150);
     setTimeout(exportTickets, 300);
-    setTimeout(exportAudits, 450);
+    setTimeout(exportProviders, 450);
+    setTimeout(exportPayouts, 600);
+    setTimeout(exportAudits, 750);
   }
 
   return (
@@ -239,6 +336,33 @@ export function AdminReporting() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="glass-light rounded-[24px] p-6">
+                <p className="text-white/60 text-sm">Providers</p>
+                <p className="text-white text-3xl font-bold">{rollups.providerCount}</p>
+                <p className="text-white/50 text-xs mt-1">
+                  {rollups.onlineProviders} online | {rollups.unverifiedProviders} unverified
+                </p>
+              </div>
+              <div className="glass-light rounded-[24px] p-6">
+                <p className="text-white/60 text-sm">Payouts Paid</p>
+                <p className="text-white text-3xl font-bold">${rollups.paidPayouts.toFixed(2)}</p>
+                <p className="text-white/50 text-xs mt-1">
+                  Queued: ${rollups.queuedPayouts.toFixed(2)}
+                </p>
+              </div>
+              <div className="glass-light rounded-[24px] p-6">
+                <p className="text-white/60 text-sm">Avg Start Delay</p>
+                <p className="text-white text-3xl font-bold">{Math.round(rollups.avgStartDelayMinutes)}m</p>
+                <p className="text-white/50 text-xs mt-1">created_at to started_at</p>
+              </div>
+              <div className="glass-light rounded-[24px] p-6">
+                <p className="text-white/60 text-sm">Avg Service Time</p>
+                <p className="text-white text-3xl font-bold">{Math.round(rollups.avgServiceDurationMinutes)}m</p>
+                <p className="text-white/50 text-xs mt-1">started_at to completed_at</p>
+              </div>
+            </div>
+
             <div className="glass-light rounded-[24px] p-6 mb-8">
               <h2 className="text-white text-xl font-bold mb-4">Audit Activity (7 days)</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -253,9 +377,27 @@ export function AdminReporting() {
               </div>
             </div>
 
+            <div className="glass-light rounded-[24px] p-6 mb-8">
+              <h2 className="text-white text-xl font-bold mb-4">Lifecycle Coverage</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-2xl bg-white/5 p-4">
+                  <p className="text-white/60 text-sm">Jobs Tracked</p>
+                  <p className="text-white text-2xl font-bold">{jobs.length}</p>
+                </div>
+                <div className="rounded-2xl bg-white/5 p-4">
+                  <p className="text-white/60 text-sm">Started Jobs</p>
+                  <p className="text-white text-2xl font-bold">{jobs.filter((j) => Boolean(j.started_at)).length}</p>
+                </div>
+                <div className="rounded-2xl bg-white/5 p-4">
+                  <p className="text-white/60 text-sm">Completed Jobs</p>
+                  <p className="text-white text-2xl font-bold">{jobs.filter((j) => j.status === 'completed').length}</p>
+                </div>
+              </div>
+            </div>
+
             <div className="glass-light rounded-[24px] p-6">
               <h2 className="text-white text-xl font-bold mb-4">Export Bundles</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
                 <motion.button whileTap={{ scale: 0.98 }} onClick={exportPayments} className="rounded-xl bg-white/10 hover:bg-white/20 text-white px-4 py-3 text-sm flex items-center justify-center gap-2">
                   <Download className="w-4 h-4" /> Payments
                 </motion.button>
@@ -265,10 +407,16 @@ export function AdminReporting() {
                 <motion.button whileTap={{ scale: 0.98 }} onClick={exportTickets} className="rounded-xl bg-white/10 hover:bg-white/20 text-white px-4 py-3 text-sm flex items-center justify-center gap-2">
                   <Download className="w-4 h-4" /> Tickets
                 </motion.button>
+                <motion.button whileTap={{ scale: 0.98 }} onClick={exportProviders} className="rounded-xl bg-white/10 hover:bg-white/20 text-white px-4 py-3 text-sm flex items-center justify-center gap-2">
+                  <Download className="w-4 h-4" /> Providers
+                </motion.button>
+                <motion.button whileTap={{ scale: 0.98 }} onClick={exportPayouts} className="rounded-xl bg-white/10 hover:bg-white/20 text-white px-4 py-3 text-sm flex items-center justify-center gap-2">
+                  <Download className="w-4 h-4" /> Payouts
+                </motion.button>
                 <motion.button whileTap={{ scale: 0.98 }} onClick={exportAudits} className="rounded-xl bg-white/10 hover:bg-white/20 text-white px-4 py-3 text-sm flex items-center justify-center gap-2">
                   <Download className="w-4 h-4" /> Audit Logs
                 </motion.button>
-                <motion.button whileTap={{ scale: 0.98 }} onClick={exportAll} className="rounded-xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] px-4 py-3 text-sm font-semibold flex items-center justify-center gap-2">
+                <motion.button whileTap={{ scale: 0.98 }} onClick={exportAll} className="rounded-xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white px-4 py-3 text-sm font-semibold flex items-center justify-center gap-2">
                   <FileBarChart2 className="w-4 h-4" /> Export All
                 </motion.button>
               </div>

@@ -12,6 +12,8 @@ export function ServiceCompletion() {
 
   const tipOptions = [0, 5, 10, 15, 20];
   const totalAmount = 89.50;
+  const BRAND_START = '#2EFFAF';
+  const BRAND_END = '#007AFF';
 
   const handleSubmit = () => {
     // Submit rating and tip
@@ -165,12 +167,24 @@ export function ServiceCompletion() {
                 whileHover={{ scale: 1.2 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setRating(star)}
+                className="rounded-full p-1.5 border"
+                style={star <= rating
+                  ? {
+                      background: `linear-gradient(135deg, ${BRAND_START}, ${BRAND_END})`,
+                      borderColor: 'transparent',
+                      boxShadow: '0 0 14px rgba(46,255,175,0.35)',
+                    }
+                  : {
+                      backgroundColor: 'rgba(46,255,175,0.08)',
+                      borderColor: 'rgba(46,255,175,0.2)',
+                    }
+                }
               >
                 <Star
                   className={`w-12 h-12 ${
                     star <= rating
-                      ? 'text-[#2EFFAF] fill-[#2EFFAF]'
-                      : 'text-white/20'
+                      ? 'text-white fill-white'
+                      : 'text-[#2EFFAF]'
                   }`}
                 />
               </motion.button>

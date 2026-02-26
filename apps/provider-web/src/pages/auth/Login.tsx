@@ -23,7 +23,7 @@ export function Login() {
     <div className="min-h-screen bg-[#0A0F1E] flex flex-col p-6 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -51,7 +51,7 @@ export function Login() {
                 onClick={() => setMethod('phone')}
                 className={`flex-1 py-3 rounded-[24px] font-semibold transition-all ${
                   method === 'phone'
-                    ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0A0F1E]'
+                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-[#0A0F1E]'
                     : 'text-white/60'
                 }`}
               >
@@ -61,7 +61,7 @@ export function Login() {
                 onClick={() => setMethod('email')}
                 className={`flex-1 py-3 rounded-[24px] font-semibold transition-all ${
                   method === 'email'
-                    ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0A0F1E]'
+                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-[#0A0F1E]'
                     : 'text-white/60'
                 }`}
               >
@@ -72,7 +72,7 @@ export function Login() {
             {method === 'phone' ? (
               <div className="glass rounded-[32px] p-8 mb-6">
                 <div className="flex items-center gap-3 mb-4">
-                  <Smartphone className="w-6 h-6 text-[#2EFFAF]" />
+                  <Smartphone className="w-6 h-6 text-[#008CE5]" />
                   <h2 className="text-white font-semibold text-lg">Phone Number</h2>
                 </div>
                 <input
@@ -80,7 +80,7 @@ export function Login() {
                   placeholder="+1 (555) 123-4567"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-lg placeholder-white/40 focus:outline-none focus:border-[#2EFFAF] transition-colors"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-lg placeholder-white/40 focus:outline-none focus:border-[#008CE5] transition-colors"
                 />
                 <p className="text-white/40 text-sm mt-3">
                   We'll send you a verification code
@@ -89,7 +89,7 @@ export function Login() {
             ) : (
               <div className="glass rounded-[32px] p-8 mb-6">
                 <div className="flex items-center gap-3 mb-4">
-                  <Mail className="w-6 h-6 text-[#2EFFAF]" />
+                  <Mail className="w-6 h-6 text-[#008CE5]" />
                   <h2 className="text-white font-semibold text-lg">Email Address</h2>
                 </div>
                 <input
@@ -97,7 +97,7 @@ export function Login() {
                   placeholder="your@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-lg placeholder-white/40 focus:outline-none focus:border-[#2EFFAF] transition-colors"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-lg placeholder-white/40 focus:outline-none focus:border-[#008CE5] transition-colors"
                 />
                 <p className="text-white/40 text-sm mt-3">
                   Optional: Use email instead of phone
@@ -110,7 +110,7 @@ export function Login() {
               whileTap={{ scale: 0.98 }}
               onClick={handleSendCode}
               disabled={method === 'phone' ? !phone : !email}
-              className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
             >
               Send Code
             </motion.button>
@@ -133,11 +133,11 @@ export function Login() {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 maxLength={6}
-                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-center text-3xl font-bold tracking-widest placeholder-white/40 focus:outline-none focus:border-[#2EFFAF] transition-colors"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-center text-3xl font-bold tracking-widest placeholder-white/40 focus:outline-none focus:border-[#008CE5] transition-colors"
               />
               <button
                 onClick={() => setStep('input')}
-                className="text-[#2EFFAF] text-sm mt-4 hover:underline"
+                className="text-[#008CE5] text-sm mt-4 hover:underline"
               >
                 Resend code
               </button>
@@ -148,7 +148,7 @@ export function Login() {
               whileTap={{ scale: 0.98 }}
               onClick={handleVerify}
               disabled={code.length !== 6}
-              className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
             >
               Verify & Continue
             </motion.button>
@@ -160,7 +160,7 @@ export function Login() {
             Don't have an account?{' '}
             <button
               onClick={() => navigate('/signup')}
-              className="text-[#2EFFAF] font-semibold"
+              className="text-[#008CE5] font-semibold"
             >
               Sign Up
             </button>

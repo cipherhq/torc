@@ -30,13 +30,13 @@ export function Splash() {
       <div className="absolute inset-0 pointer-events-none">
         <motion.div
           className="absolute top-1/3 left-1/3 w-80 h-80 rounded-full"
-          style={{ backgroundColor: '#2EFFAF', filter: 'blur(140px)' }}
+          style={{ backgroundColor: '#008CE5', filter: 'blur(140px)' }}
           animate={{ scale: [1, 1.2, 1], opacity: [0.12, 0.2, 0.12] }}
           transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
         />
         <motion.div
           className="absolute bottom-1/3 right-1/4 w-80 h-80 rounded-full"
-          style={{ backgroundColor: '#007AFF', filter: 'blur(140px)' }}
+          style={{ backgroundColor: '#0070B8', filter: 'blur(140px)' }}
           animate={{ scale: [1.2, 1, 1.2], opacity: [0.1, 0.18, 0.1] }}
           transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
         />
@@ -50,13 +50,11 @@ export function Splash() {
           transition={{ duration: 0.6, ease: 'backOut' }}
           className="mb-4"
         >
-          <div className={`inline-block ${isDark ? 'bg-white/95 rounded-3xl p-4' : ''}`}>
-            <img
-              src="/logo.png"
-              alt="Torc"
-              className="w-56 h-56 mx-auto object-contain"
-            />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="Torc"
+            className="w-56 h-auto mx-auto object-contain"
+          />
         </motion.div>
 
         <motion.p
@@ -64,7 +62,7 @@ export function Splash() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
           className="text-lg font-semibold"
-          style={{ color: '#2EFFAF' }}
+          style={{ color: '#008CE5' }}
         >
           Provider
         </motion.p>
@@ -79,7 +77,7 @@ export function Splash() {
           {[0, 1, 2].map((i) => (
             <motion.div
               key={i}
-              className="w-2 h-2 rounded-full bg-[#2EFFAF]"
+              className="w-2 h-2 rounded-full bg-[#008CE5]"
               animate={{ scale: [1, 1.5, 1], opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
             />

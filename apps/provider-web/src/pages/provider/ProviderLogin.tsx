@@ -30,8 +30,8 @@ export function ProviderLogin() {
   };
 
   const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
     color: isDark ? '#FFFFFF' : '#1F2937',
   };
 
@@ -46,18 +46,16 @@ export function ProviderLogin() {
     >
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full"
-          style={{ backgroundColor: '#2EFFAF', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
+          style={{ backgroundColor: '#008CE5', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-6 pt-12 pb-8">
+      <div className="relative z-10 flex-1 flex flex-col px-6 pb-8" style={{ paddingTop: 'max(calc(48px + env(safe-area-inset-top, 0px)), 60px)' }}>
         {/* Logo */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
-          <div className={`inline-block ${isDark ? 'bg-white/95 rounded-2xl p-3' : ''}`}>
-            <img src="/logo.png" alt="Torc" className="w-36 h-36 mx-auto object-contain" />
-          </div>
-          <div className="inline-block px-4 py-1 rounded-full mb-4" style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}>
-            <span className="text-sm font-bold" style={{ color: '#2EFFAF' }}>PROVIDER</span>
+          <img src="/logo.svg" alt="Torc" className="w-48 h-auto mx-auto object-contain mb-3" />
+          <div className="inline-block px-4 py-1 rounded-full mb-4" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+            <span className="text-sm font-bold" style={{ color: '#008CE5' }}>PROVIDER</span>
           </div>
           <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Welcome Back</h1>
           <p className="mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>Sign in to start earning</p>
@@ -74,8 +72,8 @@ export function ProviderLogin() {
           <div className="space-y-4 mb-6">
             <div>
               <label className="text-sm font-medium mb-2 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Email Address</label>
-              <div className="flex items-center gap-3 rounded-2xl px-4 py-4 focus-within:ring-2 focus-within:ring-[#2EFFAF]/50" style={inputStyle}>
-                <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+              <div className="flex items-center gap-3 rounded-2xl px-4 py-4 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={inputStyle}>
+                <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <input
                   type="email"
                   placeholder="provider@example.com"
@@ -95,8 +93,8 @@ export function ProviderLogin() {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Password</label>
-              <div className="flex items-center gap-3 rounded-2xl px-4 py-4 focus-within:ring-2 focus-within:ring-[#2EFFAF]/50" style={inputStyle}>
-                <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+              <div className="flex items-center gap-3 rounded-2xl px-4 py-4 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={inputStyle}>
+                <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Your password"
@@ -120,17 +118,17 @@ export function ProviderLogin() {
           </div>
 
           <div className="text-right mb-6">
-            <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm font-semibold" style={{ color: '#2EFFAF' }}>Forgot Password?</button>
+            <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm font-semibold" style={{ color: '#008CE5' }}>Forgot Password?</button>
           </div>
 
-          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit" disabled={!email || !password || loading} className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50 flex items-center justify-center gap-2">
-            {loading ? (<><div className="w-5 h-5 border-2 border-[#0A0F1E] border-t-transparent rounded-full animate-spin" />Signing In...</>) : 'Sign In'}
+          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit" disabled={!email || !password || loading} className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 flex items-center justify-center gap-2">
+            {loading ? (<><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Signing In...</>) : 'Sign In'}
           </motion.button>
 
           <div className="text-center mt-8">
             <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
               Don't have an account?{' '}
-              <button type="button" onClick={() => navigate('/signup')} className="font-bold" style={{ color: '#2EFFAF' }}>
+              <button type="button" onClick={() => navigate('/signup')} className="font-bold" style={{ color: '#008CE5' }}>
                 Become a Provider
               </button>
             </p>

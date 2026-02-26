@@ -10,6 +10,7 @@ yarn.lock
 .env
 .env.local
 .env.*.local
+workers/.secrets/
 
 # Build output
 dist/
@@ -50,4 +51,8 @@ Thumbs.db
 # Misc
 *.pem
 *.key
+*.p8
 *.cert
+*.jks
+*.keystore
+**/keystore.properties

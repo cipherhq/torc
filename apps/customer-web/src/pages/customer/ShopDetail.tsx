@@ -61,7 +61,7 @@ export function ShopDetail() {
       <MapBackground />
 
       {/* Header */}
-      <div className="relative z-20 p-6 flex items-center gap-4">
+      <div className="relative z-20 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
@@ -78,7 +78,7 @@ export function ShopDetail() {
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          className="w-24 h-24 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center"
+          className="w-24 h-24 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center"
           style={{
             boxShadow: '0 20px 40px rgba(46, 255, 175, 0.5)',
           }}
@@ -103,7 +103,7 @@ export function ShopDetail() {
               {shop.rating && (
                 <>
                   <div className="flex items-center gap-1">
-                    <Star className="w-5 h-5 text-[#2EFFAF] fill-[#2EFFAF]" />
+                    <Star className="w-5 h-5 text-[#008CE5] fill-[#008CE5]" />
                     <span className="text-white font-semibold">{shop.rating}</span>
                     {shop.review_count && (
                       <span className="text-white/60 text-sm">({shop.review_count} reviews)</span>
@@ -113,7 +113,7 @@ export function ShopDetail() {
                 </>
               )}
               {shop.distance && (
-                <span className="text-[#2EFFAF] font-semibold">{shop.distance}</span>
+                <span className="text-[#008CE5] font-semibold">{shop.distance}</span>
               )}
             </div>
 
@@ -122,7 +122,7 @@ export function ShopDetail() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[24px] py-4 flex items-center justify-center gap-3 font-bold text-[#0A0F1E]"
+                className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[24px] py-4 flex items-center justify-center gap-3 font-bold text-[#0A0F1E]"
               >
                 <Phone className="w-5 h-5" />
                 Call Shop
@@ -132,7 +132,7 @@ export function ShopDetail() {
                 whileTap={{ scale: 0.98 }}
                 className="glass rounded-[24px] py-4 flex items-center justify-center gap-3 font-semibold text-white"
               >
-                <Navigation className="w-5 h-5 text-[#2EFFAF]" />
+                <Navigation className="w-5 h-5 text-[#008CE5]" />
                 Get Directions
               </motion.button>
             </div>
@@ -144,7 +144,7 @@ export function ShopDetail() {
             <div className="space-y-4">
               {shop.address && (
                 <div className="flex items-center gap-3">
-                  <MapPin className="w-5 h-5 text-[#2EFFAF]" />
+                  <MapPin className="w-5 h-5 text-[#008CE5]" />
                   <div>
                     <p className="text-white/60 text-sm">Address</p>
                     <p className="text-white font-semibold">{shop.address}</p>
@@ -153,7 +153,7 @@ export function ShopDetail() {
               )}
               {shop.phone && (
                 <div className="flex items-center gap-3">
-                  <Phone className="w-5 h-5 text-[#2EFFAF]" />
+                  <Phone className="w-5 h-5 text-[#008CE5]" />
                   <div>
                     <p className="text-white/60 text-sm">Phone</p>
                     <p className="text-white font-semibold">{shop.phone}</p>
@@ -162,7 +162,7 @@ export function ShopDetail() {
               )}
               {shop.business_hours && (
                 <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-[#2EFFAF]" />
+                  <Clock className="w-5 h-5 text-[#008CE5]" />
                   <div>
                     <p className="text-white/60 text-sm">Hours</p>
                     <p className="text-white font-semibold">{shop.business_hours}</p>
@@ -182,7 +182,7 @@ export function ShopDetail() {
                     key={index}
                     className="px-4 py-2 glass rounded-full flex items-center gap-2"
                   >
-                    <Wrench className="w-4 h-4 text-[#2EFFAF]" />
+                    <Wrench className="w-4 h-4 text-[#008CE5]" />
                     <span className="text-white text-sm">{service}</span>
                   </div>
                 ))}
@@ -195,7 +195,7 @@ export function ShopDetail() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => navigate('/who-needs-help')}
-            className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#2EFFAF]/30"
+            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30"
           >
             Request Service Here
           </motion.button>

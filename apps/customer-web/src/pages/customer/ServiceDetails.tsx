@@ -34,9 +34,9 @@ export function ServiceDetails() {
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
 
   useEffect(() => {
     async function loadService() {
@@ -135,8 +135,8 @@ export function ServiceDetails() {
 
   if (serviceLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
-        <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#2EFFAF' }} />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+        <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#008CE5' }} />
       </div>
     );
   }
@@ -175,9 +175,9 @@ export function ServiceDetails() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate('/service-selection')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
@@ -190,8 +190,8 @@ export function ServiceDetails() {
           className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
         >
           <div className="flex items-center gap-4 mb-4">
-            <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-              {Icon && <Icon className="w-7 h-7" style={{ color: '#2EFFAF' }} />}
+            <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+              {Icon && <Icon className="w-7 h-7" style={{ color: '#008CE5' }} />}
             </div>
             <p className="flex-1 text-sm" style={{ color: subColor }}>{service.description}</p>
           </div>
@@ -202,7 +202,7 @@ export function ServiceDetails() {
             </div>
             <div>
               <p className="text-xs" style={{ color: subColor }}>Base Price</p>
-              <p className="font-bold text-xl mt-1" style={{ color: '#2EFFAF' }}>${Number(service.base_price || 0)}</p>
+              <p className="font-bold text-xl mt-1" style={{ color: '#008CE5' }}>${Number(service.base_price || 0)}</p>
             </div>
           </div>
         </motion.div>
@@ -210,14 +210,14 @@ export function ServiceDetails() {
         {/* Vehicle selection */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <Car className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+            <Car className="w-5 h-5" style={{ color: '#008CE5' }} />
             <p className="font-semibold" style={{ color: textColor }}>Select Vehicle</p>
           </div>
 
           {vehicles.length === 0 && !showAddVehicle && (
             <div className="rounded-2xl p-5 mb-3 text-center" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
               <p className="text-sm mb-3" style={{ color: subColor }}>No vehicles added</p>
-              <button onClick={handleContinue} className="text-sm font-medium" style={{ color: '#007AFF' }}>
+              <button onClick={handleContinue} className="text-sm font-medium" style={{ color: '#0070B8' }}>
                 Continue without selecting
               </button>
             </div>
@@ -229,12 +229,12 @@ export function ServiceDetails() {
                 <button key={vehicle.id} onClick={() => setSelectedVehicle(vehicle.id)}
                   className="w-full rounded-2xl p-4 flex items-center gap-3 transition-all"
                   style={{
-                    backgroundColor: selectedVehicle === vehicle.id ? (isDark ? 'rgba(46,255,175,0.08)' : 'rgba(46,255,175,0.05)') : cardBg,
-                    border: `2px solid ${selectedVehicle === vehicle.id ? '#2EFFAF' : cardBorder}`,
+                    backgroundColor: selectedVehicle === vehicle.id ? (isDark ? 'rgba(0,140,229,0.08)' : 'rgba(0,140,229,0.05)') : cardBg,
+                    border: `2px solid ${selectedVehicle === vehicle.id ? '#008CE5' : cardBorder}`,
                   }}
                 >
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center`} style={{ borderColor: selectedVehicle === vehicle.id ? '#2EFFAF' : subColor }}>
-                    {selectedVehicle === vehicle.id && <div className="w-2 h-2 rounded-full bg-[#2EFFAF]" />}
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center`} style={{ borderColor: selectedVehicle === vehicle.id ? '#008CE5' : subColor }}>
+                    {selectedVehicle === vehicle.id && <div className="w-2 h-2 rounded-full bg-[#008CE5]" />}
                   </div>
                   <div className="flex-1 text-left">
                     <p className="font-semibold text-sm" style={{ color: textColor }}>
@@ -267,7 +267,7 @@ export function ServiceDetails() {
                   <input type="text" value={vehicleForm.plate} onChange={e => setVehicleForm({ ...vehicleForm, plate: e.target.value })} placeholder="Plate" className="rounded-xl px-3 py-2.5 text-sm bg-transparent outline-none" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }} />
                 </div>
                 <button onClick={handleAddVehicle} disabled={!vehicleForm.make || !vehicleForm.model || savingVehicle}
-                  className="w-full rounded-xl py-2.5 font-bold text-sm text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full rounded-xl py-2.5 font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {savingVehicle ? 'Adding...' : <><Check className="w-4 h-4" />Save Vehicle</>}
                 </button>
@@ -278,8 +278,8 @@ export function ServiceDetails() {
               className="w-full rounded-2xl p-4 flex items-center gap-3 border-2 border-dashed transition-all"
               style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB', backgroundColor: 'transparent' }}
             >
-              <Plus className="w-5 h-5" style={{ color: '#2EFFAF' }} />
-              <p className="font-semibold text-sm" style={{ color: '#2EFFAF' }}>Add New Vehicle</p>
+              <Plus className="w-5 h-5" style={{ color: '#008CE5' }} />
+              <p className="font-semibold text-sm" style={{ color: '#008CE5' }}>Add New Vehicle</p>
             </button>
           )}
         </div>
@@ -288,7 +288,7 @@ export function ServiceDetails() {
         {needsDestination && (
           <div className="mb-6 relative">
             <div className="flex items-center gap-2 mb-3">
-              <MapPin className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+              <MapPin className="w-5 h-5" style={{ color: '#008CE5' }} />
               <p className="font-semibold" style={{ color: textColor }}>Destination Address</p>
             </div>
             <input
@@ -296,7 +296,7 @@ export function ServiceDetails() {
               placeholder="Where should we tow your vehicle?"
               value={destination}
               onChange={(e) => handleDestinationChange(e.target.value)}
-              className="w-full rounded-2xl px-4 py-4 text-sm outline-none transition-all focus:ring-2 focus:ring-[#2EFFAF]/50"
+              className="w-full rounded-2xl px-4 py-4 text-sm outline-none transition-all focus:ring-2 focus:ring-[#008CE5]/50"
               style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
             />
             {/* Autocomplete suggestions */}
@@ -304,10 +304,10 @@ export function ServiceDetails() {
               <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-xl overflow-hidden shadow-lg" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', border: `1px solid ${cardBorder}` }}>
                 {suggestions.map(s => (
                   <button key={s.place_id} onClick={() => selectSuggestion(s)}
-                    className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-[#2EFFAF]/10 transition-colors"
+                    className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-[#008CE5]/10 transition-colors"
                     style={{ borderBottom: `1px solid ${cardBorder}` }}
                   >
-                    <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                    <MapPin className="w-4 h-4 flex-shrink-0" style={{ color: '#008CE5' }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: textColor }}>{s.structured_formatting.main_text}</p>
                       <p className="text-xs truncate" style={{ color: subColor }}>{s.structured_formatting.secondary_text}</p>
@@ -322,7 +322,7 @@ export function ServiceDetails() {
         {/* Photos */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <Camera className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+            <Camera className="w-5 h-5" style={{ color: '#008CE5' }} />
             <p className="font-semibold" style={{ color: textColor }}>Photos (Optional)</p>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -353,7 +353,7 @@ export function ServiceDetails() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            className="w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-[#2EFFAF]/50"
+            className="w-full rounded-2xl px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-[#008CE5]/50"
             style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
           />
         </div>
@@ -368,11 +368,11 @@ export function ServiceDetails() {
             ))}
           </div>
         )}
-        <motion.button whileTap={{ scale: 0.98 }} onClick={handleContinue}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30"
+        <button onClick={handleContinue}
+          className="torc-btn-primary"
         >
           Continue
-        </motion.button>
+        </button>
       </div>
     </div>
   );

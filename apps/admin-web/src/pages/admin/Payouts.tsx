@@ -1,207 +1,864 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { AdminNav } from '../../components/AdminNav';
-import { DollarSign, TrendingUp, Users, Clock, CheckCircle, Send } from 'lucide-react';
+import { AdminLayout } from '../../components/AdminLayout';
+import { Pagination } from '../../components/Pagination';
+import { supabase } from '../../lib/supabase';
+import { loadPlatformSettings } from '../../lib/platformSettings';
+import {
+  DollarSign, TrendingUp, Users, Search, RefreshCw,
+  Send, X, Loader2, CreditCard, Building2, Wallet,
+  Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
+  FileText, Hash,
+} from 'lucide-react';
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface ProviderBalance {
+  provider_id: string;
+  provider_name: string;
+  provider_email: string;
+  jobs_count: number;
+  total_earned: number;
+  total_tips: number;
+  platform_fee: number;
+  net_owed: number;
+  already_paid: number;
+  balance: number;
+}
+
+interface PayoutMethod {
+  id: string;
+  method_type: string;
+  display_name: string | null;
+  account_holder_name: string | null;
+  bank_name: string | null;
+  account_last4: string | null;
+  routing_last4: string | null;
+  paypal_email: string | null;
+  venmo_handle: string | null;
+  is_default: boolean;
+  status: string;
+}
+
+interface PayoutRecord {
+  id: string;
+  provider_id: string;
+  provider_name?: string;
+  period_start: string;
+  period_end: string;
+  total_earnings: number;
+  total_tips: number;
+  platform_fee: number;
+  net_payout: number;
+  status: string;
+  reference_id: string | null;
+  payment_method: string | null;
+  notes: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
+type FilterTab = 'all' | 'has_balance' | 'paid_up';
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+const fmt = (n: number) => `$${n.toFixed(2)}`;
+
+function deriveBasePrice(job: { base_price?: number | null; total_amount?: number | null; tip?: number | null }) {
+  const base = Number(job.base_price) || 0;
+  if (base > 0) return base;
+  return Math.max((Number(job.total_amount) || 0) - (Number(job.tip) || 0), 0);
+}
+
+function methodIcon(type: string) {
+  switch (type) {
+    case 'bank': return Building2;
+    case 'paypal': return CreditCard;
+    case 'venmo': return Wallet;
+    default: return CreditCard;
+  }
+}
+
+function methodLabel(type: string) {
+  switch (type) {
+    case 'bank': return 'Bank Transfer';
+    case 'paypal': return 'PayPal';
+    case 'venmo': return 'Venmo';
+    case 'bank_transfer': return 'Bank Transfer';
+    case 'other': return 'Other';
+    default: return type;
+  }
+}
+
+function methodSummary(m: PayoutMethod) {
+  if (m.method_type === 'bank') {
+    return `${m.bank_name || 'Bank'} ****${m.account_last4 || '????'}`;
+  }
+  if (m.method_type === 'paypal') {
+    return m.paypal_email || 'PayPal account';
+  }
+  if (m.method_type === 'venmo') {
+    return m.venmo_handle || 'Venmo account';
+  }
+  return m.display_name || m.method_type;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
 
 export function AdminPayouts() {
-  const [selectedPayouts, setSelectedPayouts] = useState<string[]>([]);
+  /* Data */
+  const [providers, setProviders] = useState<ProviderBalance[]>([]);
+  const [payoutHistory, setPayoutHistory] = useState<PayoutRecord[]>([]);
+  const [allMethods, setAllMethods] = useState<Record<string, PayoutMethod[]>>({});
+  const [platformFee, setPlatformFee] = useState(15);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const pendingPayouts = [
-    {
-      id: 'PO-2001',
-      provider: 'Marcus Rodriguez',
-      providerId: 'PR-1001',
-      jobs: 12,
-      totalEarnings: 540.00,
-      platformFee: 81.00, // 15%
-      payoutAmount: 459.00,
-      period: 'Feb 3-9, 2026',
-      customer: 'Multiple customers',
-      status: 'pending',
-    },
-    {
-      id: 'PO-2002',
-      provider: 'Sarah Chen',
-      providerId: 'PR-1002',
-      jobs: 8,
-      totalEarnings: 360.00,
-      platformFee: 54.00,
-      payoutAmount: 306.00,
-      period: 'Feb 3-9, 2026',
-      customer: 'Multiple customers',
-      status: 'pending',
-    },
-    {
-      id: 'PO-2003',
-      provider: 'James Wilson',
-      providerId: 'PR-1003',
-      jobs: 15,
-      totalEarnings: 675.00,
-      platformFee: 101.25,
-      payoutAmount: 573.75,
-      period: 'Feb 3-9, 2026',
-      customer: 'Multiple customers',
-      status: 'pending',
-    },
+  /* Filters & pagination – provider table */
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<FilterTab>('all');
+  const [providerPage, setProviderPage] = useState(1);
+  const PROVIDER_PAGE_SIZE = 15;
+
+  /* Filters & pagination – history table */
+  const [historyPage, setHistoryPage] = useState(1);
+  const HISTORY_PAGE_SIZE = 10;
+
+  /* Payout modal */
+  const [payingProvider, setPayingProvider] = useState<ProviderBalance | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payRef, setPayRef] = useState('');
+  const [payNotes, setPayNotes] = useState('');
+  const [payMethodId, setPayMethodId] = useState<string | null>(null);
+  const [payProcessing, setPayProcessing] = useState(false);
+
+  /* Expanded history rows */
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+
+  /* ---------------------------------------------------------------- */
+  /*  Load all data                                                    */
+  /* ---------------------------------------------------------------- */
+
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const settings = await loadPlatformSettings();
+      const fee = settings.platformFee;
+      setPlatformFee(fee);
+
+      /* 1) All completed jobs grouped by provider */
+      const { data: jobs, error: jobsErr } = await supabase
+        .from('jobs')
+        .select('provider_id, base_price, tip, total_amount, completed_at')
+        .eq('status', 'completed')
+        .not('provider_id', 'is', null);
+
+      if (jobsErr) throw jobsErr;
+
+      /* 2) All past payouts */
+      const { data: payouts, error: payoutsErr } = await supabase
+        .from('provider_payouts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (payoutsErr) throw payoutsErr;
+
+      /* 3) Provider profiles */
+      const providerIds = Array.from(new Set((jobs || []).map((j: any) => j.provider_id).filter(Boolean)));
+      const payoutProviderIds = (payouts || []).map((p: any) => p.provider_id).filter(Boolean);
+      const allIds = Array.from(new Set([...providerIds, ...payoutProviderIds]));
+
+      const profileMap = new Map<string, { first_name: string; last_name: string; email: string }>();
+      if (allIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, email')
+          .in('id', allIds);
+        for (const p of (profiles || [])) {
+          profileMap.set(p.id, p);
+        }
+      }
+
+      /* 4) Provider payout methods */
+      const { data: methods } = await supabase
+        .from('provider_payout_methods')
+        .select('*')
+        .eq('status', 'active');
+
+      const methodsByProvider: Record<string, PayoutMethod[]> = {};
+      for (const m of (methods || [])) {
+        if (!methodsByProvider[m.provider_id]) methodsByProvider[m.provider_id] = [];
+        methodsByProvider[m.provider_id].push(m);
+      }
+      setAllMethods(methodsByProvider);
+
+      /* 5) Aggregate jobs per provider */
+      const provMap = new Map<string, { jobs: number; earned: number; tips: number; fee: number; net: number }>();
+      for (const job of (jobs || [])) {
+        const pid = (job as any).provider_id;
+        if (!pid) continue;
+        const basePrice = deriveBasePrice(job as any);
+        const tip = Number((job as any).tip) || 0;
+        const pFee = basePrice * (fee / 100);
+        const net = basePrice - pFee + tip;
+
+        const existing = provMap.get(pid);
+        if (existing) {
+          existing.jobs += 1;
+          existing.earned += basePrice;
+          existing.tips += tip;
+          existing.fee += pFee;
+          existing.net += net;
+        } else {
+          provMap.set(pid, { jobs: 1, earned: basePrice, tips: tip, fee: pFee, net });
+        }
+      }
+
+      /* 6) Sum past payouts per provider */
+      const paidMap = new Map<string, number>();
+      for (const p of (payouts || [])) {
+        if (p.status === 'paid' || p.status === 'processing') {
+          paidMap.set(p.provider_id, (paidMap.get(p.provider_id) || 0) + Number(p.net_payout || 0));
+        }
+      }
+
+      /* 7) Build provider balance rows */
+      const balances: ProviderBalance[] = [];
+      for (const [pid, agg] of provMap.entries()) {
+        const prof = profileMap.get(pid);
+        const name = prof ? `${prof.first_name || ''} ${prof.last_name || ''}`.trim() : pid.slice(0, 8);
+        const email = prof?.email || '';
+        const paid = paidMap.get(pid) || 0;
+        balances.push({
+          provider_id: pid,
+          provider_name: name || 'Unknown Provider',
+          provider_email: email,
+          jobs_count: agg.jobs,
+          total_earned: agg.earned,
+          total_tips: agg.tips,
+          platform_fee: agg.fee,
+          net_owed: agg.net,
+          already_paid: paid,
+          balance: Math.max(0, agg.net - paid),
+        });
+      }
+      balances.sort((a, b) => b.balance - a.balance);
+      setProviders(balances);
+
+      /* 8) Build payout history with names */
+      const history: PayoutRecord[] = (payouts || []).map((p: any) => {
+        const prof = profileMap.get(p.provider_id);
+        const name = prof ? `${prof.first_name || ''} ${prof.last_name || ''}`.trim() : p.provider_id?.slice(0, 8);
+        return { ...p, provider_name: name || 'Unknown' };
+      });
+      setPayoutHistory(history);
+    } catch (err: any) {
+      console.error('Failed to load payout data:', err);
+      setError(err.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadData(); }, []);
+
+  /* ---------------------------------------------------------------- */
+  /*  Filtered + paginated providers                                   */
+  /* ---------------------------------------------------------------- */
+
+  const filteredProviders = useMemo(() => {
+    let list = providers;
+    if (filter === 'has_balance') list = list.filter((p) => p.balance > 0.01);
+    if (filter === 'paid_up') list = list.filter((p) => p.balance < 0.01);
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      list = list.filter((p) =>
+        p.provider_name.toLowerCase().includes(q) ||
+        p.provider_email.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [providers, filter, search]);
+
+  useEffect(() => { setProviderPage(1); }, [filter, search]);
+
+  const paginatedProviders = useMemo(() =>
+    filteredProviders.slice((providerPage - 1) * PROVIDER_PAGE_SIZE, providerPage * PROVIDER_PAGE_SIZE),
+  [filteredProviders, providerPage]);
+
+  /* Paginated history */
+  const paginatedHistory = useMemo(() =>
+    payoutHistory.slice((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE),
+  [payoutHistory, historyPage]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Summary stats                                                    */
+  /* ---------------------------------------------------------------- */
+
+  const totalOwed = providers.reduce((s, p) => s + p.balance, 0);
+  const providersWithBalance = providers.filter((p) => p.balance > 0.01).length;
+
+  const thisMonth = new Date();
+  thisMonth.setDate(1); thisMonth.setHours(0, 0, 0, 0);
+  const payoutsThisMonth = payoutHistory.filter((p) => p.status === 'paid' && p.paid_at && new Date(p.paid_at) >= thisMonth);
+  const monthlyTotal = payoutsThisMonth.reduce((s, p) => s + Number(p.net_payout || 0), 0);
+
+  const statCards = [
+    { label: 'Total Owed', value: fmt(totalOwed), icon: DollarSign, gradient: 'linear-gradient(135deg, #EF4444, #DC2626)' },
+    { label: 'Providers with Balance', value: String(providersWithBalance), icon: Users, gradient: 'linear-gradient(135deg, #008CE5, #0070B8)' },
+    { label: 'Payouts This Month', value: `${payoutsThisMonth.length} (${fmt(monthlyTotal)})`, icon: CheckCircle, gradient: 'linear-gradient(135deg, #22C55E, #16A34A)' },
+    { label: 'Platform Fee Rate', value: `${platformFee}%`, icon: TrendingUp, gradient: 'linear-gradient(135deg, #8B5CF6, #7C3AED)' },
   ];
 
-  const togglePayout = (payoutId: string) => {
-    setSelectedPayouts(prev =>
-      prev.includes(payoutId)
-        ? prev.filter(id => id !== payoutId)
-        : [...prev, payoutId]
-    );
-  };
+  const filterTabs: { key: FilterTab; label: string; count: number }[] = [
+    { key: 'all', label: 'All Providers', count: providers.length },
+    { key: 'has_balance', label: 'Owed Balance', count: providers.filter((p) => p.balance > 0.01).length },
+    { key: 'paid_up', label: 'Paid Up', count: providers.filter((p) => p.balance < 0.01).length },
+  ];
 
-  const handleProcessPayouts = () => {
-    console.log('Processing payouts:', selectedPayouts);
-    // In real app: API call to process payouts
-    // This will deduct from customer accounts and pay providers
-  };
+  /* ---------------------------------------------------------------- */
+  /*  Open payout modal                                                */
+  /* ---------------------------------------------------------------- */
 
-  const selectedTotal = pendingPayouts
-    .filter(p => selectedPayouts.includes(p.id))
-    .reduce((sum, p) => sum + p.payoutAmount, 0);
+  function openPayModal(provider: ProviderBalance) {
+    setPayingProvider(provider);
+    setPayAmount(provider.balance.toFixed(2));
+    setPayRef('');
+    setPayNotes('');
+    const methods = allMethods[provider.provider_id] || [];
+    const defaultMethod = methods.find((m) => m.is_default) || methods[0];
+    setPayMethodId(defaultMethod?.id || null);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Process single payout                                            */
+  /* ---------------------------------------------------------------- */
+
+  async function handleCompletePayout() {
+    if (!payingProvider) return;
+    const amount = Number(payAmount);
+    if (!amount || amount <= 0) return;
+    if (amount > payingProvider.balance) {
+      alert(`Payout amount cannot exceed provider balance (${fmt(payingProvider.balance)}).`);
+      return;
+    }
+    if (!payRef.trim()) {
+      alert('Please enter a payment reference ID.');
+      return;
+    }
+
+    setPayProcessing(true);
+    try {
+      const selectedMethod = (allMethods[payingProvider.provider_id] || []).find((m) => m.id === payMethodId);
+      const methodType = selectedMethod?.method_type || 'other';
+
+      const now = new Date();
+      const periodStart = new Date(now);
+      const day = periodStart.getDay();
+      const daysSinceMonday = day === 0 ? 6 : day - 1;
+      periodStart.setDate(periodStart.getDate() - daysSinceMonday);
+      periodStart.setHours(0, 0, 0, 0);
+
+      const { error: insertErr } = await supabase.from('provider_payouts').insert({
+        provider_id: payingProvider.provider_id,
+        period_start: periodStart.toISOString().split('T')[0],
+        period_end: now.toISOString().split('T')[0],
+        total_earnings: payingProvider.total_earned,
+        total_tips: payingProvider.total_tips,
+        platform_fee: payingProvider.platform_fee,
+        net_payout: amount,
+        status: 'paid',
+        paid_at: now.toISOString(),
+        reference_id: payRef.trim(),
+        payment_method: methodType,
+        notes: payNotes.trim() || null,
+      });
+
+      if (insertErr) throw insertErr;
+
+      // Try to log audit (non-blocking)
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (session?.session?.user?.id) {
+          await supabase.from('admin_audit_logs').insert({
+            actor_id: session.session.user.id,
+            action: 'process_payout',
+            entity_type: 'provider_payout',
+            entity_id: payingProvider.provider_id,
+            details: {
+              amount,
+              reference_id: payRef.trim(),
+              payment_method: methodType,
+              provider_name: payingProvider.provider_name,
+            },
+          });
+        }
+      } catch { /* audit log is best-effort */ }
+
+      setPayingProvider(null);
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to process payout:', err);
+      alert(`Payout failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setPayProcessing(false);
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Render                                                           */
+  /* ---------------------------------------------------------------- */
 
   return (
-    <div className="min-h-screen bg-[#0F1419] flex">
-      <AdminNav />
-
-      <div className="flex-1 ml-64">
+    <AdminLayout>
+      <div className="p-8">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[#252B3D] to-[#2F3548] p-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Provider Payouts</h1>
-          <p className="text-white/60">Process weekly provider earnings</p>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Provider Payouts</h1>
+            <p className="text-gray-500">Manage provider earnings, balances, and external payouts</p>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => void loadData()}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </motion.button>
         </div>
 
-        <div className="p-8">
-          {/* Stats */}
-          <div className="grid grid-cols-4 gap-6 mb-8">
-            <div className="glass rounded-[24px] p-6">
-              <Clock className="w-8 h-8 text-[#007AFF] mb-3" />
-              <p className="text-white/60 text-sm">Pending Payouts</p>
-              <p className="text-white text-3xl font-bold">{pendingPayouts.length}</p>
-            </div>
-            <div className="glass rounded-[24px] p-6">
-              <DollarSign className="w-8 h-8 text-[#2EFFAF] mb-3" />
-              <p className="text-white/60 text-sm">Total Pending</p>
-              <p className="text-white text-3xl font-bold">
-                ${pendingPayouts.reduce((sum, p) => sum + p.payoutAmount, 0).toFixed(2)}
-              </p>
-            </div>
-            <div className="glass rounded-[24px] p-6">
-              <TrendingUp className="w-8 h-8 text-[#2EFFAF] mb-3" />
-              <p className="text-white/60 text-sm">Platform Fees</p>
-              <p className="text-white text-3xl font-bold">
-                ${pendingPayouts.reduce((sum, p) => sum + p.platformFee, 0).toFixed(2)}
-              </p>
-            </div>
-            <div className="glass rounded-[24px] p-6">
-              <CheckCircle className="w-8 h-8 text-[#2EFFAF] mb-3" />
-              <p className="text-white/60 text-sm">Paid This Week</p>
-              <p className="text-white text-3xl font-bold">$12,450</p>
-            </div>
+        {/* Error banner */}
+        {error && (
+          <div className="mb-6 flex items-center gap-3 bg-red-50 border border-red-200 rounded-[20px] px-5 py-4 text-red-600">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <p className="text-sm font-medium">{error}</p>
+            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {statCards.map((card, i) => {
+            const Icon = card.icon;
+            return (
+              <motion.div
+                key={card.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.08 }}
+                className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6"
+              >
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: card.gradient }}>
+                  <Icon className="w-6 h-6 text-white" />
+                </div>
+                <p className="text-gray-500 text-sm mb-1">{card.label}</p>
+                <p className="text-gray-900 font-bold text-2xl">{loading ? '--' : card.value}</p>
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Search + Filter tabs */}
+        <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6 mb-6">
+          <div className="relative mb-4">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search providers by name or email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {filterTabs.map((tab) => (
+              <motion.button
+                key={tab.key}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setFilter(tab.key)}
+                className="px-4 py-2 rounded-full text-sm font-semibold transition-all"
+                style={filter === tab.key
+                  ? { background: 'linear-gradient(to right, #008CE5, #0070B8)', color: '#FFFFFF' }
+                  : { backgroundColor: '#F9FAFB', color: '#4B5563' }
+                }
+              >
+                {tab.label} ({tab.count})
+              </motion.button>
+            ))}
+          </div>
+        </div>
+
+        {/* Provider balance table */}
+        <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] overflow-hidden mb-8">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-gray-900 font-bold text-xl">Provider Balances</h2>
+            <p className="text-gray-500 text-sm">Earnings calculated using {platformFee}% platform commission on base price</p>
           </div>
 
-          {/* Pending Payouts */}
-          <div className="glass rounded-[24px] p-6 mb-6">
+          {loading ? (
+            <div className="p-16 flex flex-col items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin mb-4" style={{ color: '#008CE5' }} />
+              <p className="text-gray-500 text-sm">Loading provider data...</p>
+            </div>
+          ) : filteredProviders.length === 0 ? (
+            <div className="p-16 flex flex-col items-center justify-center">
+              <Users className="w-12 h-12 text-gray-300 mb-4" />
+              <p className="text-gray-900 font-semibold text-lg mb-1">No providers found</p>
+              <p className="text-gray-500 text-sm">
+                {search ? 'Try adjusting your search.' : 'No completed jobs yet.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-gray-200">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">Provider</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Jobs</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Earned</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Tips</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Fee ({platformFee}%)</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Net Owed</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Paid</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Balance</th>
+                      <th className="px-6 py-4 text-right text-gray-500 text-sm font-semibold">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedProviders.map((prov, i) => (
+                      <motion.tr
+                        key={prov.provider_id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.02 }}
+                        className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <p className="text-gray-900 font-semibold">{prov.provider_name}</p>
+                          <p className="text-gray-400 text-xs">{prov.provider_email}</p>
+                        </td>
+                        <td className="px-4 py-4 text-right text-gray-700 font-medium">{prov.jobs_count}</td>
+                        <td className="px-4 py-4 text-right text-gray-700">{fmt(prov.total_earned)}</td>
+                        <td className="px-4 py-4 text-right" style={{ color: '#22C55E' }}>+{fmt(prov.total_tips)}</td>
+                        <td className="px-4 py-4 text-right text-red-400">-{fmt(prov.platform_fee)}</td>
+                        <td className="px-4 py-4 text-right text-gray-900 font-semibold">{fmt(prov.net_owed)}</td>
+                        <td className="px-4 py-4 text-right text-gray-500">{fmt(prov.already_paid)}</td>
+                        <td className="px-4 py-4 text-right">
+                          <span className={`font-bold text-lg ${prov.balance > 0.01 ? '' : 'text-gray-400'}`}
+                            style={prov.balance > 0.01 ? { color: '#008CE5' } : undefined}
+                          >
+                            {fmt(prov.balance)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {prov.balance > 0.01 ? (
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => openPayModal(prov)}
+                              className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                              style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
+                            >
+                              Pay
+                            </motion.button>
+                          ) : (
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                              Paid
+                            </span>
+                          )}
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination
+                currentPage={providerPage}
+                totalItems={filteredProviders.length}
+                pageSize={PROVIDER_PAGE_SIZE}
+                onPageChange={setProviderPage}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Recent Payouts History */}
+        <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="text-gray-900 font-bold text-xl">Payout History</h2>
+            <p className="text-gray-500 text-sm">{payoutHistory.length} recorded payouts</p>
+          </div>
+
+          {payoutHistory.length === 0 ? (
+            <div className="p-12 text-center">
+              <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">No payouts recorded yet</p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-gray-200">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">Date</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Provider</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Amount</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Method</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Reference</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Status</th>
+                      <th className="px-6 py-4 text-center text-gray-500 text-sm font-semibold"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedHistory.map((rec) => {
+                      const isExpanded = expandedHistoryId === rec.id;
+                      return (
+                        <motion.tr
+                          key={rec.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors align-top"
+                        >
+                          <td className="px-6 py-4 text-gray-700 text-sm whitespace-nowrap">
+                            {rec.paid_at ? new Date(rec.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '--'}
+                          </td>
+                          <td className="px-4 py-4 text-gray-900 font-medium">{rec.provider_name}</td>
+                          <td className="px-4 py-4 text-right font-bold" style={{ color: '#008CE5' }}>{fmt(Number(rec.net_payout))}</td>
+                          <td className="px-4 py-4 text-gray-600 text-sm">{rec.payment_method ? methodLabel(rec.payment_method) : '--'}</td>
+                          <td className="px-4 py-4">
+                            {rec.reference_id ? (
+                              <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-mono">{rec.reference_id}</span>
+                            ) : (
+                              <span className="text-gray-400 text-sm">--</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4">
+                            <span
+                              className="px-3 py-1 rounded-full text-xs font-semibold"
+                              style={rec.status === 'paid'
+                                ? { backgroundColor: '#DEF7EC', color: '#03543F' }
+                                : rec.status === 'processing'
+                                ? { backgroundColor: '#FEF3C7', color: '#92400E' }
+                                : rec.status === 'failed'
+                                ? { backgroundColor: '#FEE2E2', color: '#991B1B' }
+                                : { backgroundColor: '#F3F4F6', color: '#4B5563' }
+                              }
+                            >
+                              {rec.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => setExpandedHistoryId(isExpanded ? null : rec.id)}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </button>
+                            {isExpanded && (
+                              <div className="text-left mt-2 bg-gray-50 rounded-xl p-3 text-xs text-gray-600 space-y-1">
+                                <p><span className="font-semibold">Period:</span> {rec.period_start} to {rec.period_end}</p>
+                                <p><span className="font-semibold">Earnings:</span> {fmt(Number(rec.total_earnings))}</p>
+                                <p><span className="font-semibold">Tips:</span> {fmt(Number(rec.total_tips))}</p>
+                                <p><span className="font-semibold">Platform Fee:</span> {fmt(Number(rec.platform_fee))}</p>
+                                {rec.notes && <p><span className="font-semibold">Notes:</span> {rec.notes}</p>}
+                                <p className="text-gray-400">ID: {rec.id}</p>
+                              </div>
+                            )}
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination
+                currentPage={historyPage}
+                totalItems={payoutHistory.length}
+                pageSize={HISTORY_PAGE_SIZE}
+                onPageChange={setHistoryPage}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Payout info box */}
+        <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6 mt-8">
+          <h3 className="text-gray-900 font-semibold mb-3">How Payouts Work</h3>
+          <ul className="space-y-2 text-gray-500 text-sm">
+            <li>Provider earnings = base service price - platform fee ({platformFee}%) + tips (100% passed through)</li>
+            <li>Click "Pay" to record an external payment (bank transfer, PayPal, Venmo)</li>
+            <li>Enter the external transaction reference ID to track the payment</li>
+            <li>The provider's balance updates automatically after recording a payout</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* ============================================================= */}
+      {/*  Payout Modal                                                  */}
+      {/* ============================================================= */}
+      {payingProvider && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onClick={() => !payProcessing && setPayingProvider(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[32px] p-8 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-white font-bold text-xl">Pending Payouts (Week of Feb 3)</h2>
-              {selectedPayouts.length > 0 && (
-                <motion.button
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleProcessPayouts}
-                  className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl px-6 py-3 font-semibold text-[#0F1419] flex items-center gap-2"
-                >
-                  <Send className="w-5 h-5" />
-                  Process {selectedPayouts.length} Payout{selectedPayouts.length > 1 ? 's' : ''} (${selectedTotal.toFixed(2)})
-                </motion.button>
+              <div>
+                <h2 className="text-gray-900 font-bold text-2xl">Process Payout</h2>
+                <p className="text-gray-500 text-sm mt-1">{payingProvider.provider_name}</p>
+              </div>
+              <button onClick={() => setPayingProvider(null)} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Balance summary */}
+            <div className="rounded-2xl p-4 mb-6" style={{ backgroundColor: 'rgba(0,140,229,0.05)', border: '1px solid rgba(0,140,229,0.15)' }}>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-gray-400 text-xs mb-1">Net Owed</p>
+                  <p className="text-gray-900 font-bold">{fmt(payingProvider.net_owed)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 text-xs mb-1">Already Paid</p>
+                  <p className="text-gray-900 font-bold">{fmt(payingProvider.already_paid)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-400 text-xs mb-1">Balance</p>
+                  <p className="font-bold text-xl" style={{ color: '#008CE5' }}>{fmt(payingProvider.balance)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Payout method selection */}
+            <div className="mb-5">
+              <label className="text-gray-600 text-sm font-semibold mb-2 block">Provider Payout Method</label>
+              {(allMethods[payingProvider.provider_id] || []).length === 0 ? (
+                <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-700 text-sm">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  No payout methods configured by this provider
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(allMethods[payingProvider.provider_id] || []).map((m) => {
+                    const Icon = methodIcon(m.method_type);
+                    const selected = payMethodId === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setPayMethodId(m.id)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left"
+                        style={selected
+                          ? { backgroundColor: 'rgba(0,140,229,0.08)', border: '2px solid #008CE5' }
+                          : { backgroundColor: '#F9FAFB', border: '2px solid transparent' }
+                        }
+                      >
+                        <Icon className="w-5 h-5 flex-shrink-0" style={{ color: selected ? '#008CE5' : '#9CA3AF' }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-gray-900 font-medium text-sm">{methodLabel(m.method_type)}</p>
+                          <p className="text-gray-500 text-xs truncate">{methodSummary(m)}</p>
+                        </div>
+                        {m.is_default && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Default</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
-            <div className="space-y-3">
-              {pendingPayouts.map((payout) => (
-                <motion.div
-                  key={payout.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`bg-white/5 rounded-2xl p-5 cursor-pointer transition-all ${
-                    selectedPayouts.includes(payout.id)
-                      ? 'ring-2 ring-[#2EFFAF] bg-[#2EFFAF]/10'
-                      : 'hover:bg-white/8'
-                  }`}
-                  onClick={() => togglePayout(payout.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedPayouts.includes(payout.id)}
-                        onChange={() => togglePayout(payout.id)}
-                        className="w-5 h-5 rounded bg-white/10 border-white/20 checked:bg-[#2EFFAF]"
-                      />
-                      <div>
-                        <h3 className="text-white font-bold">{payout.provider}</h3>
-                        <p className="text-white/60 text-sm">{payout.providerId} • {payout.period}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-8">
-                      <div className="text-right">
-                        <p className="text-white/60 text-sm">Jobs Completed</p>
-                        <p className="text-white font-semibold">{payout.jobs} jobs</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-white/60 text-sm">Total Earnings</p>
-                        <p className="text-white font-semibold">${payout.totalEarnings.toFixed(2)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-white/60 text-sm">Platform Fee (15%)</p>
-                        <p className="text-red-400 font-semibold">-${payout.platformFee.toFixed(2)}</p>
-                      </div>
-                      <div className="text-right min-w-[120px]">
-                        <p className="text-white/60 text-sm">Payout Amount</p>
-                        <p className="text-[#2EFFAF] font-bold text-xl">${payout.payoutAmount.toFixed(2)}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Breakdown */}
-                  <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-white/60">Customer Charges</p>
-                      <p className="text-white">${payout.totalEarnings.toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-white/60">Provider Receives</p>
-                      <p className="text-[#2EFFAF]">${payout.payoutAmount.toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-white/60">TORC Platform Revenue</p>
-                      <p className="text-white">${payout.platformFee.toFixed(2)}</p>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+            {/* Amount */}
+            <div className="mb-4">
+              <label className="text-gray-600 text-sm font-semibold mb-2 block">Payout Amount</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={payingProvider.balance}
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 text-lg font-bold focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Info Box */}
-          <div className="glass rounded-[24px] p-6">
-            <h3 className="text-white font-semibold mb-3">💡 Payout Process</h3>
-            <ul className="space-y-2 text-white/80 text-sm">
-              <li>• Provider earnings are calculated weekly (Monday-Sunday)</li>
-              <li>• Platform fee (15%) is automatically deducted from total earnings</li>
-              <li>• Funds are withdrawn from customer payment methods on file</li>
-              <li>• Providers receive payouts within 2-3 business days</li>
-              <li>• All transactions are logged for accounting and tax purposes</li>
-            </ul>
-          </div>
+            {/* Reference ID */}
+            <div className="mb-4">
+              <label className="text-gray-600 text-sm font-semibold mb-2 block">
+                Payment Reference ID <span className="text-red-400">*</span>
+              </label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="e.g. TXN-123456, PayPal ID, etc."
+                  value={payRef}
+                  onChange={(e) => setPayRef(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="mb-6">
+              <label className="text-gray-600 text-sm font-semibold mb-2 block">Notes (optional)</label>
+              <div className="relative">
+                <FileText className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                <textarea
+                  placeholder="Additional notes about this payout..."
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
+                  rows={2}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPayingProvider(null)}
+                className="flex-1 px-6 py-3 rounded-[20px] bg-gray-100 text-gray-900 font-semibold hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleCompletePayout}
+                disabled={payProcessing || !payRef.trim() || Number(payAmount) <= 0}
+                className="flex-1 px-6 py-3 rounded-[20px] font-bold flex items-center justify-center gap-2 disabled:opacity-50 text-white"
+                style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
+              >
+                {payProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                {payProcessing ? 'Processing...' : 'Complete Payout'}
+              </motion.button>
+            </div>
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AdminLayout>
   );
 }

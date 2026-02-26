@@ -60,8 +60,8 @@ export function MapWithRoute({ providerPosition, customerPosition, showRoute = t
         >
           <defs>
             <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#007AFF" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#2EFFAF" stopOpacity="0.8" />
+              <stop offset="0%" stopColor="#0070B8" stopOpacity="0.8" />
+              <stop offset="100%" stopColor="#008CE5" stopOpacity="0.8" />
             </linearGradient>
           </defs>
           
@@ -102,7 +102,7 @@ export function MapWithRoute({ providerPosition, customerPosition, showRoute = t
               offsetPath: `path("${routePath}")`,
             }}
             r="0.5"
-            fill="#2EFFAF"
+            fill="#008CE5"
           >
             <animateMotion dur="3s" repeatCount="indefinite">
               <mpath href="#route-path" />

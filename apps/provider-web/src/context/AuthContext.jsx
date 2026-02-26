@@ -1,12 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
+import { Capacitor } from '@capacitor/core';
+import { registerNativePushForUser, deactivateNativePushToken } from '../utils/nativePush';
 
 const AuthContext = createContext({});
+
+const isNative = typeof window !== 'undefined' && (window.__TORC_NATIVE__ === true || Capacitor.isNativePlatform());
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [providerProfile, setProviderProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,6 +32,7 @@ export function AuthProvider({ children }) {
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
+        setProviderProfile(null);
         setLoading(false);
       }
     });
@@ -34,8 +40,33 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Listen for native bridge messages (session updates from the native app)
+  useEffect(() => {
+    if (!isNative) return;
+
+    function handleNativeMessage(event) {
+      try {
+        const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (msg?.type === 'AUTH_SESSION' && msg.session) {
+          supabase.auth.setSession({
+            access_token: msg.session.access_token,
+            refresh_token: msg.session.refresh_token,
+          });
+        }
+      } catch { /* ignore non-JSON messages */ }
+    }
+
+    window.addEventListener('message', handleNativeMessage);
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'READY' }));
+    }
+    return () => window.removeEventListener('message', handleNativeMessage);
+  }, []);
+
   useEffect(() => {
     if (!user) return;
+    // Skip browser notification prompts when inside native wrapper
+    if (isNative) return;
     if (typeof Notification === 'undefined') return;
     const key = 'torc_provider_notification_prompted_v1';
     if (localStorage.getItem(key) === '1') return;
@@ -44,6 +75,13 @@ export function AuthProvider({ children }) {
       Notification.requestPermission().catch(() => {});
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!isNative || !user?.id) return;
+    registerNativePushForUser({ userId: user.id, role: 'provider' }).catch((error) => {
+      console.warn('Native push setup failed:', error);
+    });
+  }, [user?.id]);
 
   async function fetchProfile(userId) {
     try {
@@ -69,10 +107,43 @@ export function AuthProvider({ children }) {
       };
 
       setProfile(merged);
+
+      // Fetch provider profile for verification status
+      if (merged.role === 'provider') {
+        await fetchProviderProfile(userId);
+      }
     } catch (error) {
       console.warn('Error fetching profile:', error);
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const meta = authUser?.user_metadata || {};
+      setProfile({
+        id: userId,
+        email: authUser?.email || '',
+        first_name: meta.first_name || '',
+        last_name: meta.last_name || '',
+        full_name: meta.full_name || '',
+        phone: meta.phone || '',
+        role: meta.role || 'provider',
+      });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchProviderProfile(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('provider_profiles')
+        .select('id, is_verified, status, created_at')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setProviderProfile(data || null);
+      return data || null;
+    } catch (error) {
+      console.warn('Error fetching provider profile:', error);
+      return null;
     }
   }
 
@@ -83,28 +154,41 @@ export function AuthProvider({ children }) {
   };
 
   const signUp = async (email, password, userData = {}) => {
+    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: userData },
+      options: {
+        emailRedirectTo: `${siteUrl}/auth/callback`,
+        data: userData,
+      },
     });
     if (error) throw error;
     return data;
   };
 
   const resetPasswordForEmail = async (email) => {
+    const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${siteUrl}/auth/callback`,
     });
     if (error) throw error;
     return data;
   };
 
   const signOut = async () => {
+    if (user?.id) {
+      deactivateNativePushToken(user.id).catch(() => {});
+    }
+    if (isNative && window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SIGN_OUT' }));
+      return;
+    }
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     setUser(null);
     setProfile(null);
+    setProviderProfile(null);
   };
 
   const updateProfile = async (updates) => {
@@ -125,15 +209,18 @@ export function AuthProvider({ children }) {
   const value = {
     user,
     profile,
+    providerProfile,
     loading,
     isAuthenticated: !!user,
     isCustomer: profile?.role === 'customer',
+    isVerified: providerProfile?.is_verified === true || profile?.is_verified === true,
     signIn,
     signUp,
     signOut,
     resetPasswordForEmail,
     updateProfile,
     refreshProfile: () => user && fetchProfile(user.id),
+    refreshProviderProfile: () => (user ? fetchProviderProfile(user.id) : Promise.resolve(null)),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -162,7 +249,7 @@ export function ProtectedRoute({ children }) {
     return (
       <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/60">Loading...</p>
         </div>
       </div>
@@ -190,7 +277,7 @@ export function ProviderProtectedRoute({ children }) {
     return (
       <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/60">Loading...</p>
         </div>
       </div>

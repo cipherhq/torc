@@ -186,7 +186,7 @@ export function AdminAuditTrail() {
           <button
             onClick={exportCsv}
             disabled={filteredLogs.length === 0}
-            className="px-4 py-2 rounded-xl bg-[#2EFFAF]/20 border border-[#2EFFAF]/30 text-[#9FFFD8] text-sm flex items-center gap-2 disabled:opacity-60"
+            className="px-4 py-2 rounded-xl bg-[#008CE5]/20 border border-[#008CE5]/30 text-[#9FFFD8] text-sm flex items-center gap-2 disabled:opacity-60"
             title="Export filtered entries to CSV"
           >
             <Download className="w-4 h-4" />
@@ -196,12 +196,12 @@ export function AdminAuditTrail() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
           <div className="glass-light rounded-[24px] p-6">
-            <Shield className="w-8 h-8 text-[#2EFFAF] mb-3" />
+            <Shield className="w-8 h-8 text-[#008CE5] mb-3" />
             <p className="text-white/60 text-sm">Total Logged Actions</p>
             <p className="text-white text-3xl font-bold">{logs.length}</p>
           </div>
           <div className="glass-light rounded-[24px] p-6">
-            <Clock3 className="w-8 h-8 text-[#007AFF] mb-3" />
+            <Clock3 className="w-8 h-8 text-[#0070B8] mb-3" />
             <p className="text-white/60 text-sm">Unique Actors</p>
             <p className="text-white text-3xl font-bold">{new Set(logs.map((l) => l.actor_id)).size}</p>
           </div>
@@ -226,7 +226,7 @@ export function AdminAuditTrail() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search actor, action, entity, details..."
-                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
               />
             </div>
             <div className="md:col-span-2 grid grid-cols-2 gap-3">
@@ -235,21 +235,21 @@ export function AdminAuditTrail() {
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
                 title="Filter start date"
-                className="px-3 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+                className="px-3 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
               />
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
                 title="Filter end date"
-                className="px-3 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+                className="px-3 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
               />
             </div>
             <select
               value={actionFilter}
               onChange={(e) => setActionFilter(e.target.value)}
               title="Filter by action"
-              className="px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+              className="px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
             >
               <option value="all">All actions</option>
               {actionOptions.map((action) => (
@@ -262,7 +262,7 @@ export function AdminAuditTrail() {
               value={entityFilter}
               onChange={(e) => setEntityFilter(e.target.value)}
               title="Filter by entity type"
-              className="px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+              className="px-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
             >
               <option value="all">All entities</option>
               {entityOptions.map((entity) => (
@@ -326,7 +326,7 @@ export function AdminAuditTrail() {
                         <p className="text-white/50 text-xs">{log.actorEmail}</p>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="px-3 py-1 rounded-full bg-[#2EFFAF]/20 text-[#2EFFAF] text-xs font-semibold">
+                        <span className="px-3 py-1 rounded-full bg-[#008CE5]/20 text-[#008CE5] text-xs font-semibold">
                           {formatAction(log.action)}
                         </span>
                       </td>

@@ -78,12 +78,12 @@ export function Notifications() {
 
   const getIconColor = (type: string) => {
     switch (type) {
-      case 'service': return 'from-[#2EFFAF] to-[#007AFF]';
+      case 'service': return 'from-[#008CE5] to-[#0070B8]';
       case 'payment': return 'from-green-400 to-emerald-500';
       case 'promo': return 'from-purple-400 to-pink-500';
       case 'rating': return 'from-yellow-400 to-orange-500';
       case 'alert': return 'from-red-400 to-orange-500';
-      default: return 'from-[#2EFFAF] to-[#007AFF]';
+      default: return 'from-[#008CE5] to-[#0070B8]';
     }
   };
 
@@ -116,7 +116,7 @@ export function Notifications() {
     <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
       {/* Header */}
       <div className="glass-light border-b border-white/10 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto p-6">
+        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-2">
             <motion.button
               whileTap={{ scale: 0.9 }}
@@ -150,7 +150,7 @@ export function Notifications() {
             onClick={() => setFilter('all')}
             className={`flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm transition-all ${
               filter === 'all'
-                ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                 : 'glass text-white/70'
             }`}
           >
@@ -161,7 +161,7 @@ export function Notifications() {
             onClick={() => setFilter('unread')}
             className={`flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm transition-all ${
               filter === 'unread'
-                ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                 : 'glass text-white/70'
             }`}
           >
@@ -193,7 +193,7 @@ export function Notifications() {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
                   className={`glass-light rounded-[24px] p-5 relative ${
-                    !notification.read ? 'border-2 border-[#2EFFAF]/30' : ''
+                    !notification.read ? 'border-2 border-[#008CE5]/30' : ''
                   }`}
                 >
                   <div className="flex gap-4">
@@ -205,7 +205,7 @@ export function Notifications() {
                       <div className="flex items-start justify-between mb-1">
                         <h3 className="text-white font-bold text-base">{notification.title}</h3>
                         {!notification.read && (
-                          <div className="w-2 h-2 rounded-full bg-[#2EFFAF] flex-shrink-0" />
+                          <div className="w-2 h-2 rounded-full bg-[#008CE5] flex-shrink-0" />
                         )}
                       </div>
                       <p className="text-white/70 text-sm mb-2 leading-relaxed">{notification.message}</p>
@@ -217,7 +217,7 @@ export function Notifications() {
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => navigate(notification.actionUrl!)}
-                            className="px-4 py-2 rounded-[12px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold text-xs"
+                            className="px-4 py-2 rounded-[12px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold text-xs"
                           >
                             View Details
                           </motion.button>

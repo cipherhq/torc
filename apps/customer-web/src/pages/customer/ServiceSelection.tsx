@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { updateRequestContext } from '../../data/requestContext';
 import { supabase } from '../../lib/supabase';
 import * as Icons from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
 
 interface ServiceRow {
   id: string;
@@ -17,9 +18,18 @@ interface ServiceRow {
 
 export function ServiceSelection() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [search, setSearch] = useState('');
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const mutedColor = isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
 
   useEffect(() => {
     async function loadServices() {
@@ -59,45 +69,49 @@ export function ServiceSelection() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] flex flex-col relative overflow-hidden">
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Background */}
-      <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full" />
-      </div>
+      {isDark && (
+        <div className="absolute inset-0">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#0070B8] opacity-10 blur-[120px] rounded-full" />
+        </div>
+      )}
 
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate('/confirm-location')}
-          className="glass rounded-full p-3"
+          className="w-10 h-10 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
         >
-          <ArrowLeft className="w-6 h-6 text-white" />
+          <ArrowLeft className="w-6 h-6" style={{ color: textColor }} />
         </motion.button>
-        <h1 className="text-2xl font-bold text-white">Select Service</h1>
+        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Select Service</h1>
       </div>
 
       <div className="relative z-10 flex-1 px-6 pb-6 overflow-y-auto">
         {/* Search */}
         <div className="mb-6">
-          <div className="glass rounded-[24px] px-4 py-3 flex items-center gap-3">
-            <Search className="w-5 h-5 text-white/40" />
+          <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}>
+            <Search className="w-5 h-5" style={{ color: mutedColor }} />
             <input
               type="text"
               placeholder="Search services..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent text-white placeholder-white/40 focus:outline-none"
+              className="flex-1 bg-transparent focus:outline-none"
+              style={{ color: textColor }}
             />
           </div>
         </div>
 
         {loading ? (
           <div className="text-center py-12">
-            <Loader2 className="w-6 h-6 text-white/60 animate-spin mx-auto mb-3" />
-            <p className="text-white/60">Loading services...</p>
+            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" style={{ color: subColor }} />
+            <p style={{ color: subColor }}>Loading services...</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4">
@@ -111,14 +125,15 @@ export function ServiceSelection() {
                   transition={{ delay: index * 0.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => handleServiceSelect(service)}
-                  className="glass rounded-[24px] p-4 text-left hover:bg-white/10 transition-colors"
+                  className="rounded-2xl p-4 text-left active:opacity-80 cursor-pointer transition-colors"
+                  style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
                 >
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mb-3">
-                    <Icon className="w-6 h-6 text-[#0F1419]" />
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-3">
+                    <Icon className="w-6 h-6 text-white" />
                   </div>
-                  <p className="text-white font-semibold text-sm">{service.name}</p>
-                  <p className="text-white/60 text-xs mt-1 line-clamp-2">{service.description || 'Roadside support service'}</p>
-                  <p className="text-[#2EFFAF] text-sm font-semibold mt-2">${Number(service.base_price || 0)}</p>
+                  <p className="font-semibold text-sm" style={{ color: textColor }}>{service.name}</p>
+                  <p className="text-xs mt-1 line-clamp-2" style={{ color: subColor }}>{service.description || 'Roadside support service'}</p>
+                  <p className="text-[#008CE5] text-sm font-semibold mt-2">${Number(service.base_price || 0)}</p>
                 </motion.button>
               );
             })}
@@ -127,7 +142,7 @@ export function ServiceSelection() {
 
         {!loading && filteredServices.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-white/60">No services found</p>
+            <p style={{ color: subColor }}>No services found</p>
           </div>
         )}
       </div>

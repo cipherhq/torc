@@ -392,7 +392,7 @@ export function AdminProviders() {
                 onClick={() => setStatusFilter(status)}
                 className={`px-3 py-1.5 rounded-full text-sm font-semibold ${
                   statusFilter === status
-                    ? 'bg-[#007AFF] text-white'
+                    ? 'bg-[#0070B8] text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
                 title={`Filter providers by ${status}`}
@@ -462,7 +462,7 @@ export function AdminProviders() {
                       className="w-4 h-4 rounded border-gray-300"
                       title={`Select ${provider.name}`}
                     />
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
                       <span className="text-white font-bold">{provider.name[0]}</span>
                     </div>
                     <div>

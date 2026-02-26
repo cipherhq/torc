@@ -47,7 +47,7 @@ export function AdminSettings() {
     {
       title: 'Financial Settings',
       icon: DollarSign,
-      color: 'from-[#2EFFAF] to-[#00D68F]',
+      color: 'from-[#008CE5] to-[#00D68F]',
       items: [
         {
           label: 'Platform Fee Percentage',
@@ -68,7 +68,7 @@ export function AdminSettings() {
     {
       title: 'Notifications',
       icon: Bell,
-      color: 'from-[#007AFF] to-[#0051D5]',
+      color: 'from-[#0070B8] to-[#0051D5]',
       items: [
         {
           label: 'Email Notifications',
@@ -227,7 +227,7 @@ export function AdminSettings() {
                               onClick={() => handleToggle(item.key)}
                               className={`w-14 h-8 rounded-full relative transition-all ${
                                 settings[item.key as keyof typeof settings]
-                                  ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF]'
+                                  ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8]'
                                   : 'bg-white/10'
                               }`}
                             >
@@ -246,7 +246,7 @@ export function AdminSettings() {
                                 value={settings[item.key as keyof typeof settings]}
                                 onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: Number(e.target.value) }))}
                                 title={item.label}
-                                className="w-20 px-3 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white text-center focus:outline-none focus:border-[#2EFFAF]/50"
+                                className="w-20 px-3 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white text-center focus:outline-none focus:border-[#008CE5]/50"
                               />
                               {item.suffix && (
                                 <span className="text-white/60 text-sm">{item.suffix}</span>
@@ -259,7 +259,7 @@ export function AdminSettings() {
                               value={settings[item.key as keyof typeof settings]}
                               onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: e.target.value }))}
                               title={item.label}
-                              className="px-4 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white focus:outline-none focus:border-[#2EFFAF]/50"
+                              className="px-4 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white focus:outline-none focus:border-[#008CE5]/50"
                             >
                               {item.options?.map((option) => (
                                 <option key={option} value={option} className="bg-[#1A1F2E]">
@@ -285,7 +285,7 @@ export function AdminSettings() {
             whileTap={{ scale: 0.98 }}
             onClick={() => void saveAllSettings()}
             disabled={saving}
-            className="px-8 py-4 rounded-[24px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold text-lg shadow-lg shadow-[#2EFFAF]/30"
+            className="px-8 py-4 rounded-[24px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold text-lg shadow-lg shadow-[#008CE5]/30"
           >
             {saving ? 'Saving...' : 'Save All Changes'}
           </motion.button>

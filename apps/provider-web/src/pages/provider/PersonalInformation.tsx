@@ -59,18 +59,18 @@ export function PersonalInformation() {
   }
 
   const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
     color: isDark ? '#FFFFFF' : '#1F2937',
   };
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingTop: 'var(--safe-top)' }}>
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB' }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE' }}
           title="Back to profile"
         >
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
@@ -78,9 +78,9 @@ export function PersonalInformation() {
         <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Personal Information</h1>
       </div>
 
-      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <div className="flex items-center gap-3 mb-4">
-          <User className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+          <User className="w-5 h-5" style={{ color: '#008CE5' }} />
           <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Account details</p>
         </div>
 
@@ -121,21 +121,21 @@ export function PersonalInformation() {
             <p className="text-sm text-red-400">{error}</p>
           )}
           {message && (
-            <p className="text-sm text-[#2EFFAF]">{message}</p>
+            <p className="text-sm text-[#008CE5]">{message}</p>
           )}
 
           <div className="flex gap-3 pt-1">
             <button
               onClick={() => navigate('/profile')}
               className="flex-1 rounded-xl py-3 font-medium"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6', color: isDark ? '#FFFFFF' : '#6B7280' }}
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: isDark ? '#FFFFFF' : '#6B7280' }}
             >
               Cancel
             </button>
             <button
               onClick={onSave}
               disabled={saving}
-              className="flex-1 rounded-xl py-3 font-semibold text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 rounded-xl py-3 font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <Save className="w-4 h-4" />
               {saving ? 'Saving...' : 'Save Changes'}

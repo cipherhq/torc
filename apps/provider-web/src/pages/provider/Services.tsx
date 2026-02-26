@@ -71,12 +71,12 @@ export function ProviderServices() {
     <div className="min-h-screen bg-gradient-to-br from-[#0F1419] via-[#1A1F2E] to-[#252B3D] relative overflow-hidden pb-24">
       {/* Background accents */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-[#2EFFAF]/30 to-transparent blur-3xl rounded-full animate-pulse" />
-        <div className="absolute bottom-40 left-20 w-96 h-96 bg-gradient-to-br from-[#007AFF]/30 to-transparent blur-3xl rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-20 right-20 w-96 h-96 bg-gradient-to-br from-[#008CE5]/30 to-transparent blur-3xl rounded-full animate-pulse" />
+        <div className="absolute bottom-40 left-20 w-96 h-96 bg-gradient-to-br from-[#0070B8]/30 to-transparent blur-3xl rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
       </div>
 
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center justify-between border-b border-white/10">
+      <div className="relative z-10 p-6 flex items-center justify-between border-b border-white/10" style={{ paddingTop: 'var(--safe-top)' }}>
         <div className="flex items-center gap-4">
           <motion.button
             whileHover={{ scale: 1.1 }}
@@ -125,16 +125,16 @@ export function ProviderServices() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
               className={service.enabled 
-                ? 'glass-light rounded-[24px] p-5 border-2 border-[#2EFFAF]/30' 
+                ? 'glass-light rounded-[24px] p-5 border-2 border-[#008CE5]/30' 
                 : 'glass rounded-[24px] p-5 border border-white/10'
               }
             >
               <div className="flex items-start gap-4">
                 <div className={service.enabled
-                  ? 'w-14 h-14 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center flex-shrink-0'
+                  ? 'w-14 h-14 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center flex-shrink-0'
                   : 'w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center flex-shrink-0'
                 }>
-                  <Icon className={service.enabled ? 'w-7 h-7 text-[#0F1419]' : 'w-7 h-7 text-white/40'} />
+                  <Icon className={service.enabled ? 'w-7 h-7 text-white' : 'w-7 h-7 text-white/40'} />
                 </div>
 
                 <div className="flex-1">
@@ -151,7 +151,7 @@ export function ProviderServices() {
                       whileTap={{ scale: 0.9 }}
                       onClick={() => toggleService(service.id)}
                       className={service.enabled
-                        ? 'w-12 h-7 rounded-full relative transition-all bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] shadow-lg shadow-[#2EFFAF]/30'
+                        ? 'w-12 h-7 rounded-full relative transition-all bg-gradient-to-r from-[#008CE5] to-[#0070B8] shadow-lg shadow-[#008CE5]/30'
                         : 'w-12 h-7 rounded-full relative transition-all bg-white/10'
                       }
                     >
@@ -159,7 +159,7 @@ export function ProviderServices() {
                         ? 'absolute w-5 h-5 bg-white rounded-full top-1 right-1 transition-all shadow-lg flex items-center justify-center'
                         : 'absolute w-5 h-5 bg-white/50 rounded-full top-1 left-1 transition-all'
                       }>
-                        {service.enabled && <Check className="w-3 h-3 text-[#2EFFAF]" />}
+                        {service.enabled && <Check className="w-3 h-3 text-[#008CE5]" />}
                       </div>
                     </motion.button>
                   </div>
@@ -167,7 +167,7 @@ export function ProviderServices() {
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
                     <div>
                       <p className="text-white/50 text-xs mb-1">Base Rate</p>
-                      <p className={service.enabled ? 'text-[#2EFFAF] font-bold' : 'text-white/40 font-bold'}>
+                      <p className={service.enabled ? 'text-[#008CE5] font-bold' : 'text-white/40 font-bold'}>
                         {service.baseRate}
                       </p>
                     </div>
@@ -175,7 +175,7 @@ export function ProviderServices() {
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
-                        className="px-3 py-1 rounded-full bg-[#2EFFAF]/20 text-[#2EFFAF] text-xs font-semibold"
+                        className="px-3 py-1 rounded-full bg-[#008CE5]/20 text-[#008CE5] text-xs font-semibold"
                       >
                         Active
                       </motion.div>
@@ -211,7 +211,7 @@ export function ProviderServices() {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => navigate('/profile')}
-          className="w-full py-5 rounded-[32px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold text-lg shadow-2xl shadow-[#2EFFAF]/30"
+          className="w-full py-5 rounded-[32px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold text-lg shadow-2xl shadow-[#008CE5]/30"
         >
           Save Changes
         </motion.button>

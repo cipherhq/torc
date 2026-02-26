@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
 import MapView, { Marker } from 'react-native-maps';
 
@@ -17,6 +17,19 @@ export default function ActiveJobScreen() {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadJob = useCallback(async () => {
+    if (!jobId) return;
+
+    try {
+      const data = await fetchJob(jobId as string);
+      setJob(data);
+    } catch (error) {
+      console.error('Error loading job:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchJob, jobId]);
+
   useEffect(() => {
     if (jobId) {
       loadJob();
@@ -26,18 +39,7 @@ export default function ActiveJobScreen() {
       });
       return unsubscribe;
     }
-  }, [jobId]);
-
-  const loadJob = async () => {
-    try {
-      const data = await fetchJob(jobId as string);
-      setJob(data);
-    } catch (error) {
-      console.error('Error loading job:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [jobId, loadJob, subscribeToJobUpdates]);
 
   const handleStartJob = async () => {
     try {
@@ -185,7 +187,7 @@ export default function ActiveJobScreen() {
             }}
             className="bg-cyan-500 py-4 rounded-2xl mb-4"
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">I've Arrived</Text>
+            <Text className="text-center text-[#0F1419] font-bold text-lg">I&apos;ve Arrived</Text>
           </TouchableOpacity>
         )}
 

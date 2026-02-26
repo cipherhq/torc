@@ -21,7 +21,7 @@ export function MapBackground() {
         {[...Array(8)].map((_, i) => (
           <motion.div
             key={i}
-            className="absolute h-[2px] bg-gradient-to-r from-transparent via-[#2EFFAF] to-transparent opacity-40"
+            className="absolute h-[2px] bg-gradient-to-r from-transparent via-[#008CE5] to-transparent opacity-40"
             style={{
               width: `${Math.random() * 60 + 40}%`,
               top: `${Math.random() * 100}%`,
@@ -40,8 +40,8 @@ export function MapBackground() {
         ))}
         
         {/* Ambient glow spots */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-5 blur-[100px] rounded-full" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#007AFF] opacity-5 blur-[100px] rounded-full" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-5 blur-[100px] rounded-full" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#0070B8] opacity-5 blur-[100px] rounded-full" />
       </div>
     </div>
   );

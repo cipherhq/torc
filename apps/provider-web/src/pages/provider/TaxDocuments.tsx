@@ -51,12 +51,12 @@ export function TaxDocuments() {
   }
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB' }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE' }}
           title="Back to profile"
         >
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
@@ -64,7 +64,7 @@ export function TaxDocuments() {
         <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Tax Documents</h1>
       </div>
 
-      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <div className="flex items-center gap-3 mb-2">
           <FileText className="w-5 h-5" style={{ color: '#F59E0B' }} />
           <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Tax document center</p>
@@ -88,7 +88,7 @@ export function TaxDocuments() {
                 <div
                   key={doc.id}
                   className="rounded-xl p-3"
-                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -109,7 +109,7 @@ export function TaxDocuments() {
                       href={url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-block mt-2 text-xs font-semibold text-[#2EFFAF]"
+                      className="inline-block mt-2 text-xs font-semibold text-[#008CE5]"
                     >
                       Open document
                     </a>

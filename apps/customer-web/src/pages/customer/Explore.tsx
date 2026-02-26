@@ -69,8 +69,8 @@ export function Explore() {
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
-  const pageBg = isDark ? '#0F1419' : '#F5F7FA';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const pageBg = isDark ? '#0F1419' : '#FAF8F5';
 
   useEffect(() => {
     if (!currentLocation) {
@@ -205,17 +205,17 @@ export function Explore() {
       )}
 
       {/* Header */}
-      <div className="p-6 pb-2">
+      <div className="p-6 pb-2" style={{ paddingTop: 'var(--safe-top)' }}>
         <div className="flex items-center gap-3 mb-4">
           <h1 className="text-2xl font-bold flex-1" style={{ color: textColor }}>Explore</h1>
-          <button onClick={() => setShowFilter(!showFilter)} className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: showFilter ? 'rgba(46,255,175,0.15)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)') }}>
-            <SlidersHorizontal className="w-5 h-5" style={{ color: showFilter ? '#2EFFAF' : subColor }} />
+          <button onClick={() => setShowFilter(!showFilter)} className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: showFilter ? 'rgba(0,140,229,0.15)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)') }}>
+            <SlidersHorizontal className="w-5 h-5" style={{ color: showFilter ? '#008CE5' : subColor }} />
           </button>
           <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${cardBorder}` }}>
-            <button onClick={() => setView('list')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'list' ? '#2EFFAF' : 'transparent', color: view === 'list' ? '#0F1419' : subColor }}>
+            <button onClick={() => setView('list')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'list' ? '#008CE5' : 'transparent', color: view === 'list' ? '#0F1419' : subColor }}>
               List
             </button>
-            <button onClick={() => setView('map')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'map' ? '#2EFFAF' : 'transparent', color: view === 'map' ? '#0F1419' : subColor }}>
+            <button onClick={() => setView('map')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'map' ? '#008CE5' : 'transparent', color: view === 'map' ? '#0F1419' : subColor }}>
               Map
             </button>
           </div>
@@ -232,9 +232,9 @@ export function Explore() {
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="rounded-2xl p-4 mb-3" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-medium" style={{ color: textColor }}>Distance</p>
-              <p className="text-sm font-bold" style={{ color: '#2EFFAF' }}>{maxDistance} miles</p>
+              <p className="text-sm font-bold" style={{ color: '#008CE5' }}>{maxDistance} miles</p>
             </div>
-            <input type="range" min={1} max={25} value={maxDistance} onChange={e => setMaxDistance(parseInt(e.target.value))} className="w-full accent-[#2EFFAF]" />
+            <input type="range" min={1} max={25} value={maxDistance} onChange={e => setMaxDistance(parseInt(e.target.value))} className="w-full accent-[#008CE5]" />
             <div className="flex justify-between text-xs mt-1" style={{ color: subColor }}>
               <span>1 mi</span><span>10 mi</span><span>25 mi</span>
             </div>
@@ -260,13 +260,13 @@ export function Explore() {
           >
             {/* User marker */}
             {currentLocation && (
-              <MarkerF position={{ lat: currentLocation.latitude, lng: currentLocation.longitude }} icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#2EFFAF', fillOpacity: 1, strokeColor: '#FFFFFF', strokeWeight: 3 }} />
+              <MarkerF position={{ lat: currentLocation.latitude, lng: currentLocation.longitude }} icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#008CE5', fillOpacity: 1, strokeColor: '#FFFFFF', strokeWeight: 3 }} />
             )}
             {/* Shop markers */}
             {filteredShops.map(shop => (
               <MarkerF key={shop.place_id} position={{ lat: shop.lat, lng: shop.lng }}
                 onClick={() => setSelectedShop(shop)}
-                icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#007AFF', fillOpacity: 1, strokeColor: '#FFFFFF', strokeWeight: 2 }}
+                icon={{ path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#0070B8', fillOpacity: 1, strokeColor: '#FFFFFF', strokeWeight: 2 }}
               />
             ))}
           </GoogleMap>
@@ -277,14 +277,14 @@ export function Explore() {
       {view === 'map' && selectedShop && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-6 mb-4 rounded-2xl p-4" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-              <Wrench className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+              <Wrench className="w-5 h-5" style={{ color: '#008CE5' }} />
             </div>
             <div className="flex-1">
               <p className="font-semibold" style={{ color: textColor }}>{selectedShop.name}</p>
               <p className="text-xs" style={{ color: subColor }}>{selectedShop.vicinity}</p>
             </div>
-            <span className="text-sm font-bold" style={{ color: '#2EFFAF' }}>{selectedShop.distanceText}</span>
+            <span className="text-sm font-bold" style={{ color: '#008CE5' }}>{selectedShop.distanceText}</span>
           </div>
         </motion.div>
       )}
@@ -293,7 +293,7 @@ export function Explore() {
       <div className="px-6">
         {loading ? (
           <div className="text-center py-16">
-            <div className="w-10 h-10 border-3 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-10 h-10 border-3 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
             <p className="text-sm" style={{ color: subColor }}>Finding nearby auto shops...</p>
           </div>
         ) : !currentLocation ? (
@@ -301,7 +301,7 @@ export function Explore() {
             <MapPin className="w-14 h-14 mx-auto mb-4" style={{ color: subColor }} />
             <p className="font-semibold text-lg mb-2" style={{ color: textColor }}>Location needed</p>
             <p className="text-sm mb-6" style={{ color: subColor }}>Enable location to find nearby shops</p>
-            <button onClick={() => requestPermission()} className="px-6 py-3 rounded-xl bg-[#2EFFAF] text-[#0F1419] font-bold text-sm">
+            <button onClick={() => requestPermission()} className="px-6 py-3 rounded-xl bg-[#008CE5] text-white font-bold text-sm">
               Enable Location
             </button>
           </div>
@@ -318,8 +318,8 @@ export function Explore() {
                 className="rounded-2xl p-4" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.04)' }}
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-                    <Wrench className="w-6 h-6" style={{ color: '#2EFFAF' }} />
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+                    <Wrench className="w-6 h-6" style={{ color: '#008CE5' }} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
@@ -328,7 +328,7 @@ export function Explore() {
                         <p className="text-xs truncate" style={{ color: subColor }}>{shop.vicinity}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-bold" style={{ color: '#2EFFAF' }}>{shop.distanceText}</p>
+                        <p className="text-sm font-bold" style={{ color: '#008CE5' }}>{shop.distanceText}</p>
                         {shop.open_now !== undefined && (
                           <p className="text-xs font-medium" style={{ color: shop.open_now ? '#22C55E' : '#EF4444' }}>
                             {shop.open_now ? 'Open' : 'Closed'}
@@ -345,7 +345,7 @@ export function Explore() {
                           <span className="text-xs" style={{ color: subColor }}>({shop.user_ratings_total})</span>
                         </div>
                       )}
-                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F3F4F6', color: subColor }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F2ED', color: subColor }}>
                         {getShopType(shop.types)}
                       </span>
                     </div>
@@ -354,7 +354,7 @@ export function Explore() {
                       <button
                         onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${shop.lat},${shop.lng}`, '_blank')}
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold"
-                        style={{ backgroundColor: 'rgba(46,255,175,0.1)', color: '#2EFFAF' }}
+                        style={{ backgroundColor: 'rgba(0,140,229,0.1)', color: '#008CE5' }}
                       >
                         <Navigation className="w-3.5 h-3.5" />
                         Directions
@@ -362,7 +362,7 @@ export function Explore() {
                       <button
                         onClick={() => window.open(`https://www.google.com/maps/place/?q=place_id:${shop.place_id}`, '_blank')}
                         className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold"
-                        style={{ backgroundColor: 'rgba(0,122,255,0.1)', color: '#007AFF' }}
+                        style={{ backgroundColor: 'rgba(0,122,255,0.1)', color: '#0070B8' }}
                       >
                         <Phone className="w-3.5 h-3.5" />
                         Details

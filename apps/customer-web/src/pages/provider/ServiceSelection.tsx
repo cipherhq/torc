@@ -21,7 +21,7 @@ export function ProviderServiceSelection() {
     <div className="min-h-screen bg-[#1A1F2E] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -57,7 +57,7 @@ export function ProviderServiceSelection() {
                 onClick={() => toggleService(service.id)}
                 className={`rounded-[24px] p-5 flex flex-col items-center gap-3 transition-all ${
                   isSelected
-                    ? 'bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 border-2 border-[#2EFFAF]'
+                    ? 'bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 border-2 border-[#008CE5]'
                     : 'glass'
                 }`}
               >
@@ -65,15 +65,15 @@ export function ProviderServiceSelection() {
                   <div 
                     className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
                       isSelected
-                        ? 'bg-gradient-to-br from-[#2EFFAF] to-[#007AFF]'
+                        ? 'bg-gradient-to-br from-[#008CE5] to-[#0070B8]'
                         : 'bg-white/5'
                     }`}
                   >
-                    {Icon && <Icon className={`w-7 h-7 ${isSelected ? 'text-[#0F1419]' : 'text-white/40'}`} />}
+                    {Icon && <Icon className={`w-7 h-7 ${isSelected ? 'text-white' : 'text-white/40'}`} />}
                   </div>
                   {isSelected && (
-                    <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-[#2EFFAF] flex items-center justify-center">
-                      <Check className="w-4 h-4 text-[#0F1419]" />
+                    <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-[#008CE5] flex items-center justify-center">
+                      <Check className="w-4 h-4 text-white" />
                     </div>
                   )}
                 </div>
@@ -81,7 +81,7 @@ export function ProviderServiceSelection() {
                   <p className={`font-semibold text-sm ${isSelected ? 'text-white' : 'text-white/80'}`}>
                     {service.name}
                   </p>
-                  <p className={`text-xs mt-1 ${isSelected ? 'text-[#2EFFAF]' : 'text-white/60'}`}>
+                  <p className={`text-xs mt-1 ${isSelected ? 'text-[#008CE5]' : 'text-white/60'}`}>
                     ${service.basePrice}+
                   </p>
                 </div>
@@ -101,7 +101,7 @@ export function ProviderServiceSelection() {
           whileTap={{ scale: 0.98 }}
           onClick={() => navigate('/provider/documents')}
           disabled={selectedServices.length === 0}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50"
+          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
         >
           Continue
         </motion.button>

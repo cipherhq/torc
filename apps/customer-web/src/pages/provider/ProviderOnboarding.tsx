@@ -24,7 +24,7 @@ export function ProviderOnboarding() {
     <div className="min-h-screen bg-[#1A1F2E] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -67,15 +67,15 @@ export function ProviderOnboarding() {
                 className="w-full glass rounded-[32px] p-6 flex items-center gap-4 group"
               >
                 <div 
-                  className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 flex items-center justify-center flex-shrink-0"
+                  className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 flex items-center justify-center flex-shrink-0"
                 >
-                  <Icon className="w-8 h-8 text-[#2EFFAF]" />
+                  <Icon className="w-8 h-8 text-[#008CE5]" />
                 </div>
                 <div className="flex-1 text-left">
                   <h3 className="text-white font-semibold text-lg">{type.title}</h3>
                   <p className="text-white/60 text-sm">{type.description}</p>
                 </div>
-                <ChevronRight className="w-6 h-6 text-[#2EFFAF] group-hover:translate-x-2 transition-transform" />
+                <ChevronRight className="w-6 h-6 text-[#008CE5] group-hover:translate-x-2 transition-transform" />
               </motion.button>
             );
           })}

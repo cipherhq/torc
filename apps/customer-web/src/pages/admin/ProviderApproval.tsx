@@ -192,12 +192,12 @@ export function ProviderApproval() {
           {/* Stats */}
           <div className="grid grid-cols-4 gap-6 mb-8">
             <div className="glass rounded-[24px] p-6">
-              <Clock className="w-8 h-8 text-[#007AFF] mb-3" />
+              <Clock className="w-8 h-8 text-[#0070B8] mb-3" />
               <p className="text-white/60 text-sm">Pending Review</p>
               <p className="text-white text-3xl font-bold">{pendingProviders.length}</p>
             </div>
             <div className="glass rounded-[24px] p-6">
-              <CheckCircle className="w-8 h-8 text-[#2EFFAF] mb-3" />
+              <CheckCircle className="w-8 h-8 text-[#008CE5] mb-3" />
               <p className="text-white/60 text-sm">Approved Today</p>
               <p className="text-white text-3xl font-bold">{stats.approvedToday}</p>
             </div>
@@ -207,7 +207,7 @@ export function ProviderApproval() {
               <p className="text-white text-3xl font-bold">{stats.rejectedToday}</p>
             </div>
             <div className="glass rounded-[24px] p-6">
-              <Shield className="w-8 h-8 text-[#2EFFAF] mb-3" />
+              <Shield className="w-8 h-8 text-[#008CE5] mb-3" />
               <p className="text-white/60 text-sm">Active Providers</p>
               <p className="text-white text-3xl font-bold">{stats.activeProviders}</p>
             </div>
@@ -236,8 +236,8 @@ export function ProviderApproval() {
                 >
                   <div className="flex items-start justify-between mb-6">
                     <div className="flex items-start gap-4">
-                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center">
-                        <User className="w-8 h-8 text-[#0F1419]" />
+                      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
+                        <User className="w-8 h-8 text-white" />
                       </div>
                       <div>
                         <h3 className="text-white font-bold text-lg">{provider.name}</h3>
@@ -248,7 +248,7 @@ export function ProviderApproval() {
                           <span className="text-white/80 text-sm">{provider.phone}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-2">
-                          <span className="px-3 py-1 rounded-full bg-[#007AFF]/20 text-[#007AFF] text-xs font-semibold">
+                          <span className="px-3 py-1 rounded-full bg-[#0070B8]/20 text-[#0070B8] text-xs font-semibold">
                             {provider.accountType}
                           </span>
                           {provider.companyName && (
@@ -277,7 +277,7 @@ export function ProviderApproval() {
                             <span className="text-white/80 text-sm block">{doc.type}</span>
                             <span className={`text-[10px] uppercase tracking-wide ${
                               doc.status === 'approved'
-                                ? 'text-[#2EFFAF]'
+                                ? 'text-[#008CE5]'
                                 : doc.status === 'rejected'
                                   ? 'text-red-400'
                                   : 'text-yellow-400'
@@ -288,7 +288,7 @@ export function ProviderApproval() {
                           {doc.url ? (
                             <button
                               onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
-                              className="text-[#2EFFAF] text-xs font-semibold hover:underline flex items-center gap-1"
+                              className="text-[#008CE5] text-xs font-semibold hover:underline flex items-center gap-1"
                               title={`View ${doc.type}`}
                             >
                               <Eye className="w-3 h-3" />
@@ -312,7 +312,7 @@ export function ProviderApproval() {
                       <span className="text-white/80 text-sm">Checkr Background Verification</span>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
                         provider.backgroundCheck === 'cleared'
-                          ? 'bg-[#2EFFAF]/20 text-[#2EFFAF]'
+                          ? 'bg-[#008CE5]/20 text-[#008CE5]'
                           : 'bg-yellow-500/20 text-yellow-400'
                       }`}>
                         {provider.backgroundCheck === 'cleared' ? 'Cleared ✓' : 'Pending...'}
@@ -342,7 +342,7 @@ export function ProviderApproval() {
                       whileTap={{ scale: 0.98 }}
                       onClick={() => handleApprove(provider.providerId)}
                       disabled={actioningProviderId === provider.providerId}
-                      className="flex-1 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-3 font-semibold text-[#0F1419] flex items-center justify-center gap-2 disabled:opacity-60"
+                      className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-3 font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-60"
                     >
                       <CheckCircle className="w-5 h-5" />
                       {actioningProviderId === provider.providerId ? 'Saving...' : 'Approve Provider'}

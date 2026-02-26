@@ -14,6 +14,9 @@ interface Job {
   statusRaw: string;
   location: string;
   createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMinutes: number | null;
   ageHours: number;
   amount: string;
   slaState: 'green' | 'yellow' | 'red';
@@ -40,6 +43,9 @@ export function AdminJobs() {
             status,
             pickup_address,
             total_amount,
+            created_at,
+            started_at,
+            completed_at,
             service:services(name),
             customer:profiles!jobs_customer_id_fkey(first_name, last_name, email),
             provider:profiles!jobs_provider_id_fkey(first_name, last_name, email)
@@ -67,6 +73,11 @@ export function AdminJobs() {
           const amount = job.total_amount ? `$${Number(job.total_amount).toFixed(2)}` : '-';
           const createdAt = job.created_at;
           const ageHours = (Date.now() - new Date(createdAt).getTime()) / 36e5;
+          const startedAt = job.started_at || null;
+          const completedAt = job.completed_at || null;
+          const durationMinutes = startedAt && completedAt
+            ? Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000))
+            : null;
           let slaState: 'green' | 'yellow' | 'red' = 'green';
           const inOpenFlow = ['pending', 'requested', 'matching', 'matched', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'].includes(job.status);
           if (inOpenFlow) {
@@ -88,6 +99,9 @@ export function AdminJobs() {
             status: ['en_route', 'enroute', 'in_progress', 'inprogress', 'matched', 'accepted', 'arrived'].includes(job.status) ? 'active' : ['pending', 'requested', 'matching'].includes(job.status) ? 'pending' : job.status === 'completed' ? 'completed' : 'active',
             location: job.pickup_address || 'Location not set',
             createdAt,
+            startedAt,
+            completedAt,
+            durationMinutes,
             ageHours,
             amount,
             slaState,
@@ -127,6 +141,13 @@ export function AdminJobs() {
     );
   });
 
+  const formatDateTime = (value: string | null) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString();
+  };
+
   return (
     <AdminLayout>
       <div className="p-8">
@@ -146,7 +167,7 @@ export function AdminJobs() {
               onClick={() => setFilter(f)}
               className={`px-6 py-3 rounded-2xl font-semibold transition-all ${
                 filter === f
-                  ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white shadow-lg'
+                  ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white shadow-lg'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -186,6 +207,9 @@ export function AdminJobs() {
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Provider</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Location</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Age</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Started</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Completed</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Duration</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Amount</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">SLA</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Status</th>
@@ -229,6 +253,15 @@ export function AdminJobs() {
                         <Clock className="w-4 h-4 text-gray-400" />
                         <span className="text-sm text-gray-900">{job.ageHours < 1 ? `${Math.max(1, Math.round(job.ageHours * 60))}m` : `${job.ageHours.toFixed(1)}h`}</span>
                       </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-gray-900">{formatDateTime(job.startedAt)}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-gray-900">{formatDateTime(job.completedAt)}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-gray-900">{job.durationMinutes != null ? `${job.durationMinutes}m` : '-'}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-gray-900">{job.amount}</span>

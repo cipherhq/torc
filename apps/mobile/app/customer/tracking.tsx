@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView, Linking } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
 import MapView, { Marker } from 'react-native-maps';
 
@@ -19,18 +19,9 @@ export default function TrackingScreen() {
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(0);
 
-  useEffect(() => {
-    if (jobId) {
-      loadJob();
-      const unsubscribe = subscribeToJobUpdates(jobId as string, () => {
-        console.log('Job updated');
-        loadJob();
-      });
-      return unsubscribe;
-    }
-  }, [jobId]);
+  const loadJob = useCallback(async () => {
+    if (!jobId) return;
 
-  const loadJob = async () => {
     try {
       const data = await fetchJob(jobId as string);
       setJob(data);
@@ -45,7 +36,18 @@ export default function TrackingScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchJob, fetchProviderStats, jobId]);
+
+  useEffect(() => {
+    if (jobId) {
+      loadJob();
+      const unsubscribe = subscribeToJobUpdates(jobId as string, () => {
+        console.log('Job updated');
+        loadJob();
+      });
+      return unsubscribe;
+    }
+  }, [jobId, loadJob, subscribeToJobUpdates]);
 
   const handleCall = () => {
     if (job?.provider?.phone) {
@@ -56,7 +58,7 @@ export default function TrackingScreen() {
   };
 
   const handleMessage = () => {
-    Alert.alert('Message', 'Messaging feature coming soon!');
+    router.push({ pathname: '/webview', params: { initialPath: '/customer/messages' } });
   };
 
   const handleConfirmArrival = async () => {

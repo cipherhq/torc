@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     } = await supabaseUserClient.auth.getUser();
 
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      return new Response(JSON.stringify({ error: 'Unauthorized', detail: authError?.message || 'No user returned' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -110,12 +110,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Attach payment method to customer (idempotent - ignores if already attached)
+    try {
+      const attachBody = new URLSearchParams();
+      attachBody.append('customer', stripeCustomerId);
+      await stripeRequest(`/v1/payment_methods/${paymentMethodId}/attach`, attachBody, stripeSecretKey);
+    } catch {
+      // Already attached or other non-critical error — continue
+    }
+
     const intentBody = new URLSearchParams();
     intentBody.append('amount', String(Math.round(normalizedAmount * 100)));
     intentBody.append('currency', String(currency).toLowerCase());
     intentBody.append('customer', stripeCustomerId);
     intentBody.append('payment_method', paymentMethodId);
-    intentBody.append('automatic_payment_methods[enabled]', 'false');
     intentBody.append('payment_method_types[]', 'card');
     if (savePaymentMethod) {
       intentBody.append('setup_future_usage', 'off_session');

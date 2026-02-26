@@ -71,7 +71,7 @@ export function AuthCallback() {
       {/* Background */}
       <div className="absolute inset-0">
         <motion.div
-          className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full"
+          className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full"
           animate={{
             scale: [1, 1.2, 1],
             opacity: [0.1, 0.2, 0.1],
@@ -91,7 +91,7 @@ export function AuthCallback() {
       >
         {status === 'loading' && (
           <>
-            <Loader2 className="w-16 h-16 text-[#2EFFAF] animate-spin mx-auto mb-6" />
+            <Loader2 className="w-16 h-16 text-[#008CE5] animate-spin mx-auto mb-6" />
             <h2 className="text-2xl font-bold text-white mb-3">{message}</h2>
             <p className="text-white/60">Please wait...</p>
           </>
@@ -103,8 +103,8 @@ export function AuthCallback() {
             animate={{ scale: 1 }}
             transition={{ type: 'spring', duration: 0.5 }}
           >
-            <div className="w-20 h-20 rounded-full bg-[#2EFFAF]/20 flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-12 h-12 text-[#2EFFAF]" />
+            <div className="w-20 h-20 rounded-full bg-[#008CE5]/20 flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="w-12 h-12 text-[#008CE5]" />
             </div>
             <h2 className="text-2xl font-bold text-white mb-3">Email Verified!</h2>
             <p className="text-white/60 mb-4">{message}</p>

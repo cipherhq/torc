@@ -2,14 +2,47 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#2EFFAF" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Torc - Customer App</title>
     <meta name="description" content="On-demand roadside assistance at your fingertips" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root {
+        --safe-top: max(env(safe-area-inset-top, 0px), 54px);
+        --safe-bottom: max(env(safe-area-inset-bottom, 0px), 20px);
+      }
+      *, *:focus, *:focus-visible, *:focus-within {
+        outline: none !important;
+        -webkit-tap-highlight-color: transparent !important;
+      }
+      input, textarea, select, button {
+        outline: none !important;
+        box-shadow: none !important;
+      }
+      input:focus, textarea:focus, select:focus {
+        outline: none !important;
+        box-shadow: none !important;
+      }
+      /* Fixed status bar cover - prevents content from showing behind time/battery */
+      #status-bar-cover {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--safe-top);
+        z-index: 9999;
+        background-color: #0F1419;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        pointer-events: none;
+      }
+    </style>
   </head>
   <body>
+    <div id="status-bar-cover"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

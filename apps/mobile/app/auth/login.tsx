@@ -76,7 +76,7 @@ export default function LoginScreen() {
           className="mt-4"
         >
           <Text className="text-center text-[#2EFFAF]">
-            Don't have an account? Sign Up
+            Don&apos;t have an account? Sign Up
           </Text>
         </TouchableOpacity>
       </View>

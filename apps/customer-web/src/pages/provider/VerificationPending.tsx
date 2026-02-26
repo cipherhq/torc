@@ -16,7 +16,7 @@ export function VerificationPending() {
     <div className="min-h-screen bg-[#1A1F2E] flex flex-col items-center justify-center p-6 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       <div className="relative z-10 w-full max-w-md">
@@ -25,8 +25,8 @@ export function VerificationPending() {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center mb-12"
         >
-          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto mb-6">
-            <Clock className="w-16 h-16 text-[#0F1419]" />
+          <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-6">
+            <Clock className="w-16 h-16 text-white" />
           </div>
           <h1 className="text-4xl font-bold text-white mb-3">Verification Pending</h1>
           <p className="text-white/60 text-lg">
@@ -46,10 +46,10 @@ export function VerificationPending() {
                 className="flex items-center gap-3"
               >
                 {step.status === 'completed' && (
-                  <CheckCircle className="w-6 h-6 text-[#2EFFAF]" />
+                  <CheckCircle className="w-6 h-6 text-[#008CE5]" />
                 )}
                 {step.status === 'pending' && (
-                  <Clock className="w-6 h-6 text-[#007AFF]" />
+                  <Clock className="w-6 h-6 text-[#0070B8]" />
                 )}
                 {step.status === 'rejected' && (
                   <AlertCircle className="w-6 h-6 text-red-400" />
@@ -69,7 +69,7 @@ export function VerificationPending() {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => navigate('/provider/home')}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg mb-4"
+          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-white text-lg mb-4"
         >
           Continue to Provider Dashboard
         </motion.button>

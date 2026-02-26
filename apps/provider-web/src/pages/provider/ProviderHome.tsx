@@ -1,43 +1,45 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router';
-import { Power, Settings, DollarSign, MapPin, Clock, TrendingUp, Navigation, Bell, MessageCircle } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router';
+import { Power, Settings, DollarSign, MapPin, Clock, Navigation, Bell, MessageCircle, X, Star, Check, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { GoogleMap, Marker } from '@react-google-maps/api';
 import { supabase } from '../../lib/supabase';
+import { initAudio, playRequestRingtone, stopRequestRingtone, requestNotificationPermission, showSystemNotification } from '../../utils/audio';
 
-function playNotificationSound() {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+// ── Haversine distance in miles ───────────────────────────────────
+function calcDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
-    // Ring pattern: 3 cycles, then stop.
-    const ringOffsets = [0, 0.7, 1.4];
-    ringOffsets.forEach((offset) => {
-      const oscA = ctx.createOscillator();
-      const oscB = ctx.createOscillator();
-      const gain = ctx.createGain();
+// ── Service name mapping ──────────────────────────────────────────
+const SERVICE_NAMES: Record<string, string> = {
+  towing: 'Towing', battery: 'Jump Start', lockout: 'Lockout',
+  fuel: 'Fuel Delivery', tire: 'Tire Change', winch: 'Winch Out',
+  'minor-repair': 'Minor Repair', diagnostic: 'Diagnostic',
+  emergency: 'Emergency Help', motorcycle: 'Motorcycle',
+  ev: 'EV Charge', consultation: 'Consultation',
+};
 
-      oscA.type = 'sine';
-      oscB.type = 'triangle';
-      oscA.frequency.setValueAtTime(880, ctx.currentTime + offset);
-      oscB.frequency.setValueAtTime(1175, ctx.currentTime + offset);
-
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
-      gain.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + offset + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.45);
-
-      oscA.connect(gain);
-      oscB.connect(gain);
-      gain.connect(ctx.destination);
-
-      oscA.start(ctx.currentTime + offset);
-      oscB.start(ctx.currentTime + offset + 0.08);
-      oscA.stop(ctx.currentTime + offset + 0.45);
-      oscB.stop(ctx.currentTime + offset + 0.45);
-    });
-  } catch { /* Audio not supported */ }
+function getTimeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
 }
 
 const darkMapStyle = [
@@ -57,15 +59,17 @@ const lightMapStyle = [
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#c9e7f7' }] },
   { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E5E7EB' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E8E4DE' }] },
   { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#F0F4F8' }] },
 ];
 
 const mapContainerStyle = { width: '100%', height: '100%' };
+const INCOMING_REQUEST_TIMEOUT_SECONDS = 30;
 
 export function ProviderHome() {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const routerLocation = useLocation();
+  const { user, profile, isVerified } = useAuth() as any;
   const { isDark } = useTheme();
   const { isLoaded } = useGoogleMaps();
   const [isOnline, setIsOnline] = useState(false);
@@ -76,19 +80,177 @@ export function ProviderHome() {
   const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const [incomingJob, setIncomingJob] = useState<any>(null);
+  const [incomingCountdown, setIncomingCountdown] = useState(0);
+
+  // Track dismissed jobs — backed by DB table provider_job_dismissals
+  const dismissedJobIds = useRef<Set<string>>(new Set());
+  const announcedJobIds = useRef<Set<string>>(new Set());
+  const navigatingToJob = useRef(false);
+  const incomingJobRef = useRef<any>(null);
+  const incomingQueueRef = useRef<any[]>([]);
+  const incomingTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const incomingCountdownRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+
+  const clearIncomingTimers = useCallback(() => {
+    if (incomingTimeoutRef.current) {
+      window.clearTimeout(incomingTimeoutRef.current);
+      incomingTimeoutRef.current = null;
+    }
+    if (incomingCountdownRef.current) {
+      window.clearInterval(incomingCountdownRef.current);
+      incomingCountdownRef.current = null;
+    }
+  }, []);
+
+  const openIncomingRequest = useCallback((job: any) => {
+    if (!job?.id) return;
+    initAudio();
+    setIncomingJob(job);
+    setIncomingCountdown(INCOMING_REQUEST_TIMEOUT_SECONDS);
+    playRequestRingtone();
+    // WebView can resume audio context a moment late; retry once.
+    setTimeout(() => playRequestRingtone(), 220);
+    if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300, 100, 300]);
+  }, []);
+
+  const closeIncomingRequest = useCallback(() => {
+    setIncomingJob(null);
+    setIncomingCountdown(0);
+    stopRequestRingtone();
+    if (navigator.vibrate) navigator.vibrate(0);
+    clearIncomingTimers();
+  }, [clearIncomingTimers]);
+
+  const dismissJob = useCallback(async (jobId: string) => {
+    dismissedJobIds.current.add(jobId);
+    announcedJobIds.current.add(jobId);
+    incomingQueueRef.current = incomingQueueRef.current.filter((j: any) => j.id !== jobId);
+    setPendingRequests((prev: any[]) => prev.filter((j: any) => j.id !== jobId));
+    if (user) {
+      await supabase.from('provider_job_dismissals').upsert(
+        { provider_id: user.id, job_id: jobId },
+        { onConflict: 'provider_id,job_id' }
+      );
+    }
+  }, [user]);
+
+  const announceIncomingJob = useCallback((job: any) => {
+    if (!job?.id) return;
+    if (announcedJobIds.current.has(job.id)) return;
+    announcedJobIds.current.add(job.id);
+    showSystemNotification(
+      'New TORC Service Request',
+      job.pickup_address || 'A customer nearby needs help!',
+      `job-${job.id}`,
+    );
+
+    // Always show incoming request as its own full page, not layered under Home.
+    if (navigatingToJob.current) return;
+    navigatingToJob.current = true;
+    stopRequestRingtone();
+    closeIncomingRequest();
+    navigate(`/request/${job.id}`, { state: { broadcastJob: job } });
+    // Fallback: if navigation does not happen, release the guard.
+    window.setTimeout(() => {
+      if (window.location.pathname === '/home') {
+        navigatingToJob.current = false;
+      }
+    }, 1000);
+  }, [closeIncomingRequest, navigate]);
+
+  useEffect(() => {
+    incomingJobRef.current = incomingJob;
+  }, [incomingJob]);
+
+  // Reset navigation guard whenever we're back on Home.
+  // Without this, subsequent incoming jobs can stay in the list
+  // and never auto-open the request screen.
+  useEffect(() => {
+    if (routerLocation.pathname === '/home') {
+      navigatingToJob.current = false;
+    }
+  }, [routerLocation.pathname]);
+
+  useEffect(() => {
+    if (!isOnline || incomingJob || incomingQueueRef.current.length === 0) return;
+    const nextJob = incomingQueueRef.current.shift();
+    if (nextJob) openIncomingRequest(nextJob);
+  }, [incomingJob, isOnline, openIncomingRequest]);
+
+  // Defensive fallback: if requests are visible but no popup is active, surface one.
+  useEffect(() => {
+    if (!isOnline || incomingJob || pendingRequests.length === 0) return;
+    const candidate = pendingRequests.find((j: any) => j?.id && !dismissedJobIds.current.has(j.id));
+    if (candidate) announceIncomingJob(candidate);
+  }, [isOnline, incomingJob, pendingRequests, announceIncomingJob]);
+
+  useEffect(() => {
+    clearIncomingTimers();
+    if (!incomingJob?.id) return;
+
+    let remaining = INCOMING_REQUEST_TIMEOUT_SECONDS;
+    setIncomingCountdown(remaining);
+
+    incomingCountdownRef.current = window.setInterval(() => {
+      remaining -= 1;
+      setIncomingCountdown(Math.max(remaining, 0));
+    }, 1000);
+
+    incomingTimeoutRef.current = window.setTimeout(() => {
+      const timedOutJobId = incomingJob.id;
+      closeIncomingRequest();
+      dismissJob(timedOutJobId);
+    }, INCOMING_REQUEST_TIMEOUT_SECONDS * 1000);
+
+    return () => clearIncomingTimers();
+  }, [incomingJob, clearIncomingTimers, closeIncomingRequest, dismissJob]);
+
+  // Load dismissed job IDs from DB on mount
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('provider_job_dismissals')
+      .select('job_id')
+      .eq('provider_id', user.id)
+      .then(({ data }) => {
+        if (data) {
+          const ids = data.map((d: any) => d.job_id);
+          dismissedJobIds.current = new Set(ids);
+          ids.forEach((id: string) => announcedJobIds.current.add(id));
+        }
+      });
+  }, [user]);
 
   const onMapLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
   }, []);
 
-  // Get provider's current location
+  // Get provider's current location with proper permission handling
   useEffect(() => {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setCurrentPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setCurrentPos(null),
-      { enableHighAccuracy: true }
-    );
+
+    const requestLocation = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setCurrentPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (err) => {
+          console.warn('Geolocation error:', err.message);
+          setCurrentPos({ lat: 40.7128, lng: -74.006 });
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    };
+
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        if (result.state === 'prompt' || result.state === 'granted') {
+          requestLocation();
+        } else {
+          setCurrentPos({ lat: 40.7128, lng: -74.006 });
+        }
+      }).catch(() => requestLocation());
+    } else {
+      requestLocation();
+    }
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -103,6 +265,7 @@ export function ProviderHome() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  // Load stats + restore online state from DB + calculate real rating
   useEffect(() => {
     if (!user) return;
     async function loadStats() {
@@ -112,13 +275,26 @@ export function ProviderHome() {
 
         const { data: jobs } = await supabase
           .from('jobs')
-          .select('total_amount, status, created_at')
+          .select('total_amount, status, created_at, rating')
           .eq('provider_id', user!.id);
 
         if (jobs) {
           const todayJobs = jobs.filter(j => j.status === 'completed' && new Date(j.created_at) >= today);
           setTodayEarnings(todayJobs.reduce((sum, j) => sum + (j.total_amount || 0), 0));
           setCompletedCount(jobs.filter(j => j.status === 'completed').length);
+
+          // Calculate real average rating from completed jobs that have ratings
+          const ratedJobs = jobs.filter(j => j.status === 'completed' && j.rating != null && j.rating > 0);
+          if (ratedJobs.length > 0) {
+            const avgRating = ratedJobs.reduce((sum, j) => sum + j.rating, 0) / ratedJobs.length;
+            setProviderRating(avgRating);
+            // Update provider_profiles with calculated rating
+            await supabase.from('provider_profiles').upsert({
+              id: user!.id,
+              rating: Math.round(avgRating * 10) / 10,
+              total_jobs: jobs.filter(j => j.status === 'completed').length,
+            }).select();
+          }
         }
 
         const { data: pp } = await supabase
@@ -128,7 +304,8 @@ export function ProviderHome() {
           .maybeSingle();
 
         if (pp) {
-          setProviderRating(pp.rating || 0);
+          if (!providerRating && pp.rating) setProviderRating(pp.rating);
+          // Restore the provider's online state from DB — don't force offline
           setIsOnline(pp.is_online || false);
         }
       } catch (e) { console.warn('Failed to load provider stats:', e); }
@@ -136,77 +313,157 @@ export function ProviderHome() {
     loadStats();
   }, [user]);
 
+  // Capture declined/cancelled/timed-out job IDs passed via navigation state
+  useEffect(() => {
+    const state = routerLocation.state as any;
+    if (state?.declinedJobId) {
+      dismissJob(state.declinedJobId);
+      navigatingToJob.current = false;
+    }
+    if (state?.cancelledJobId) {
+      dismissJob(state.cancelledJobId);
+      navigatingToJob.current = false;
+    }
+    if (state?.timedOutJobId) {
+      // Timer expired — do NOT dismiss. The job stays in the active queue
+      // so it can be re-shown to this provider (sorted by proximity).
+      announcedJobIds.current.add(state.timedOutJobId);
+      navigatingToJob.current = false;
+    }
+  }, [routerLocation.state, dismissJob]);
+
+  // Dismiss a pending job from the queue (X button)
+  const handleDismissJob = (jobId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dismissJob(jobId);
+  };
+
   // Listen for new jobs via Broadcast (doesn't require RLS)
   useEffect(() => {
     if (!isOnline || !user) return;
+    navigatingToJob.current = false;
+
+    const handleNewJob = async (payload: any) => {
+      if (navigatingToJob.current) return;
+      const job = payload.payload;
+      if (!job?.id || dismissedJobIds.current.has(job.id)) return;
+
+      // Check if provider already has an active job — don't interrupt
+      try {
+        const { data: activeJobs } = await supabase
+          .from('jobs')
+          .select('id')
+          .eq('provider_id', user.id)
+          .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+          .limit(1);
+
+        if (activeJobs && activeJobs.length > 0) {
+          loadPending();
+          return;
+        }
+      } catch {}
+
+      // Add to pending list
+      setPendingRequests((prev: any[]) => {
+        if (prev.some((r: any) => r.id === job.id)) return prev;
+        return [job, ...prev];
+      });
+
+      // Announce on broadcast path
+      announceIncomingJob(job);
+    };
 
     const channel = supabase
       .channel('new-job-broadcast')
-      .on('broadcast', { event: 'new_job' }, (payload) => {
-        const job = payload.payload;
-        if (job?.id) {
-          setPendingRequests(prev => {
-            if (prev.some(r => r.id === job.id)) return prev;
-            return [job, ...prev];
-          });
-          // Play notification sound + vibrate
-          playNotificationSound();
-          if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
-          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            new Notification('New TORC service request', {
-              body: job.pickup_address || 'A customer nearby needs help.',
-              tag: `job-${job.id}`,
-              requireInteraction: true,
-            });
-          }
-          // Show incoming job banner
-          setIncomingJob(job);
-          // Auto-navigate after 3 seconds
-          setTimeout(() => {
-            setIncomingJob(null);
-            navigate(`/request/${job.id}`, { state: { broadcastJob: job } });
-          }, 3000);
-        }
-      })
+      .on('broadcast', { event: 'new_job' }, handleNewJob)
+      .subscribe();
+    const rebroadcast = supabase
+      .channel('new-job-rebroadcast')
+      .on('broadcast', { event: 'new_job' }, handleNewJob)
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [isOnline, user, navigate]);
+    return () => {
+      stopRequestRingtone();
+      supabase.removeChannel(channel);
+      supabase.removeChannel(rebroadcast);
+    };
+  }, [isOnline, user, navigate, announceIncomingJob]);
 
-  // Also poll for pending jobs (backup in case broadcast is missed)
+  // Poll for pending jobs (backup in case broadcast is missed)
+  const loadPending = useCallback(async () => {
+    const { data } = await supabase
+      .from('jobs')
+      .select('id, service_id, pickup_address, pickup_latitude, pickup_longitude, total_amount, base_price, created_at')
+      .eq('status', 'pending')
+      .is('provider_id', null)
+      .order('created_at', { ascending: false });
+    if (data) {
+      // Filter out dismissed jobs before setting state
+      let filtered = data.filter((j: any) => !dismissedJobIds.current.has(j.id));
+
+      // Sort by proximity to provider when location is available
+      const pos = currentPos;
+      if (pos) {
+        filtered = filtered.sort((a: any, b: any) => {
+          const distA = (a.pickup_latitude && a.pickup_longitude)
+            ? calcDistanceMiles(pos.lat, pos.lng, a.pickup_latitude, a.pickup_longitude)
+            : Infinity;
+          const distB = (b.pickup_latitude && b.pickup_longitude)
+            ? calcDistanceMiles(pos.lat, pos.lng, b.pickup_latitude, b.pickup_longitude)
+            : Infinity;
+          return distA - distB;
+        });
+      }
+
+      // Announce newly seen jobs even if broadcast was missed
+      const unseen = filtered.filter((j: any) => !announcedJobIds.current.has(j.id));
+      if (isOnline && unseen.length > 0) {
+        announceIncomingJob(unseen[0]);
+      }
+      setPendingRequests(filtered);
+    }
+  }, [announceIncomingJob, isOnline, currentPos]);
+
   useEffect(() => {
-    if (!isOnline || !user) return;
-
-    async function loadPending() {
-      const { data } = await supabase
-        .from('jobs')
-        .select('id, service_id, pickup_address, total_amount, created_at')
-        .eq('status', 'pending')
-        .is('provider_id', null)
-        .order('created_at', { ascending: false });
-      if (data) setPendingRequests(data);
+    if (!isOnline || !user) {
+      setPendingRequests([]);
+      closeIncomingRequest();
+      return;
     }
     loadPending();
-
-    // Poll every 10 seconds as a backup
     const pollInterval = setInterval(loadPending, 10000);
-
     return () => { clearInterval(pollInterval); };
-  }, [isOnline, user]);
+  }, [isOnline, user, loadPending, closeIncomingRequest]);
 
   const toggleOnline = async () => {
+    if (!isVerified) return; // Block unverified providers from going online
+
+    // Initialize audio context + request notification permission on user gesture
+    initAudio();
+    requestNotificationPermission();
+
     const newStatus = !isOnline;
     setIsOnline(newStatus);
+    if (!newStatus) {
+      stopRequestRingtone();
+      setPendingRequests([]);
+      closeIncomingRequest();
+      incomingQueueRef.current = [];
+    }
     if (user) {
       await supabase.from('provider_profiles').upsert({ id: user.id, is_online: newStatus }).select();
     }
   };
 
   const stats = [
-    { label: 'Today', value: `$${todayEarnings}`, icon: DollarSign, color: '#2EFFAF' },
-    { label: 'Jobs', value: `${completedCount}`, icon: Clock, color: '#007AFF' },
-    { label: 'Rating', value: providerRating > 0 ? providerRating.toFixed(1) : '-', icon: TrendingUp, color: '#2EFFAF' },
+    { label: 'Today', value: `$${todayEarnings.toFixed(2)}`, icon: DollarSign, color: '#008CE5' },
+    { label: 'Jobs', value: `${completedCount}`, icon: Clock, color: '#0070B8' },
+    { label: 'Rating', value: providerRating > 0 ? providerRating.toFixed(1) : '-', icon: Star, color: '#F59E0B' },
   ];
+
+  // Filter out dismissed jobs from the visible list
+  const visibleRequests = pendingRequests.filter(j => !dismissedJobIds.current.has(j.id));
 
   const defaultCenter = currentPos || { lat: 40.7128, lng: -74.006 };
 
@@ -222,7 +479,7 @@ export function ProviderHome() {
     : 'linear-gradient(to bottom, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.0) 35%, rgba(255,255,255,0.0) 50%, rgba(245,247,250,0.9) 75%, rgba(245,247,250,1) 100%)';
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Full-screen Google Map */}
       <div className="absolute inset-0 z-0">
         {isLoaded && currentPos ? (
@@ -247,7 +504,7 @@ export function ProviderHome() {
                 icon={{
                   path: google.maps.SymbolPath.CIRCLE,
                   scale: 10,
-                  fillColor: '#2EFFAF',
+                  fillColor: '#008CE5',
                   fillOpacity: 1,
                   strokeColor: isDark ? '#FFFFFF' : '#1A1F2E',
                   strokeWeight: 3,
@@ -261,7 +518,7 @@ export function ProviderHome() {
               <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke={isDark ? 'rgba(46,255,175,0.4)' : 'rgba(0,122,255,0.15)'} strokeWidth="0.5"/>
+                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke={isDark ? 'rgba(0,140,229,0.4)' : 'rgba(0,122,255,0.15)'} strokeWidth="0.5"/>
                   </pattern>
                 </defs>
                 <rect width="100%" height="100%" fill="url(#grid)" />
@@ -274,62 +531,120 @@ export function ProviderHome() {
       {/* Gradient overlay */}
       <div className="absolute inset-0 z-[1] pointer-events-none" style={{ background: overlayGradient }} />
 
-      {/* Incoming Job Notification Banner */}
-      <AnimatePresence>
-        {incomingJob && (
-          <motion.div
-            initial={{ y: -100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -100, opacity: 0 }}
-            className="fixed top-0 left-0 right-0 z-50 p-4 pt-12"
-            style={{ background: 'linear-gradient(135deg, rgba(46,255,175,0.95) 0%, rgba(0,200,130,0.95) 100%)' }}
+      {/* Incoming Request Full-screen Overlay */}
+      {incomingJob && createPortal(
+        <div
+          className="fixed inset-0 z-[2147483000] flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(9,12,18,0.72)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-[28px] border p-5 pb-4"
+            style={{
+              background: isDark
+                ? 'linear-gradient(180deg, rgba(0,140,229,0.28) 0%, rgba(16,24,40,0.95) 35%, rgba(16,24,40,0.98) 100%)'
+                : 'linear-gradient(180deg, rgba(0,140,229,0.18) 0%, rgba(255,255,255,0.96) 30%, rgba(255,255,255,0.98) 100%)',
+              borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,140,229,0.22)',
+              maxHeight: 'min(86vh, 760px)',
+              overflowY: 'auto',
+            }}
           >
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-xl flex items-center justify-center">
-                <Bell className="w-7 h-7 text-white animate-bounce" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="relative w-12 h-12 rounded-2xl flex items-center justify-center"
+                    style={{ backgroundColor: 'rgba(0,140,229,0.18)' }}>
+                    <Bell className="w-6 h-6" style={{ color: '#008CE5' }} />
+                    <span className="absolute inset-0 rounded-2xl border border-[#008CE5]/50 animate-ping" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#4B5563' }}>
+                      Incoming Request
+                    </p>
+                    <p className="font-bold text-lg" style={{ color: textColor }}>Accept Job?</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#6B7280' }}>Auto-dismiss</p>
+                  <p className="text-xl font-extrabold tabular-nums" style={{ color: '#EF4444' }}>
+                    {incomingCountdown}s
+                  </p>
+                </div>
               </div>
-              <div className="flex-1">
-                <p className="text-white font-bold text-lg">New Service Request!</p>
-                <p className="text-white/80 text-sm">
+
+              <div className="rounded-2xl p-4 mb-4"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC', border: `1px solid ${isDark ? 'rgba(255,255,255,0.09)' : '#E5E7EB'}` }}>
+                <p className="font-semibold text-base mb-1" style={{ color: textColor }}>
+                  {SERVICE_NAMES[incomingJob.service_id] || incomingJob.service_id || 'Service Request'}
+                </p>
+                <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.75)' : '#374151' }}>
                   {incomingJob.pickup_address || 'Nearby location'}
                 </p>
-                {incomingJob.total_amount && (
-                  <p className="text-white font-semibold mt-0.5">${incomingJob.total_amount}</p>
-                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.52)' : '#6B7280' }}>
+                    Arrived {getTimeAgo(incomingJob.created_at)}
+                  </span>
+                  <span className="font-bold text-lg" style={{ color: '#008CE5' }}>
+                    ${(Number(incomingJob.total_amount) || Number(incomingJob.base_price) || 0).toFixed(2)}
+                  </span>
+                </div>
               </div>
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={() => {
-                  setIncomingJob(null);
-                  navigate(`/request/${incomingJob.id}`, { state: { broadcastJob: incomingJob } });
-                }}
-                className="px-5 py-2.5 rounded-xl font-bold text-sm"
-                style={{ backgroundColor: 'rgba(255,255,255,0.25)', color: '#FFFFFF', backdropFilter: 'blur(10px)' }}
-              >
-                View
-              </motion.button>
-            </div>
-            {/* Auto-dismiss progress bar */}
-            <motion.div
-              initial={{ scaleX: 1 }}
-              animate={{ scaleX: 0 }}
-              transition={{ duration: 3, ease: 'linear' }}
-              className="h-1 rounded-full bg-white/40 mt-3 origin-left"
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => {
+                    const jobId = incomingJob.id;
+                    closeIncomingRequest();
+                    dismissJob(jobId);
+                  }}
+                  className="h-12 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
+                  style={{
+                    backgroundColor: isDark ? 'rgba(239,68,68,0.16)' : 'rgba(239,68,68,0.1)',
+                    color: '#EF4444',
+                    border: '1px solid rgba(239,68,68,0.35)',
+                    touchAction: 'manipulation',
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                  Decline
+                </button>
+                <button
+                  onClick={() => {
+                    const selectedJob = incomingJob;
+                    closeIncomingRequest();
+                    stopRequestRingtone();
+                    navigatingToJob.current = true;
+                    navigate(`/request/${selectedJob.id}`, { state: { broadcastJob: selectedJob } });
+                  }}
+                  className="h-12 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 text-white"
+                  style={{
+                    background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                    boxShadow: '0 10px 20px rgba(0,140,229,0.35)',
+                    touchAction: 'manipulation',
+                  }}
+                >
+                  <Check className="w-4 h-4" />
+                  Accept
+                </button>
+              </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Content overlay */}
-      <div className="relative z-10 flex flex-col min-h-screen pb-24">
+      <div className="relative z-10 flex flex-col min-h-screen pb-24" style={{ paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
         {/* Header */}
-        <div className="p-6 flex items-center justify-between">
-          <div>
-            <p className="text-sm" style={{ color: subColor }}>Provider Dashboard</p>
-            <h1 className="text-3xl font-bold" style={{ color: textColor }}>TORC Provider</h1>
+        <div className="p-6 flex items-center justify-between" style={{ paddingTop: 'var(--safe-top)' }}>
+          <div className="flex items-center gap-3">
+            <img
+              src={isDark ? '/logo-white.svg' : '/logo.svg'}
+              alt="Torc"
+              className="h-10 w-auto object-contain"
+            />
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.12)', color: '#008CE5' }}>
+              PROVIDER
+            </span>
           </div>
           <motion.button
-            whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
             onClick={() => navigate('/profile')}
             className="w-11 h-11 rounded-full flex items-center justify-center backdrop-blur-xl"
@@ -344,6 +659,36 @@ export function ProviderHome() {
 
         {/* Bottom content panel */}
         <div className="px-4 space-y-4">
+          {/* Verification required banner */}
+          {!isVerified && (
+            <div
+              className="rounded-[28px] p-5 flex items-start gap-4"
+              style={{
+                backgroundColor: isDark ? 'rgba(245,158,11,0.1)' : '#FFFBEB',
+                border: `1px solid ${isDark ? 'rgba(245,158,11,0.2)' : '#FDE68A'}`,
+              }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(245,158,11,0.15)' }}>
+                <AlertTriangle className="w-5 h-5" style={{ color: '#F59E0B' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm mb-1" style={{ color: isDark ? '#F59E0B' : '#92400E' }}>
+                  Verification Required
+                </p>
+                <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
+                  Your application is under review. You cannot go online until approved.
+                </p>
+                <button
+                  onClick={() => navigate('/verification-pending')}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full"
+                  style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#F59E0B' }}
+                >
+                  Check Application Status
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Online status toggle */}
           <motion.div
             whileTap={{ scale: 0.98 }}
@@ -351,11 +696,11 @@ export function ProviderHome() {
             className="rounded-[28px] p-5 cursor-pointer transition-all backdrop-blur-xl"
             style={{
               background: isOnline
-                ? 'linear-gradient(135deg, #2EFFAF, #007AFF)'
+                ? 'linear-gradient(135deg, #008CE5, #0070B8)'
                 : offlineBg,
               border: isOnline ? 'none' : `1px solid ${offlineBorder}`,
               boxShadow: isOnline
-                ? '0 8px 32px rgba(46,255,175,0.35)'
+                ? '0 8px 32px rgba(0,140,229,0.35)'
                 : (isDark ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'),
             }}
           >
@@ -363,22 +708,22 @@ export function ProviderHome() {
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
                   style={{ backgroundColor: isOnline ? 'rgba(255,255,255,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)') }}>
-                  <Power className="w-7 h-7" style={{ color: isOnline ? '#0F1419' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }} />
+                  <Power className="w-7 h-7" style={{ color: isOnline ? '#FFFFFF' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold" style={{ color: isOnline ? '#0F1419' : textColor }}>
+                  <h2 className="text-xl font-bold" style={{ color: isOnline ? '#FFFFFF' : textColor }}>
                     {isOnline ? "You're Online" : "You're Offline"}
                   </h2>
-                  <p className="text-sm" style={{ color: isOnline ? 'rgba(15,20,25,0.7)' : subColor }}>
+                  <p className="text-sm" style={{ color: isOnline ? 'rgba(255,255,255,0.75)' : subColor }}>
                     {isOnline ? 'Ready to accept requests' : 'Tap to go online'}
                   </p>
                 </div>
               </div>
               <div className="w-12 h-7 rounded-full relative transition-all"
-                style={{ backgroundColor: isOnline ? 'rgba(15,20,25,0.25)' : (isDark ? 'rgba(255,255,255,0.1)' : '#D1D5DB') }}>
+                style={{ backgroundColor: isOnline ? 'rgba(255,255,255,0.3)' : (isDark ? 'rgba(255,255,255,0.1)' : '#D1D5DB') }}>
                 <div className="absolute w-5 h-5 rounded-full top-1 transition-all shadow-lg"
                   style={{
-                    backgroundColor: isOnline ? '#0F1419' : (isDark ? 'rgba(255,255,255,0.5)' : '#FFFFFF'),
+                    backgroundColor: isOnline ? '#FFFFFF' : (isDark ? 'rgba(255,255,255,0.5)' : '#FFFFFF'),
                     right: isOnline ? '4px' : 'auto',
                     left: isOnline ? 'auto' : '4px',
                   }} />
@@ -410,31 +755,73 @@ export function ProviderHome() {
           {/* Active requests */}
           <div className="rounded-[28px] p-5 backdrop-blur-xl"
             style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 2px 12px rgba(0,0,0,0.04)' }}>
-            <h3 className="font-semibold text-base mb-3" style={{ color: textColor }}>Active Requests</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-base" style={{ color: textColor }}>Active Requests</h3>
+              {visibleRequests.length > 0 && (
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ backgroundColor: '#008CE5', color: '#FFFFFF' }}>
+                  {visibleRequests.length}
+                </span>
+              )}
+            </div>
 
             {isOnline ? (
-              pendingRequests.length > 0 ? (
-                <div className="space-y-2.5">
-                  <p className="text-xs font-medium" style={{ color: '#2EFFAF' }}>{pendingRequests.length} pending request{pendingRequests.length !== 1 ? 's' : ''}</p>
-                  {pendingRequests.slice(0, 3).map((req) => (
-                    <motion.button
-                      key={req.id}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => navigate(`/request/${req.id}`)}
-                      className="w-full rounded-2xl p-3.5 flex items-center gap-3 text-left"
-                      style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F9FAFB', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}
-                    >
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}>
-                        <MapPin className="w-5 h-5" style={{ color: '#2EFFAF' }} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate" style={{ color: textColor }}>{req.pickup_address || 'Service Request'}</p>
-                        <p className="text-xs" style={{ color: subColor }}>{req.total_amount ? `$${req.total_amount}` : 'View details'}</p>
-                      </div>
-                      <div className="text-xs font-semibold" style={{ color: '#2EFFAF' }}>View</div>
-                    </motion.button>
-                  ))}
+              visibleRequests.length > 0 ? (
+                <div className="space-y-2.5 max-h-64 overflow-y-auto">
+                  {visibleRequests.map((req: any) => {
+                    const timeAgo = getTimeAgo(req.created_at);
+                    const serviceName = SERVICE_NAMES[req.service_id] || req.service_id || 'Service Request';
+                    const amount = Number(req.total_amount) || Number(req.base_price) || 0;
+                    const distance = (currentPos && req.pickup_latitude && req.pickup_longitude)
+                      ? calcDistanceMiles(currentPos.lat, currentPos.lng, req.pickup_latitude, req.pickup_longitude)
+                      : null;
+                    return (
+                      <motion.div
+                        key={req.id}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full rounded-2xl p-3.5 flex items-center gap-3"
+                        style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}
+                      >
+                        <button
+                          onClick={() => { stopRequestRingtone(); navigate(`/request/${req.id}`); }}
+                          className="flex-1 min-w-0 flex items-center gap-3 text-left"
+                          style={{ touchAction: 'manipulation' }}
+                        >
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
+                            <MapPin className="w-5 h-5" style={{ color: '#008CE5' }} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate" style={{ color: textColor }}>{serviceName}</p>
+                            <p className="text-xs truncate" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#6B7280' }}>
+                              {req.pickup_address || 'Nearby location'}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {amount > 0 && (
+                                <span className="text-xs font-bold" style={{ color: '#008CE5' }}>${amount.toFixed(2)}</span>
+                              )}
+                              {distance !== null && (
+                                <span className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>
+                                  {distance < 1 ? `${(distance * 5280).toFixed(0)} ft` : `${distance.toFixed(1)} mi`}
+                                </span>
+                              )}
+                              <span className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF' }}>{timeAgo}</span>
+                            </div>
+                          </div>
+                        </button>
+
+                        <div className="w-[36px] flex items-center justify-center flex-shrink-0">
+                          <button
+                            onClick={(e: React.MouseEvent) => handleDismissJob(req.id, e)}
+                            className="w-7 h-7 rounded-full flex items-center justify-center"
+                            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', touchAction: 'manipulation' }}
+                            aria-label="Dismiss request"
+                          >
+                            <X className="w-4 h-4" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8">
@@ -442,9 +829,9 @@ export function ProviderHome() {
                     animate={{ scale: [1, 1.1, 1] }}
                     transition={{ duration: 2, repeat: Infinity }}
                     className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3"
-                    style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}
+                    style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}
                   >
-                    <Navigation className="w-8 h-8" style={{ color: '#2EFFAF' }} />
+                    <Navigation className="w-8 h-8" style={{ color: '#008CE5' }} />
                   </motion.div>
                   <p className="text-sm mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Waiting for requests...</p>
                   <p className="text-xs" style={{ color: subColor }}>We'll notify you when someone needs help</p>
@@ -465,7 +852,7 @@ export function ProviderHome() {
               className="rounded-2xl p-4 text-left backdrop-blur-xl"
               style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.04)' }}
             >
-              <DollarSign className="w-7 h-7 mb-1.5" style={{ color: '#2EFFAF' }} />
+              <DollarSign className="w-7 h-7 mb-1.5" style={{ color: '#008CE5' }} />
               <p className="font-semibold text-sm" style={{ color: textColor }}>Earnings</p>
               <p className="text-xs" style={{ color: subColor }}>View payouts</p>
             </motion.button>
@@ -475,7 +862,7 @@ export function ProviderHome() {
               className="rounded-2xl p-4 text-left backdrop-blur-xl"
               style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.04)' }}
             >
-              <MessageCircle className="w-7 h-7 mb-1.5" style={{ color: '#2EFFAF' }} />
+              <MessageCircle className="w-7 h-7 mb-1.5" style={{ color: '#008CE5' }} />
               <p className="font-semibold text-sm" style={{ color: textColor }}>Messages</p>
               <p className="text-xs" style={{ color: subColor }}>Chat with users</p>
             </motion.button>
@@ -485,7 +872,7 @@ export function ProviderHome() {
               className="rounded-2xl p-4 text-left backdrop-blur-xl"
               style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.04)' }}
             >
-              <Settings className="w-7 h-7 mb-1.5" style={{ color: '#007AFF' }} />
+              <Settings className="w-7 h-7 mb-1.5" style={{ color: '#0070B8' }} />
               <p className="font-semibold text-sm" style={{ color: textColor }}>Settings</p>
               <p className="text-xs" style={{ color: subColor }}>Manage profile</p>
             </motion.button>

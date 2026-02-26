@@ -1,7 +1,9 @@
 import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -12,11 +14,40 @@ export default function SignupScreen() {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'customer' | 'provider'>('customer');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [termsVersion, setTermsVersion] = useState('v1.0.0');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function loadTermsVersion() {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'terms_version')
+        .maybeSingle();
+      if (active && data?.value) {
+        setTermsVersion(String(data.value));
+      }
+    }
+    loadTermsVersion().catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const openLegalLink = async (path: '/terms' | '/privacy') => {
+    const roleParam = role === 'provider' ? 'provider' : 'customer';
+    await WebBrowser.openBrowserAsync(`https://www.torcapp.com${path}?role=${roleParam}`);
+  };
 
   const handleSignup = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please enter email and password');
+      return;
+    }
+    if (!acceptedTerms) {
+      Alert.alert('Terms Required', 'Please accept the Terms and Privacy Policy to continue.');
       return;
     }
 
@@ -27,6 +58,8 @@ export default function SignupScreen() {
         last_name: lastName,
         phone,
         role,
+        accepted_terms: true,
+        terms_version: termsVersion,
       });
       Alert.alert('Success', 'Account created! Please check your email to verify.');
       router.replace('/auth/login');
@@ -109,10 +142,35 @@ export default function SignupScreen() {
           </TouchableOpacity>
         </View>
 
+        <View className="mt-4 p-3 rounded-2xl bg-white/5 border border-white/10">
+          <TouchableOpacity
+            onPress={() => setAcceptedTerms((prev) => !prev)}
+            className="flex-row items-start"
+            activeOpacity={0.8}
+          >
+            <View
+              className={`w-5 h-5 rounded border mr-3 mt-0.5 items-center justify-center ${acceptedTerms ? 'bg-[#2EFFAF] border-[#2EFFAF]' : 'border-white/40'}`}
+            >
+              {acceptedTerms && <Text className="text-[#0F1419] text-xs font-bold">✓</Text>}
+            </View>
+            <Text className="text-white/70 flex-1">
+              I agree to TORC&apos;s Terms of Service and Privacy Policy.
+            </Text>
+          </TouchableOpacity>
+          <View className="flex-row mt-3 gap-4">
+            <TouchableOpacity onPress={() => openLegalLink('/terms')}>
+              <Text className="text-[#2EFFAF] text-sm font-semibold">View Terms</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => openLegalLink('/privacy')}>
+              <Text className="text-[#2EFFAF] text-sm font-semibold">View Privacy</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <TouchableOpacity
           onPress={handleSignup}
           disabled={loading}
-          className="bg-[#2EFFAF] rounded-2xl py-4 mt-4"
+          className={`rounded-2xl py-4 mt-4 ${acceptedTerms ? 'bg-[#2EFFAF]' : 'bg-[#2EFFAF]/40'}`}
         >
           <Text className="text-center text-[#0F1419] font-bold text-lg">
             {loading ? 'Creating Account...' : 'Sign Up'}

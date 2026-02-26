@@ -348,8 +348,8 @@ export function AdminUsers() {
   }
 
   const stats = [
-    { label: 'Total Users', value: String(users.length), color: 'from-[#2EFFAF] to-[#00D68F]' },
-    { label: 'Active Users', value: String(users.filter(u => u.status === 'active').length), color: 'from-[#007AFF] to-[#0051D5]' },
+    { label: 'Total Users', value: String(users.length), color: 'from-[#008CE5] to-[#00D68F]' },
+    { label: 'Active Users', value: String(users.filter(u => u.status === 'active').length), color: 'from-[#0070B8] to-[#0051D5]' },
     { label: 'New This Month', value: String(users.filter(u => {
       const joined = new Date(u.joinedDate);
       const now = new Date();
@@ -360,7 +360,7 @@ export function AdminUsers() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return 'text-[#2EFFAF] bg-[#2EFFAF]/20';
+      case 'active': return 'text-[#008CE5] bg-[#008CE5]/20';
       case 'suspended': return 'text-red-400 bg-red-400/20';
       case 'pending': return 'text-yellow-400 bg-yellow-400/20';
       case 'deleted': return 'text-gray-300 bg-gray-500/20';
@@ -381,7 +381,7 @@ export function AdminUsers() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setActionError('User creation should happen through Auth signup flow. Direct admin create is not enabled in this client app.')}
-            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-bold flex items-center gap-2 shadow-lg shadow-[#2EFFAF]/30"
+            className="px-6 py-3 rounded-[20px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold flex items-center gap-2 shadow-lg shadow-[#008CE5]/30"
           >
             <UserPlus className="w-5 h-5" />
             Add User
@@ -417,7 +417,7 @@ export function AdminUsers() {
             </div>
           )}
           {actionMessage && (
-            <div className="mb-4 rounded-xl border border-[#2EFFAF]/30 bg-[#2EFFAF]/10 px-4 py-3 text-sm text-[#9FFFD8]">
+            <div className="mb-4 rounded-xl border border-[#008CE5]/30 bg-[#008CE5]/10 px-4 py-3 text-sm text-[#9FFFD8]">
               {actionMessage}
             </div>
           )}
@@ -429,7 +429,7 @@ export function AdminUsers() {
                 placeholder="Search users by name, email, or phone..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50"
+                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[16px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
               />
             </div>
             <motion.button
@@ -451,7 +451,7 @@ export function AdminUsers() {
                 onClick={() => setSelectedStatus(status)}
                 className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
                   selectedStatus === status
-                    ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                     : 'bg-white/5 text-white/70 hover:bg-white/10'
                 }`}
               >
@@ -473,7 +473,7 @@ export function AdminUsers() {
               <button
                 onClick={() => void runBulkStatusUpdate('active')}
                 disabled={bulkActioning}
-                className="px-3 py-1.5 rounded-lg bg-[#2EFFAF]/20 text-[#9FFFD8] text-sm font-semibold disabled:opacity-60"
+                className="px-3 py-1.5 rounded-lg bg-[#008CE5]/20 text-[#9FFFD8] text-sm font-semibold disabled:opacity-60"
                 title="Activate selected users"
               >
                 Activate
@@ -543,8 +543,8 @@ export function AdminUsers() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center">
-                          <span className="text-[#0F1419] font-bold text-sm">{user.avatar}</span>
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
+                          <span className="text-white font-bold text-sm">{user.avatar}</span>
                         </div>
                         <div>
                           <p className="text-white font-semibold">{user.name}</p>
@@ -576,7 +576,7 @@ export function AdminUsers() {
                       <span className="text-white font-semibold">{user.totalJobs}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-[#2EFFAF] font-bold">{user.totalSpent}</span>
+                      <span className="text-[#008CE5] font-bold">{user.totalSpent}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
@@ -608,7 +608,7 @@ export function AdminUsers() {
                             whileTap={{ scale: 0.9 }}
                             onClick={() => setUserStatus(user, 'active')}
                             disabled={actioningUserId === user.id}
-                            className="p-2 rounded-lg bg-[#2EFFAF]/20 text-[#2EFFAF] hover:bg-[#2EFFAF]/30"
+                            className="p-2 rounded-lg bg-[#008CE5]/20 text-[#008CE5] hover:bg-[#008CE5]/30"
                             title="Activate User"
                           >
                             <CheckCircle className="w-4 h-4" />

@@ -7,6 +7,7 @@ import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useLocation as useLocationCtx } from '../../context/LocationContext';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
+import { updateRequestContext } from '../../data/requestContext';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 
@@ -36,10 +37,16 @@ export function ConfirmLocation() {
     getCurrentLocation,
     permissionStatus,
     requestPermission,
+    locationError,
     loading: locationLoading,
   } = useLocationCtx();
   const { updateJobDetails } = useJob();
   const { isDark } = useTheme();
+
+  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
 
   const [isHazardous, setIsHazardous] = useState(false);
   const [address, setAddress] = useState('');
@@ -163,32 +170,48 @@ export function ConfirmLocation() {
       pickupAddress: address,
       isHazardLocation: isHazardous,
     });
+    // Also save to requestContext so Matching.tsx can read it
+    updateRequestContext({
+      location: { lat: markerPos.lat, lng: markerPos.lng, address },
+      isHazardous,
+    });
     navigate('/service-selection');
   };
 
   const center = markerPos
     || (currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : defaultCenter);
+  const permissionTitle = permissionStatus === 'denied'
+    ? 'Location Access Denied'
+    : locationError
+      ? 'Location Not Available'
+      : 'Enable Location';
+  const permissionMessage = locationError
+    || (permissionStatus === 'denied'
+      ? 'Please enable location in your browser settings, or search for your address manually.'
+      : 'Allow location access so we can find your exact position for faster assistance.');
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden bg-[#0A0F1E]">
+    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Header */}
-      <div className="relative z-40 p-4 pt-6 flex items-center gap-3">
+      <div className="relative z-40 p-4 flex items-center gap-3" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate(-1)}
-          className="glass rounded-full p-3"
+          className="w-10 h-10 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
         >
-          <ArrowLeft className="w-5 h-5 text-white" />
+          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </motion.button>
-        <h1 className="text-xl font-bold text-white flex-1">Confirm Location</h1>
+        <h1 className="text-xl font-bold flex-1" style={{ color: textColor }}>Confirm Location</h1>
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setShowSearch(true)}
-          className="glass rounded-full p-3"
+          className="w-10 h-10 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
         >
-          <Search className="w-5 h-5 text-[#2EFFAF]" />
+          <Search className="w-5 h-5 text-[#008CE5]" />
         </motion.button>
       </div>
 
@@ -201,25 +224,24 @@ export function ConfirmLocation() {
             exit={{ opacity: 0, y: -20, height: 0 }}
             className="relative z-40 mx-4 mb-2"
           >
-            <div className="glass rounded-2xl p-4 border border-[#2EFFAF]/30">
+            <div className="rounded-2xl p-4" style={{ backgroundColor: cardBg, border: '1px solid rgba(78,205,196,0.3)' }}>
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#2EFFAF]/20 flex items-center justify-center flex-shrink-0">
-                  <LocateFixed className="w-5 h-5 text-[#2EFFAF]" />
+                <div className="w-10 h-10 rounded-xl bg-[#008CE5]/20 flex items-center justify-center flex-shrink-0">
+                  <LocateFixed className="w-5 h-5 text-[#008CE5]" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-white font-semibold text-sm mb-1">
-                    {permissionStatus === 'denied' ? 'Location Access Denied' : 'Enable Location'}
+                  <h3 className="font-semibold text-sm mb-1" style={{ color: textColor }}>
+                    {permissionTitle}
                   </h3>
-                  <p className="text-white/60 text-xs mb-3">
-                    {permissionStatus === 'denied'
-                      ? 'Please enable location in your browser settings, or search for your address manually.'
-                      : 'Allow location access so we can find your exact position for faster assistance.'}
+                  <p className="text-xs mb-3" style={{ color: subColor }}>
+                    {permissionMessage}
                   </p>
                   <div className="flex gap-2">
                     <motion.button
                       whileTap={{ scale: 0.95 }}
                       onClick={handleAllowLocation}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0A0F1E] font-semibold text-xs"
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] font-semibold text-xs"
+                      style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }}
                     >
                       {permissionStatus === 'denied' ? 'Try Again' : 'Allow Location'}
                     </motion.button>
@@ -229,14 +251,15 @@ export function ConfirmLocation() {
                         setShowPermissionBanner(false);
                         setShowSearch(true);
                       }}
-                      className="px-4 py-2 rounded-xl bg-white/10 text-white font-semibold text-xs"
+                      className="px-4 py-2 rounded-xl font-semibold text-xs"
+                      style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: textColor }}
                     >
                       Search Instead
                     </motion.button>
                   </div>
                 </div>
                 <button onClick={() => setShowPermissionBanner(false)} aria-label="Dismiss">
-                  <X className="w-4 h-4 text-white/40" />
+                  <X className="w-4 h-4" style={{ color: subColor }} />
                 </button>
               </div>
             </div>
@@ -251,7 +274,8 @@ export function ConfirmLocation() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 bg-[#0A0F1E]/95 flex flex-col"
+            className="absolute inset-0 z-50 flex flex-col"
+            style={{ background: isDark ? 'rgba(15,20,25,0.95)' : 'rgba(250,248,245,0.98)' }}
           >
             <div className="p-4 pt-6">
               <div className="flex items-center gap-3 mb-4">
@@ -261,11 +285,12 @@ export function ConfirmLocation() {
                     setShowSearch(false);
                     setSearchValue('');
                   }}
-                  className="glass rounded-full p-3"
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
                 >
-                  <ArrowLeft className="w-5 h-5 text-white" />
+                  <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
                 </motion.button>
-                <h2 className="text-lg font-bold text-white">Search Address</h2>
+                <h2 className="text-lg font-bold" style={{ color: textColor }}>Search Address</h2>
               </div>
 
               <Autocomplete
@@ -277,14 +302,19 @@ export function ConfirmLocation() {
                 }}
               >
                 <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: subColor }} />
                   <input
                     ref={searchInputRef}
                     type="text"
                     value={searchValue}
                     onChange={(e) => setSearchValue(e.target.value)}
                     placeholder="Search for a street, city, or place..."
-                    className="w-full bg-white/5 border border-white/20 rounded-2xl pl-12 pr-10 py-4 text-white placeholder-white/40 focus:outline-none focus:border-[#2EFFAF]/50 transition-colors text-sm"
+                    className="w-full rounded-2xl pl-12 pr-10 py-4 focus:outline-none transition-colors text-sm"
+                    style={{
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                      border: '1px solid ' + (isDark ? 'rgba(255,255,255,0.2)' : '#E8E4DE'),
+                      color: textColor,
+                    }}
                   />
                   {searchValue && (
                     <button
@@ -292,7 +322,7 @@ export function ConfirmLocation() {
                       className="absolute right-4 top-1/2 -translate-y-1/2"
                       aria-label="Clear search"
                     >
-                      <X className="w-4 h-4 text-white/40" />
+                      <X className="w-4 h-4" style={{ color: subColor }} />
                     </button>
                   )}
                 </div>
@@ -314,14 +344,15 @@ export function ConfirmLocation() {
                         map.setZoom(17);
                       }
                     }}
-                    className="w-full glass rounded-2xl p-4 flex items-center gap-3 text-left"
+                    className="w-full rounded-2xl p-4 flex items-center gap-3 text-left"
+                    style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
                   >
-                    <div className="w-10 h-10 rounded-xl bg-[#2EFFAF]/20 flex items-center justify-center flex-shrink-0">
-                      <LocateFixed className="w-5 h-5 text-[#2EFFAF]" />
+                    <div className="w-10 h-10 rounded-xl bg-[#008CE5]/20 flex items-center justify-center flex-shrink-0">
+                      <LocateFixed className="w-5 h-5 text-[#008CE5]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-white font-semibold text-sm">Use Current Location</p>
-                      <p className="text-white/60 text-xs truncate">{ctxAddress || 'Your GPS position'}</p>
+                      <p className="font-semibold text-sm" style={{ color: textColor }}>Use Current Location</p>
+                      <p className="text-xs truncate" style={{ color: subColor }}>{ctxAddress || 'Your GPS position'}</p>
                     </div>
                   </motion.button>
                 )}
@@ -330,19 +361,20 @@ export function ConfirmLocation() {
                   <motion.button
                     whileTap={{ scale: 0.98 }}
                     onClick={handleAllowLocation}
-                    className="w-full glass rounded-2xl p-4 flex items-center gap-3 text-left border border-[#2EFFAF]/20"
+                    className="w-full rounded-2xl p-4 flex items-center gap-3 text-left"
+                    style={{ backgroundColor: cardBg, border: '1px solid rgba(78,205,196,0.2)' }}
                   >
-                    <div className="w-10 h-10 rounded-xl bg-[#2EFFAF]/20 flex items-center justify-center flex-shrink-0">
-                      <LocateFixed className="w-5 h-5 text-[#2EFFAF]" />
+                    <div className="w-10 h-10 rounded-xl bg-[#008CE5]/20 flex items-center justify-center flex-shrink-0">
+                      <LocateFixed className="w-5 h-5 text-[#008CE5]" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-white font-semibold text-sm">Allow Location Access</p>
-                      <p className="text-white/60 text-xs">Use your GPS for exact position</p>
+                      <p className="font-semibold text-sm" style={{ color: textColor }}>Allow Location Access</p>
+                      <p className="text-xs" style={{ color: subColor }}>Use your GPS for exact position</p>
                     </div>
                   </motion.button>
                 )}
 
-                <p className="text-white/30 text-xs px-2 pt-2">
+                <p className="text-xs px-2 pt-2" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)' }}>
                   Type an address above and select from the suggestions
                 </p>
               </div>
@@ -375,7 +407,7 @@ export function ConfirmLocation() {
                   icon={{
                     path: google.maps.SymbolPath.CIRCLE,
                     scale: 12,
-                    fillColor: '#059669',
+                    fillColor: '#008CE5',
                     fillOpacity: 1,
                     strokeColor: '#FFFFFF',
                     strokeWeight: 3,
@@ -394,13 +426,13 @@ export function ConfirmLocation() {
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-colors ${
                     isDragging
-                      ? 'bg-[#2EFFAF] shadow-[#2EFFAF]/40'
-                      : 'bg-[#059669] shadow-[#059669]/30'
+                      ? 'bg-[#008CE5] shadow-[#008CE5]/40'
+                      : 'bg-[#008CE5] shadow-[#008CE5]/30'
                   }`}
                 >
                   <MapPin className="w-4 h-4 text-white" style={{ color: '#fff' }} />
                 </div>
-                <div className="w-1 h-4 bg-gradient-to-b from-[#059669] to-transparent" />
+                <div className="w-1 h-4 bg-gradient-to-b from-[#008CE5] to-transparent" />
               </motion.div>
             </div>
 
@@ -409,20 +441,21 @@ export function ConfirmLocation() {
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={handleRecenter}
-              className="absolute bottom-4 right-4 z-20 glass rounded-full p-3 shadow-lg"
+              className="absolute bottom-4 right-4 z-20 w-10 h-10 rounded-full flex items-center justify-center shadow-lg"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)', border: '1px solid ' + cardBorder }}
             >
-              <Navigation2 className="w-5 h-5 text-[#2EFFAF]" />
+              <Navigation2 className="w-5 h-5 text-[#008CE5]" />
             </motion.button>
 
             {/* No location indicator */}
             {!markerPos && !currentLocation && (
               <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                <div className="glass rounded-2xl p-4 text-center pointer-events-auto">
-                  <MapPinOff className="w-8 h-8 text-white/40 mx-auto mb-2" />
-                  <p className="text-white/60 text-sm mb-2">No location set</p>
+                <div className="rounded-2xl p-4 text-center pointer-events-auto" style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}>
+                  <MapPinOff className="w-8 h-8 mx-auto mb-2" style={{ color: subColor }} />
+                  <p className="text-sm mb-2" style={{ color: subColor }}>No location set</p>
                   <button
                     onClick={() => setShowSearch(true)}
-                    className="text-[#2EFFAF] text-sm font-semibold"
+                    className="text-[#008CE5] text-sm font-semibold"
                   >
                     Search for address
                   </button>
@@ -431,8 +464,8 @@ export function ConfirmLocation() {
             )}
           </>
         ) : (
-          <div className="h-full flex items-center justify-center bg-white/5">
-            <div className="w-10 h-10 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin" />
+          <div className="h-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}>
+            <div className="w-10 h-10 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
       </div>
@@ -441,26 +474,31 @@ export function ConfirmLocation() {
       <motion.div
         initial={{ y: 60 }}
         animate={{ y: 0 }}
-        className="relative z-30 glass rounded-t-[28px] p-5 border-t border-white/10"
+        className="relative z-30 rounded-t-[28px] p-5"
+        style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', borderTop: '1px solid ' + (isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE') }}
       >
         {/* Address display with search trigger */}
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <MapPin className="w-4 h-4 text-[#2EFFAF]" />
-            <p className="text-white font-semibold text-sm">Service Location</p>
+            <MapPin className="w-4 h-4 text-[#008CE5]" />
+            <p className="font-semibold text-sm" style={{ color: textColor }}>Service Location</p>
           </div>
           <button
             onClick={() => setShowSearch(true)}
-            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 text-left flex items-center gap-3 focus:outline-none hover:border-white/20 transition-colors"
+            className="w-full rounded-2xl px-4 py-3.5 text-left flex items-center gap-3 focus:outline-none transition-colors"
+            style={{
+              backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+              border: '1px solid ' + cardBorder,
+            }}
           >
-            <Search className="w-4 h-4 text-white/40 flex-shrink-0" />
+            <Search className="w-4 h-4 flex-shrink-0" style={{ color: subColor }} />
             {address ? (
-              <span className="text-white text-sm truncate flex-1">{address}</span>
+              <span className="text-sm truncate flex-1" style={{ color: textColor }}>{address}</span>
             ) : (
-              <span className="text-white/40 text-sm flex-1">Search for an address...</span>
+              <span className="text-sm flex-1" style={{ color: subColor }}>Search for an address...</span>
             )}
           </button>
-          <p className="text-white/40 text-xs mt-1.5">
+          <p className="text-xs mt-1.5" style={{ color: subColor }}>
             Tap to search or drag the map to adjust
           </p>
         </div>
@@ -472,26 +510,29 @@ export function ConfirmLocation() {
           className={`w-full rounded-[20px] p-4 flex items-center gap-3 mb-4 transition-all ${
             isHazardous
               ? 'bg-gradient-to-r from-red-500/20 to-orange-500/20 border-2 border-red-500/50'
-              : 'glass'
+              : ''
           }`}
+          style={isHazardous ? {} : { backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
         >
           <div
             className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-              isHazardous ? 'bg-red-500' : 'bg-white/5'
+              isHazardous ? 'bg-red-500' : ''
             }`}
+            style={isHazardous ? {} : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
           >
-            <AlertTriangle className={`w-5 h-5 ${isHazardous ? 'text-white' : 'text-white/40'}`} />
+            <AlertTriangle className={`w-5 h-5 ${isHazardous ? 'text-white' : ''}`} style={isHazardous ? {} : { color: subColor }} />
           </div>
           <div className="flex-1 text-left">
-            <h3 className={`font-semibold text-sm ${isHazardous ? 'text-red-400' : 'text-white'}`}>
+            <h3 className={`font-semibold text-sm ${isHazardous ? 'text-red-400' : ''}`} style={isHazardous ? {} : { color: textColor }}>
               In a dangerous spot
             </h3>
-            <p className="text-white/60 text-xs">Highway, busy road, or unsafe location</p>
+            <p className="text-xs" style={{ color: subColor }}>Highway, busy road, or unsafe location</p>
           </div>
           <div
             className={`w-12 h-7 rounded-full relative transition-colors flex-shrink-0 ${
-              isHazardous ? 'bg-red-500' : 'bg-white/20'
+              isHazardous ? 'bg-red-500' : ''
             }`}
+            style={isHazardous ? {} : { backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)' }}
           >
             <motion.div
               className="absolute top-1 w-5 h-5 rounded-full bg-white shadow-lg"
@@ -505,10 +546,11 @@ export function ConfirmLocation() {
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="glass rounded-2xl p-3 mb-4 border border-red-500/30"
+            className="rounded-2xl p-3 mb-4 border border-red-500/30"
+            style={{ backgroundColor: cardBg }}
           >
             <p className="text-red-400 text-xs font-semibold mb-1">Safety First</p>
-            <ul className="text-white/80 text-xs space-y-0.5">
+            <ul className="text-xs space-y-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.8)' : '#4B5563' }}>
               <li>- Turn on hazard lights if possible</li>
               <li>- Stay in your vehicle if on highway</li>
               <li>- Provider will be notified of hazardous location</li>
@@ -517,19 +559,18 @@ export function ConfirmLocation() {
         )}
 
         {/* Confirm button */}
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+        <button
           onClick={handleContinue}
           disabled={!address && !markerPos}
-          className={`w-full rounded-[28px] py-4 font-bold text-lg shadow-lg ${
-            address || markerPos
-              ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0A0F1E] shadow-[#2EFFAF]/30'
-              : 'bg-white/10 text-white/40 shadow-none cursor-not-allowed'
-          }`}
+          className="torc-btn-primary"
+          style={
+            !(address || markerPos)
+              ? { background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)', color: subColor, boxShadow: 'none' }
+              : undefined
+          }
         >
           Confirm Location
-        </motion.button>
+        </button>
       </motion.div>
     </div>
   );

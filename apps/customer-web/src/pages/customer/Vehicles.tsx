@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
 
-function IconBadge({ children, color = '#2EFFAF' }: { children: React.ReactNode; color?: string }) {
+function IconBadge({ children, color = '#008CE5' }: { children: React.ReactNode; color?: string }) {
   return (
     <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}15` }}>
       {children}
@@ -37,7 +37,7 @@ export function Vehicles() {
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
 
   useEffect(() => {
     if (user) fetchVehicles();
@@ -81,20 +81,20 @@ export function Vehicles() {
   };
 
   const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
     color: isDark ? '#FFFFFF' : '#1F2937',
   };
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
-      <div className="p-6 flex items-center gap-4">
+    <div className="min-h-screen" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
         <h1 className="text-xl font-bold flex-1" style={{ color: textColor }}>My Vehicles</h1>
-        <button onClick={() => setShowAdd(!showAdd)} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#2EFFAF] to-[#007AFF]">
-          <Plus className="w-5 h-5 text-[#0F1419]" />
+        <button onClick={() => setShowAdd(!showAdd)} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#008CE5] to-[#0070B8]">
+          <Plus className="w-5 h-5 text-white" />
         </button>
       </div>
 
@@ -108,17 +108,17 @@ export function Vehicles() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge><Car className="w-4 h-4" style={{ color: '#2EFFAF' }} /></IconBadge>
+                  <IconBadge><Car className="w-4 h-4" style={{ color: '#008CE5' }} /></IconBadge>
                   <input type="text" value={form.make} onChange={e => setForm({ ...form, make: e.target.value })} placeholder="Make (e.g. Toyota)" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
                 <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge><Car className="w-4 h-4" style={{ color: '#2EFFAF' }} /></IconBadge>
+                  <IconBadge><Car className="w-4 h-4" style={{ color: '#008CE5' }} /></IconBadge>
                   <input type="text" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="Model (e.g. Camry)" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge color="#007AFF"><Calendar className="w-4 h-4" style={{ color: '#007AFF' }} /></IconBadge>
+                  <IconBadge color="#0070B8"><Calendar className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
                   <input type="text" value={form.year} onChange={e => setForm({ ...form, year: e.target.value })} placeholder="Year" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
                 <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
@@ -126,13 +126,13 @@ export function Vehicles() {
                   <input type="text" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} placeholder="Color" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
                 <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge color="#007AFF"><Hash className="w-4 h-4" style={{ color: '#007AFF' }} /></IconBadge>
+                  <IconBadge color="#0070B8"><Hash className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
                   <input type="text" value={form.plate} onChange={e => setForm({ ...form, plate: e.target.value })} placeholder="Plate" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setShowAdd(false)} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6', color: subColor }}>Cancel</button>
-                <button onClick={addVehicle} disabled={!form.make || !form.model || saving} className="flex-1 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-xl py-3 font-bold text-sm text-[#0F1419] disabled:opacity-50">
+                <button onClick={() => setShowAdd(false)} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED', color: subColor }}>Cancel</button>
+                <button onClick={addVehicle} disabled={!form.make || !form.model || saving} className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl py-3 font-bold text-sm text-white disabled:opacity-50">
                   {saving ? 'Adding...' : 'Add Vehicle'}
                 </button>
               </div>
@@ -142,7 +142,7 @@ export function Vehicles() {
 
         {/* Vehicles list */}
         {loading ? (
-          <div className="text-center py-12"><div className="w-8 h-8 border-2 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto" /></div>
+          <div className="text-center py-12"><div className="w-8 h-8 border-2 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto" /></div>
         ) : vehicles.length === 0 ? (
           <div className="text-center py-16">
             <Car className="w-16 h-16 mx-auto mb-4" style={{ color: subColor }} />
@@ -154,18 +154,18 @@ export function Vehicles() {
             {vehicles.map((v, i) => (
               <motion.div key={v.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
                 className="rounded-2xl p-4 flex items-center gap-4"
-                style={{ backgroundColor: cardBg, border: `1px solid ${v.is_default ? '#2EFFAF' : cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)' }}
+                style={{ backgroundColor: cardBg, border: `1px solid ${v.is_default ? '#008CE5' : cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)' }}
               >
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-                  <Car className="w-6 h-6" style={{ color: '#2EFFAF' }} />
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+                  <Car className="w-6 h-6" style={{ color: '#008CE5' }} />
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold" style={{ color: textColor }}>{v.year ? `${v.year} ` : ''}{v.make} {v.model}</p>
                   <p className="text-sm" style={{ color: subColor }}>{[v.color, v.plate].filter(Boolean).join(' • ') || 'No details'}</p>
                 </div>
-                {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(46,255,175,0.15)', color: '#2EFFAF' }}>Default</span>}
+                {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>Default</span>}
                 {!v.is_default && (
-                  <button onClick={() => setDefault(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6' }}>
+                  <button onClick={() => setDefault(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }}>
                     <Star className="w-4 h-4" style={{ color: subColor }} />
                   </button>
                 )}

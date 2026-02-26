@@ -1,6 +1,10 @@
 # Push Notification Worker
 
-This Node.js worker listens for Postgres `pg_notify` events and sends push notifications to mobile devices via Expo Push API.
+This Node.js worker listens for Postgres `pg_notify` events and sends push notifications to mobile devices via:
+
+- Expo Push API (Expo tokens)
+- Firebase Cloud Messaging (FCM tokens)
+- Apple Push Notification service (APNs tokens)
 
 ---
 
@@ -23,6 +27,12 @@ cp .env.example .env
 - `SUPABASE_URL` – Your Supabase project URL
 - `SUPABASE_SERVICE_ROLE_KEY` – Service role key (Settings → API)
 - `NODE_ENV` – `production` or `development`
+
+**Optional environment variables for native push:**
+- `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_SERVICE_ACCOUNT_PATH`
+- `APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY`
+- `APNS_CUSTOMER_BUNDLE_ID`, `APNS_PROVIDER_BUNDLE_ID`
+- `APNS_USE_SANDBOX=true` for development
 
 ### 3. Run the worker
 
@@ -56,8 +66,8 @@ npm run pm2:stop     # Stop worker
 
 2. **Fetches push tokens** from `device_tokens` table for target user(s)
 
-3. **Sends push notifications** via Expo Push API
-   - Supports iOS and Android
+3. **Sends push notifications** via Expo, FCM, and APNs
+   - Supports iOS and Android native tokens
    - Handles custom sounds
    - Includes deep link data (screen, jobId, etc.)
 
@@ -114,9 +124,8 @@ npm run pm2:logs
 ```
 
 ### Test push manually
-Use the Expo Push Tool: https://expo.dev/notifications
-
-Get a test token from your device and send a test notification.
+- Expo tokens: https://expo.dev/notifications
+- FCM/APNs tokens: use Firebase Console (FCM) or APNs test tooling.
 
 ### Check database logs
 ```sql
@@ -147,7 +156,7 @@ ORDER BY dt.last_used_at DESC;
 
 **"Invalid Expo push token"**
 - Token format is wrong (should start with `ExponentPushToken[...]`)
-- Using a simulator instead of real device (Expo push only works on real devices)
+- Non-Expo tokens are now routed to FCM/APNs instead
 
 **"DeviceNotRegistered" error**
 - User uninstalled the app
@@ -239,6 +248,7 @@ Set up alerts (e.g. PagerDuty, Sentry) for:
 - **Use SSL** for Postgres connection in production (`rejectUnauthorized: false` is ok for Supabase managed DB)
 - **Service role key** should only be on server, never in mobile/web client
 - **Rate limiting:** Expo has rate limits (~600 pushes/sec per app). Worker handles this via chunking.
+- **FCM/APNs credentials** should only be stored in secure server env vars
 
 ---
 

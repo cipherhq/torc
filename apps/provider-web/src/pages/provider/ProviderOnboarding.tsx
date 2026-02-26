@@ -23,11 +23,11 @@ export function ProviderOnboarding() {
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#2EFFAF', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />
+        <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#008CE5', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />
       </div>
 
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate('/login')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
         </motion.button>
@@ -36,11 +36,9 @@ export function ProviderOnboarding() {
       <div className="relative z-10 flex-1 px-6 pb-8">
         {/* Logo + Title */}
         <motion.div initial={{ opacity: 0, y: -15 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
-          <div className={`inline-block ${isDark ? 'bg-white/95 rounded-2xl p-2' : ''}`}>
-            <img src="/logo.png" alt="Torc" className="w-24 h-24 mx-auto object-contain" />
-          </div>
-          <div className="inline-block px-3 py-1 rounded-full mb-3" style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}>
-            <span className="text-xs font-bold" style={{ color: '#2EFFAF' }}>PROVIDER ONBOARDING</span>
+          <img src="/logo.svg" alt="Torc" className="w-32 h-auto mx-auto object-contain mb-2" />
+          <div className="inline-block px-3 py-1 rounded-full mb-3" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
+            <span className="text-xs font-bold" style={{ color: '#008CE5' }}>PROVIDER ONBOARDING</span>
           </div>
           <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
             Become a Provider
@@ -66,23 +64,23 @@ export function ProviderOnboarding() {
                 className="w-full flex items-center gap-4 rounded-2xl p-5 transition-all group"
                 style={{
                   backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`,
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
                   boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
                 }}
               >
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-                  <Icon className="w-6 h-6" style={{ color: '#2EFFAF' }} />
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+                  <Icon className="w-6 h-6" style={{ color: '#008CE5' }} />
                 </div>
                 <div className="flex-1 text-left">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(46,255,175,0.1)', color: '#2EFFAF' }}>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.1)', color: '#008CE5' }}>
                       Step {step.id}
                     </span>
                   </div>
                   <h3 className="font-semibold mt-1" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{step.title}</h3>
                   <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>{step.description}</p>
                 </div>
-                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" style={{ color: '#2EFFAF' }} />
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" style={{ color: '#008CE5' }} />
               </motion.button>
             );
           })}
@@ -95,8 +93,8 @@ export function ProviderOnboarding() {
           transition={{ delay: 0.5 }}
           className="max-w-md mx-auto rounded-2xl p-6"
           style={{
-            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB',
-            border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB'}`,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E8E4DE'}`,
           }}
         >
           <h3 className="font-semibold mb-3" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>What you'll need:</h3>
@@ -109,7 +107,7 @@ export function ProviderOnboarding() {
               'Bank account for payouts',
             ].map((item, i) => (
               <li key={i} className="flex items-center gap-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>
-                <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: '#008CE5' }} />
                 {item}
               </li>
             ))}

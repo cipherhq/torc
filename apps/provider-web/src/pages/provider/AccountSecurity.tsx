@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Mail, Lock, AlertCircle, CheckCircle2, Shield } from 'lucide-react';
+import { ArrowLeft, Mail, Lock, AlertCircle, CheckCircle2, Shield, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
@@ -27,8 +27,8 @@ function InputField({
 }) {
   return (
     <div className="flex items-center gap-2.5 rounded-xl px-3 py-2.5" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}>
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.14)' }}>
-        <Icon className="w-4 h-4" style={{ color: '#2EFFAF' }} />
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.14)' }}>
+        <Icon className="w-4 h-4" style={{ color: '#008CE5' }} />
       </div>
       <input
         type={type}
@@ -58,6 +58,10 @@ export function AccountSecurity() {
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     setNewEmail(user?.email || '');
@@ -135,16 +139,48 @@ export function AccountSecurity() {
     }
   }
 
+  async function handleAccountDeletionRequest() {
+    if (!user?.id) return;
+    const cleanReason = deleteReason.trim();
+    setDeleteError(null);
+    setDeleteMessage(null);
+
+    if (cleanReason.length < 10) {
+      setDeleteError('Please provide a short reason (at least 10 characters).');
+      return;
+    }
+
+    try {
+      setDeleteSaving(true);
+      const { error } = await supabase.from('support_tickets').insert({
+        requester_id: user.id,
+        requester_role: 'provider',
+        subject: 'Account deletion request',
+        description: `Provider requested account deletion.\nEmail: ${user.email || '-'}\nReason: ${cleanReason}`,
+        priority: 'high',
+        status: 'open',
+      });
+      if (error) throw error;
+
+      setDeleteReason('');
+      setDeleteMessage('Deletion request submitted. Support will verify and process it.');
+    } catch (error: any) {
+      setDeleteError(error?.message || 'Could not submit deletion request right now.');
+    } finally {
+      setDeleteSaving(false);
+    }
+  }
+
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
-  const inputBg = isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const inputBg = isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
 
   return (
-    <div className="min-h-screen pb-10" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
-      <div className="p-6 flex items-center gap-4">
+    <div className="min-h-screen pb-10" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
@@ -161,7 +197,7 @@ export function AccountSecurity() {
 
       <div className="px-6 space-y-5 max-w-2xl">
         <div className="rounded-2xl p-4 flex items-start gap-3" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.12)' : 'rgba(0,122,255,0.07)', border: `1px solid ${isDark ? 'rgba(0,122,255,0.35)' : 'rgba(0,122,255,0.2)'}` }}>
-          <Shield className="w-5 h-5 mt-0.5" style={{ color: '#007AFF' }} />
+          <Shield className="w-5 h-5 mt-0.5" style={{ color: '#0070B8' }} />
           <p className="text-sm" style={{ color: subColor }}>
             Email changes require verification. Password changes require your current password for security.
           </p>
@@ -181,12 +217,12 @@ export function AccountSecurity() {
             inputBorder={inputBorder}
           />
           {emailError && <p className="text-sm text-red-400 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{emailError}</p>}
-          {emailMessage && <p className="text-sm text-[#2EFFAF] flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />{emailMessage}</p>}
+          {emailMessage && <p className="text-sm text-[#008CE5] flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />{emailMessage}</p>}
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={handleEmailUpdate}
             disabled={emailSaving}
-            className="w-full rounded-xl py-3 font-semibold text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-60"
+            className="w-full rounded-xl py-3 font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-60"
           >
             {emailSaving ? 'Sending Verification...' : 'Update Email'}
           </motion.button>
@@ -225,15 +261,65 @@ export function AccountSecurity() {
             inputBorder={inputBorder}
           />
           {passwordError && <p className="text-sm text-red-400 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{passwordError}</p>}
-          {passwordMessage && <p className="text-sm text-[#2EFFAF] flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />{passwordMessage}</p>}
+          {passwordMessage && <p className="text-sm text-[#008CE5] flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />{passwordMessage}</p>}
           <motion.button
             whileTap={{ scale: 0.98 }}
             onClick={handlePasswordUpdate}
             disabled={passwordSaving}
-            className="w-full rounded-xl py-3 font-semibold text-[#0F1419] bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] disabled:opacity-60"
+            className="w-full rounded-xl py-3 font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-60"
           >
             {passwordSaving ? 'Updating Password...' : 'Update Password'}
           </motion.button>
+        </div>
+
+        <div
+          className="rounded-2xl p-5 space-y-3"
+          style={{
+            backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)',
+            border: `1px solid ${isDark ? 'rgba(239,68,68,0.45)' : 'rgba(239,68,68,0.25)'}`,
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Trash2 className="w-5 h-5" style={{ color: '#EF4444' }} />
+            <h2 className="font-semibold" style={{ color: textColor }}>Request Account Deletion</h2>
+          </div>
+          <p className="text-sm" style={{ color: subColor }}>
+            Submit a request to permanently close your account. Our team will verify ownership before deletion.
+          </p>
+          <textarea
+            value={deleteReason}
+            onChange={(e) => setDeleteReason(e.target.value)}
+            placeholder="Reason for deleting your account"
+            rows={4}
+            className="w-full rounded-xl px-4 py-3 text-sm outline-none"
+            style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
+          />
+          {deleteError && <p className="text-sm text-red-400 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{deleteError}</p>}
+          {deleteMessage && <p className="text-sm text-[#008CE5] flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />{deleteMessage}</p>}
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={handleAccountDeletionRequest}
+            disabled={deleteSaving}
+            className="w-full rounded-xl py-3 font-semibold text-white disabled:opacity-60"
+            style={{ background: 'linear-gradient(90deg, #EF4444 0%, #DC2626 100%)' }}
+          >
+            {deleteSaving ? 'Submitting Request...' : 'Submit Deletion Request'}
+          </motion.button>
+        </div>
+
+        <div className="rounded-2xl p-5 space-y-2" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
+          <h2 className="font-semibold" style={{ color: textColor }}>Legal</h2>
+          <p className="text-sm" style={{ color: subColor }}>
+            Review policies used during App Store submission and provider account usage.
+          </p>
+          <div className="flex gap-4 text-sm">
+            <a href="https://www.torcapp.com/privacy" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
+              Privacy Policy
+            </a>
+            <a href="https://www.torcapp.com/terms" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
+              Terms of Service
+            </a>
+          </div>
         </div>
       </div>
     </div>

@@ -23,7 +23,7 @@ export function Signup() {
     <div className="min-h-screen bg-[#252B3D] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
         <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full" />
       </div>
 
@@ -58,7 +58,7 @@ export function Signup() {
             <div>
               <label className="text-white/80 text-sm mb-2 block">First Name</label>
               <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-                <User className="w-5 h-5 text-[#2EFFAF]" />
+                <User className="w-5 h-5 text-[#008CE5]" />
                 <input
                   type="text"
                   value={formData.firstName}
@@ -85,7 +85,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Email</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Mail className="w-5 h-5 text-[#2EFFAF]" />
+              <Mail className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="email"
                 value={formData.email}
@@ -99,7 +99,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Phone</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Phone className="w-5 h-5 text-[#2EFFAF]" />
+              <Phone className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="tel"
                 value={formData.phone}
@@ -113,7 +113,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Password</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Lock className="w-5 h-5 text-[#2EFFAF]" />
+              <Lock className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="password"
                 value={formData.password}
@@ -127,7 +127,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Confirm Password</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Lock className="w-5 h-5 text-[#2EFFAF]" />
+              <Lock className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="password"
                 value={formData.confirmPassword}
@@ -141,8 +141,8 @@ export function Signup() {
           <div className="glass rounded-[20px] p-4 mt-4">
             <p className="text-white/60 text-xs leading-relaxed">
               By signing up, you agree to TORC's{' '}
-              <span className="text-[#2EFFAF]">Terms of Service</span> and{' '}
-              <span className="text-[#2EFFAF]">Privacy Policy</span>.
+              <span className="text-[#008CE5]">Terms of Service</span> and{' '}
+              <span className="text-[#008CE5]">Privacy Policy</span>.
             </p>
           </div>
 
@@ -150,7 +150,7 @@ export function Signup() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleSignup}
-            className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 mt-6"
+            className="w-full bg-gradient-to-r from-[#008CE5] to-[#007AFF] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 mt-6"
           >
             Create Account
           </motion.button>
@@ -160,7 +160,7 @@ export function Signup() {
               Already have an account?{' '}
               <button
                 onClick={() => navigate('/login')}
-                className="text-[#2EFFAF] font-semibold"
+                className="text-[#008CE5] font-semibold"
               >
                 Log In
               </button>

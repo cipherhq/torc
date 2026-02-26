@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
 import { useAuth } from '../../contexts/AuthContext';
 import MapView, { Marker } from 'react-native-maps';
@@ -14,13 +14,9 @@ export default function JobRequestScreen() {
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
 
-  useEffect(() => {
-    if (jobId) {
-      loadJob();
-    }
-  }, [jobId]);
+  const loadJob = useCallback(async () => {
+    if (!jobId) return;
 
-  const loadJob = async () => {
     try {
       const data = await fetchJob(jobId as string);
       setJob(data);
@@ -30,7 +26,13 @@ export default function JobRequestScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchJob, jobId]);
+
+  useEffect(() => {
+    if (jobId) {
+      loadJob();
+    }
+  }, [jobId, loadJob]);
 
   const handleAccept = async () => {
     if (!user || !jobId) return;

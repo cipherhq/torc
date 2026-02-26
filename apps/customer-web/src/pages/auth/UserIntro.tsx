@@ -16,19 +16,19 @@ export function UserIntro() {
       icon: ShieldCheck,
       title: 'Fast Help, Anytime',
       body: 'Request roadside help in seconds and get matched with trusted nearby providers.',
-      accent: '#2EFFAF',
+      accent: '#008CE5',
     },
     {
       icon: Clock3,
       title: 'Live Tracking & Updates',
       body: 'Track provider arrival in real time, confirm service milestones, and stay informed end-to-end.',
-      accent: '#007AFF',
+      accent: '#0070B8',
     },
     {
       icon: Wallet,
       title: 'Simple, Transparent Pricing',
       body: 'See pricing before you confirm, pay securely in-app, and keep your service history organized.',
-      accent: '#2EFFAF',
+      accent: '#008CE5',
     },
   ]), []);
 
@@ -51,18 +51,18 @@ export function UserIntro() {
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-16 left-8 w-72 h-72 rounded-full blur-[120px]" style={{ backgroundColor: '#2EFFAF', opacity: isDark ? 0.1 : 0.06 }} />
-        <div className="absolute bottom-20 right-8 w-72 h-72 rounded-full blur-[120px]" style={{ backgroundColor: '#007AFF', opacity: isDark ? 0.1 : 0.06 }} />
+        <div className="absolute top-16 left-8 w-72 h-72 rounded-full blur-[120px]" style={{ backgroundColor: '#008CE5', opacity: isDark ? 0.1 : 0.06 }} />
+        <div className="absolute bottom-20 right-8 w-72 h-72 rounded-full blur-[120px]" style={{ backgroundColor: '#0070B8', opacity: isDark ? 0.1 : 0.06 }} />
       </div>
 
-      <div className="relative z-10 p-6 flex justify-between items-center">
+      <div className="relative z-10 p-6 flex justify-between items-center" style={{ paddingTop: 'var(--safe-top)' }}>
         <p className="text-sm font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#6B7280' }}>
           TORC for Drivers
         </p>
         <button
           onClick={finish}
           className="text-sm font-semibold"
-          style={{ color: '#2EFFAF' }}
+          style={{ color: '#008CE5' }}
         >
           Skip
         </button>
@@ -79,7 +79,7 @@ export function UserIntro() {
           <div
             className="w-24 h-24 rounded-3xl mx-auto mb-6 flex items-center justify-center"
             style={{
-              background: `linear-gradient(135deg, ${current.accent}33, #007AFF22)`,
+              background: `linear-gradient(135deg, ${current.accent}33, #0070B822)`,
               border: `1px solid ${current.accent}55`,
             }}
           >
@@ -103,7 +103,7 @@ export function UserIntro() {
               className="h-2 rounded-full transition-all"
               style={{
                 width: i === index ? 30 : 10,
-                backgroundColor: i === index ? '#2EFFAF' : (isDark ? 'rgba(255,255,255,0.2)' : '#D1D5DB'),
+                backgroundColor: i === index ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.2)' : '#D1D5DB'),
               }}
             />
           ))}
@@ -113,8 +113,8 @@ export function UserIntro() {
           whileHover={{ scale: 1.01 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => (last ? finish() : setIndex((i) => i + 1))}
-          className="w-full rounded-2xl py-4 font-bold text-[#0F1419] text-lg flex items-center justify-center gap-2"
-          style={{ background: 'linear-gradient(90deg, #2EFFAF, #007AFF)' }}
+          className="w-full rounded-2xl py-4 font-bold text-white text-lg flex items-center justify-center gap-2"
+          style={{ background: 'linear-gradient(90deg, #008CE5, #0070B8)' }}
         >
           {last ? 'Get Started' : 'Next'}
           {!last && <ChevronRight className="w-5 h-5" />}

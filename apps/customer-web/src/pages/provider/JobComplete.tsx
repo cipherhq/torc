@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { CheckCircle, DollarSign, Star, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useJob } from '../../context/JobContext';
+import { ProviderBottomNav } from '../../components/ProviderBottomNav';
 
 export function JobComplete() {
   const navigate = useNavigate();
@@ -50,8 +51,8 @@ export function JobComplete() {
     <div className="min-h-screen bg-[#252B3D] relative overflow-hidden">
       {/* Animated background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full animate-pulse" />
-        <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#0070B8] opacity-10 blur-[120px] rounded-full animate-pulse" style={{ animationDelay: '1s' }} />
       </div>
 
       <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-6">
@@ -60,12 +61,12 @@ export function JobComplete() {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', duration: 0.6 }}
-          className="w-32 h-32 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mb-8"
+          className="w-32 h-32 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-8"
           style={{
             boxShadow: '0 20px 60px rgba(46, 255, 175, 0.4)',
           }}
         >
-          <CheckCircle className="w-16 h-16 text-[#0F1419]" />
+          <CheckCircle className="w-16 h-16 text-white" />
         </motion.div>
 
         <motion.h1
@@ -111,7 +112,7 @@ export function JobComplete() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-white/60">Tip</span>
-              <span className="text-[#2EFFAF] font-semibold">+{job.tip}</span>
+              <span className="text-[#008CE5] font-semibold">+{job.tip}</span>
             </div>
             <div className="border-t border-white/10 pt-3 flex items-center justify-between">
               <span className="text-white font-bold text-lg">Total Earned</span>
@@ -142,7 +143,7 @@ export function JobComplete() {
                 <Star
                   className={`w-12 h-12 ${
                     star <= rating
-                      ? 'text-[#2EFFAF] fill-[#2EFFAF]'
+                      ? 'text-[#008CE5] fill-[#008CE5]'
                       : 'text-white/20'
                   }`}
                 />
@@ -165,7 +166,7 @@ export function JobComplete() {
                     onClick={() => toggleTag(tag)}
                     className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
                       tags.includes(tag)
-                        ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                        ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                         : 'bg-white/5 text-white/60'
                     }`}
                   >
@@ -185,11 +186,13 @@ export function JobComplete() {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={handleSubmit}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30"
+          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30"
         >
           {rating > 0 ? 'Submit & Continue' : 'Skip Rating'}
         </motion.button>
       </div>
+
+      <ProviderBottomNav />
     </div>
   );
 }

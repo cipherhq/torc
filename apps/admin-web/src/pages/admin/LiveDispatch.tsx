@@ -1,110 +1,169 @@
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { AdminSidebar } from '../../components/AdminSidebar';
-import { MapPin, Navigation, Clock, AlertCircle, CheckCircle, Users, Activity } from 'lucide-react';
-import { useState } from 'react';
+import { AdminLayout } from '../../components/AdminLayout';
+import { supabase } from '../../lib/supabase';
+import { Activity, MapPin, Clock, RefreshCw, Navigation, AlertCircle, Search } from 'lucide-react';
 
-interface Job {
+interface JobRow {
   id: string;
-  customer: string;
-  provider: string | null;
-  service: string;
-  location: { x: number; y: number; address: string };
-  status: 'pending' | 'matched' | 'enroute' | 'inprogress' | 'completed';
-  priority: 'normal' | 'urgent';
-  timestamp: string;
-  eta?: number;
+  status: string;
+  pickup_address: string | null;
+  pickup_latitude: number | null;
+  pickup_longitude: number | null;
+  destination_address: string | null;
+  total_amount: number | null;
+  created_at: string;
+  started_at: string | null;
+  customer: { full_name: string | null } | null;
+  provider: { full_name: string | null } | null;
+  service: { name: string | null } | null;
+}
+
+const ACTIVE_STATUSES = ['pending', 'matching', 'accepted', 'enroute', 'arrived', 'inprogress'];
+
+const STATUS_BADGE: Record<string, { bg: string; label: string }> = {
+  pending:    { bg: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
+  matching:   { bg: 'bg-blue-100 text-blue-800', label: 'Matching' },
+  accepted:   { bg: 'bg-sky-100 text-sky-800', label: 'Accepted' },
+  enroute:    { bg: 'bg-indigo-100 text-indigo-800', label: 'En Route' },
+  arrived:    { bg: 'bg-purple-100 text-purple-800', label: 'Arrived' },
+  inprogress: { bg: 'bg-orange-100 text-orange-800', label: 'In Progress' },
+};
+
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.max(1, Math.floor(diffMs / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export function AdminLiveDispatch() {
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const jobs: Job[] = [
-    {
-      id: 'JOB-2045',
-      customer: 'Sarah Johnson',
-      provider: 'Marcus Rodriguez',
-      service: 'Jump Start',
-      location: { x: 35, y: 45, address: '1234 Market St, SF' },
-      status: 'enroute',
-      priority: 'normal',
-      timestamp: '2 min ago',
-      eta: 12,
-    },
-    {
-      id: 'JOB-2046',
-      customer: 'Mike Chen',
-      provider: null,
-      service: 'Towing',
-      location: { x: 65, y: 30, address: '567 Mission St, SF' },
-      status: 'pending',
-      priority: 'urgent',
-      timestamp: '1 min ago',
-    },
-    {
-      id: 'JOB-2044',
-      customer: 'Emma Davis',
-      provider: 'Sarah Williams',
-      service: 'Tire Change',
-      location: { x: 50, y: 70, address: '890 Valencia St, SF' },
-      status: 'inprogress',
-      priority: 'normal',
-      timestamp: '15 min ago',
-    },
-    {
-      id: 'JOB-2043',
-      customer: 'John Smith',
-      provider: 'James Chen',
-      service: 'Fuel Delivery',
-      location: { x: 25, y: 60, address: '234 Castro St, SF' },
-      status: 'matched',
-      priority: 'normal',
-      timestamp: '5 min ago',
-      eta: 8,
-    },
-  ];
+  const fetchJobs = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      setError(null);
 
-  const stats = [
-    { label: 'Active Jobs', value: jobs.filter(j => j.status !== 'completed').length, icon: Activity, color: 'from-[#2EFFAF] to-[#007AFF]' },
-    { label: 'Providers Online', value: 24, icon: Users, color: 'from-green-400 to-emerald-500' },
-    { label: 'Pending Requests', value: jobs.filter(j => j.status === 'pending').length, icon: AlertCircle, color: 'from-orange-400 to-red-500' },
-    { label: 'Avg Response Time', value: '3.2 min', icon: Clock, color: 'from-purple-400 to-pink-500' },
-  ];
+      const { data, error: fetchError } = await supabase
+        .from('jobs')
+        .select(`
+          id,
+          status,
+          pickup_address,
+          pickup_latitude,
+          pickup_longitude,
+          destination_address,
+          total_amount,
+          created_at,
+          started_at,
+          customer:profiles!jobs_customer_id_fkey ( full_name ),
+          provider:profiles!jobs_provider_id_fkey ( full_name ),
+          service:services!jobs_service_id_fkey ( name )
+        `)
+        .in('status', ACTIVE_STATUSES)
+        .order('created_at', { ascending: false });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-orange-500';
-      case 'matched': return 'bg-blue-500';
-      case 'enroute': return 'bg-[#007AFF]';
-      case 'inprogress': return 'bg-purple-500';
-      case 'completed': return 'bg-[#2EFFAF]';
-      default: return 'bg-gray-500';
+      if (fetchError) throw fetchError;
+      setJobs((data as unknown as JobRow[]) ?? []);
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to load jobs');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
+
+  // Initial fetch + 30-second polling
+  useEffect(() => {
+    fetchJobs();
+    const interval = setInterval(() => fetchJobs(true), 30_000);
+    return () => clearInterval(interval);
+  }, [fetchJobs]);
+
+  // Realtime subscription for live updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('live-dispatch-jobs')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'jobs' },
+        () => fetchJobs(true),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchJobs]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchJobs(true);
   };
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'pending': return 'Matching...';
-      case 'matched': return 'Provider Assigned';
-      case 'enroute': return 'Provider En Route';
-      case 'inprogress': return 'Service In Progress';
-      case 'completed': return 'Completed';
-      default: return status;
-    }
-  };
+  // Derived stats
+  const stats = useMemo(() => {
+    const active = jobs.length;
+    const pending = jobs.filter(j => j.status === 'pending' || j.status === 'matching').length;
+    const enroute = jobs.filter(j => j.status === 'enroute' || j.status === 'accepted').length;
+    const inprogress = jobs.filter(j => j.status === 'inprogress' || j.status === 'arrived').length;
+
+    return [
+      { label: 'Active Jobs', value: active, icon: Activity, bgColor: '#008CE5' },
+      { label: 'Pending', value: pending, icon: AlertCircle, bgColor: '#EAB308' },
+      { label: 'En Route', value: enroute, icon: Navigation, bgColor: '#6366F1' },
+      { label: 'In Progress', value: inprogress, icon: Clock, bgColor: '#F97316' },
+    ];
+  }, [jobs]);
+
+  // Filtered jobs
+  const filteredJobs = useMemo(() => {
+    if (!search.trim()) return jobs;
+    const q = search.toLowerCase();
+    return jobs.filter(j => {
+      const customerName = j.customer?.full_name?.toLowerCase() ?? '';
+      const providerName = j.provider?.full_name?.toLowerCase() ?? '';
+      const address = j.pickup_address?.toLowerCase() ?? '';
+      const dest = j.destination_address?.toLowerCase() ?? '';
+      return (
+        customerName.includes(q) ||
+        providerName.includes(q) ||
+        address.includes(q) ||
+        dest.includes(q)
+      );
+    });
+  }, [jobs, search]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] flex">
-      <AdminSidebar />
-
-      <div className="flex-1 ml-64 p-8">
+    <AdminLayout>
+      <div className="p-8 max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-white text-3xl font-bold mb-2">Live Dispatch</h1>
-          <p className="text-white/60">Real-time job monitoring and management</p>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-gray-900 text-3xl font-bold mb-1">Live Dispatch</h1>
+            <p className="text-gray-500 text-sm">Real-time active job monitoring</p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 cursor-pointer"
+            style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)', color: '#FFFFFF' }}
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-6 mb-8">
+        {/* Stat Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-8">
           {stats.map((stat, index) => {
             const Icon = stat.icon;
             return (
@@ -112,194 +171,133 @@ export function AdminLiveDispatch() {
                 key={stat.label}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="glass rounded-[24px] p-6"
+                transition={{ delay: index * 0.08 }}
+                className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${stat.color} flex items-center justify-center`}>
-                    <Icon className="w-6 h-6 text-white" />
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: stat.bgColor }}>
+                    <Icon className="w-5 h-5 text-white" />
                   </div>
+                  <span className="text-gray-500 text-sm font-medium">{stat.label}</span>
                 </div>
-                <p className="text-white/60 text-sm mb-1">{stat.label}</p>
-                <p className="text-white text-2xl font-bold">{stat.value}</p>
+                <p className="text-gray-900 text-3xl font-bold">{stat.value}</p>
               </motion.div>
             );
           })}
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
-          {/* Map View */}
-          <div className="col-span-2">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass rounded-[24px] p-6 h-[600px] relative overflow-hidden"
-            >
-              <h2 className="text-white font-bold text-xl mb-4">Service Area Map</h2>
-              
-              {/* Simplified Map Background */}
-              <div className="absolute inset-6 top-16 rounded-[16px] overflow-hidden bg-gradient-to-br from-[#1A1F2E] via-[#252B3D] to-[#2F3548]">
-                {/* Grid */}
-                <div className="absolute inset-0 opacity-20">
-                  <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                      <pattern id="dispatch-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(46, 255, 175, 0.3)" strokeWidth="1"/>
-                      </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#dispatch-grid)" />
-                  </svg>
-                </div>
-
-                {/* Street Lines */}
-                <svg className="absolute inset-0 w-full h-full opacity-20">
-                  <line x1="0" y1="30%" x2="100%" y2="30%" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-                  <line x1="0" y1="60%" x2="100%" y2="60%" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-                  <line x1="30%" y1="0" x2="30%" y2="100%" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-                  <line x1="70%" y1="0" x2="70%" y2="100%" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-                </svg>
-
-                {/* Job Markers */}
-                {jobs.map((job) => (
-                  <motion.div
-                    key={job.id}
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    whileHover={{ scale: 1.2 }}
-                    onClick={() => setSelectedJob(job.id)}
-                    style={{
-                      position: 'absolute',
-                      left: `${job.location.x}%`,
-                      top: `${job.location.y}%`,
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <div className="relative">
-                      {/* Pulse effect for pending */}
-                      {job.status === 'pending' && (
-                        <motion.div
-                          animate={{ scale: [1, 2, 1], opacity: [0.5, 0, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity }}
-                          className="absolute inset-0 rounded-full bg-orange-500"
-                        />
-                      )}
-                      
-                      {/* Marker */}
-                      <div className={`w-8 h-8 rounded-full ${getStatusColor(job.status)} border-4 border-white/30 shadow-lg flex items-center justify-center relative z-10`}>
-                        {job.status === 'enroute' && (
-                          <Navigation className="w-4 h-4 text-white" />
-                        )}
-                        {job.status === 'pending' && (
-                          <AlertCircle className="w-4 h-4 text-white" />
-                        )}
-                        {job.status === 'inprogress' && (
-                          <Activity className="w-4 h-4 text-white" />
-                        )}
-                      </div>
-
-                      {/* Label */}
-                      {selectedJob === job.id && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="absolute top-10 left-1/2 -translate-x-1/2 glass-light rounded-[12px] px-3 py-2 whitespace-nowrap"
-                        >
-                          <p className="text-white font-semibold text-xs">{job.id}</p>
-                          <p className="text-white/70 text-xs">{job.service}</p>
-                        </motion.div>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* Legend */}
-              <div className="absolute bottom-6 left-6 glass-light rounded-[16px] p-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-orange-500" />
-                    <span className="text-white text-xs">Pending</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-[#007AFF]" />
-                    <span className="text-white text-xs">En Route</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-purple-500" />
-                    <span className="text-white text-xs">In Progress</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-[#2EFFAF]" />
-                    <span className="text-white text-xs">Completed</span>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Job List */}
-          <div className="col-span-1">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass rounded-[24px] p-6 h-[600px] overflow-y-auto"
-            >
-              <h2 className="text-white font-bold text-xl mb-4">Active Jobs</h2>
-              
-              <div className="space-y-3">
-                {jobs.map((job, index) => (
-                  <motion.div
-                    key={job.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    onClick={() => setSelectedJob(job.id)}
-                    className={`glass-light rounded-[16px] p-4 cursor-pointer transition-all border-2 ${
-                      selectedJob === job.id
-                        ? 'border-[#2EFFAF]/50'
-                        : 'border-transparent hover:border-white/10'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="text-white font-bold text-sm">{job.id}</p>
-                        <p className="text-white/60 text-xs">{job.timestamp}</p>
-                      </div>
-                      {job.priority === 'urgent' && (
-                        <div className="px-2 py-1 rounded-full bg-red-500/20 text-red-400 text-xs font-semibold">
-                          URGENT
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2 mb-3">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3 h-3 text-[#2EFFAF]" />
-                        <p className="text-white/70 text-xs">{job.service}</p>
-                      </div>
-                      <p className="text-white text-sm font-semibold">{job.customer}</p>
-                      {job.provider && (
-                        <p className="text-white/60 text-xs">Provider: {job.provider}</p>
-                      )}
-                    </div>
-
-                    <div className={`px-3 py-1.5 rounded-full text-xs font-semibold text-white ${getStatusColor(job.status)} inline-block`}>
-                      {getStatusLabel(job.status)}
-                    </div>
-
-                    {job.eta && (
-                      <p className="text-[#2EFFAF] text-xs font-semibold mt-2">
-                        ETA: {job.eta} min
-                      </p>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-          </div>
+        {/* Search */}
+        <div className="mb-6 relative max-w-md">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name or address..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#008CE5]/30 focus:border-[#008CE5]"
+          />
         </div>
+
+        {/* Error State */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+            <p className="text-red-700 text-sm">{error}</p>
+            <button
+              onClick={handleRefresh}
+              className="ml-auto text-red-600 text-sm font-medium underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-24">
+            <RefreshCw className="w-8 h-8 text-[#008CE5] animate-spin mb-4" />
+            <p className="text-gray-500 text-sm">Loading active jobs...</p>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!loading && !error && filteredJobs.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 bg-white shadow-sm border border-gray-100 rounded-[24px]">
+            <Activity className="w-12 h-12 text-gray-300 mb-4" />
+            <p className="text-gray-900 font-semibold text-lg mb-1">No active jobs</p>
+            <p className="text-gray-500 text-sm">
+              {search.trim() ? 'No jobs match your search.' : 'There are no active jobs at this time.'}
+            </p>
+          </div>
+        )}
+
+        {/* Job List */}
+        {!loading && filteredJobs.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {filteredJobs.map((job, index) => {
+              const badge = STATUS_BADGE[job.status] ?? { bg: 'bg-gray-100 text-gray-700', label: job.status };
+              const customerName = job.customer?.full_name ?? 'Unknown Customer';
+              const providerName = job.provider?.full_name ?? null;
+              const serviceName = job.service?.name ?? 'Service';
+
+              return (
+                <motion.div
+                  key={job.id}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.04 }}
+                  className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-5 hover:shadow-md transition-shadow"
+                >
+                  {/* Top row: service + badge */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <p className="text-gray-900 font-bold text-base">{serviceName}</p>
+                      <p className="text-gray-400 text-xs mt-0.5">ID: {job.id.slice(0, 8)}</p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${badge.bg}`}>
+                      {badge.label}
+                    </span>
+                  </div>
+
+                  {/* People */}
+                  <div className="space-y-1.5 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500 text-xs w-16 flex-shrink-0">Customer</span>
+                      <span className="text-gray-900 text-sm font-medium truncate">{customerName}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500 text-xs w-16 flex-shrink-0">Provider</span>
+                      <span className={`text-sm font-medium truncate ${providerName ? 'text-gray-900' : 'text-gray-400 italic'}`}>
+                        {providerName ?? 'Unassigned'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Address */}
+                  {job.pickup_address && (
+                    <div className="flex items-start gap-2 mb-3">
+                      <MapPin className="w-4 h-4 text-[#008CE5] flex-shrink-0 mt-0.5" />
+                      <p className="text-gray-600 text-xs leading-relaxed line-clamp-2">{job.pickup_address}</p>
+                    </div>
+                  )}
+
+                  {/* Footer: time */}
+                  <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                    <Clock className="w-3.5 h-3.5 text-gray-400" />
+                    <span className="text-gray-500 text-xs">{timeAgo(job.created_at)}</span>
+                    {job.total_amount != null && (
+                      <>
+                        <span className="text-gray-300 text-xs mx-1">|</span>
+                        <span className="text-gray-900 text-xs font-semibold">${job.total_amount.toFixed(2)}</span>
+                      </>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
+    </AdminLayout>
   );
 }

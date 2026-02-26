@@ -18,10 +18,10 @@ interface DashboardAlert {
 export function AdminDashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState([
-    { label: 'Active Jobs', value: '0', icon: Briefcase, color: 'from-[#2EFFAF] to-[#007AFF]', path: '/admin/jobs' },
-    { label: 'Online Providers', value: '0', icon: Users, color: 'from-[#007AFF] to-[#2EFFAF]', path: '/admin/providers' },
-    { label: 'Today Revenue', value: '$0', icon: DollarSign, color: 'from-[#2EFFAF] to-[#007AFF]', path: '/admin/payments' },
-    { label: 'Total Users', value: '0', icon: Users, color: 'from-[#007AFF] to-[#2EFFAF]', path: '/admin/users' },
+    { label: 'Active Jobs', value: '0', icon: Briefcase, color: 'from-[#008CE5] to-[#0070B8]', path: '/admin/jobs' },
+    { label: 'Online Providers', value: '0', icon: Users, color: 'from-[#0070B8] to-[#008CE5]', path: '/admin/providers' },
+    { label: 'Today Revenue', value: '$0', icon: DollarSign, color: 'from-[#008CE5] to-[#0070B8]', path: '/admin/payments' },
+    { label: 'Total Users', value: '0', icon: Users, color: 'from-[#0070B8] to-[#008CE5]', path: '/admin/users' },
   ]);
   const [loading, setLoading] = useState(true);
   const [ops, setOps] = useState({
@@ -49,7 +49,7 @@ export function AdminDashboard() {
     { label: 'Live Dispatch', value: stats[0]?.value || '0', subtitle: 'Currently active jobs', icon: MessageSquare, path: '/admin/live-dispatch' },
     { label: 'Service Pricing', value: `${ops.totalServices}`, subtitle: 'Configured services', icon: Wrench, path: '/admin/services' },
     { label: 'Support Tickets', value: `${ops.openTickets}`, subtitle: `${ops.slaBreaches} SLA breach(es)`, icon: LifeBuoy, path: '/admin/support' },
-    { label: 'Finance (P&L)', value: `$${ops.refundsExposure.toFixed(0)}`, subtitle: `Pending refund exposure @ ${ops.platformFeePercent.toFixed(1)}% fee`, icon: LineChart, path: '/admin/finance' },
+    { label: 'Financial Hub', value: `$${ops.refundsExposure.toFixed(0)}`, subtitle: `Pending refund exposure @ ${ops.platformFeePercent.toFixed(1)}% fee`, icon: LineChart, path: '/admin/finance' },
     { label: 'Reporting Hub', value: `${ops.failedPayments}`, subtitle: 'Failed payments to review', icon: LineChart, path: '/admin/reporting' },
   ];
 
@@ -283,10 +283,10 @@ export function AdminDashboard() {
         }
 
         setStats([
-          { label: 'Active Jobs', value: String(activeJobsCount || 0), icon: Briefcase, color: 'from-[#2EFFAF] to-[#007AFF]', path: '/admin/jobs' },
-          { label: 'Online Providers', value: String(providersCount || 0), icon: Users, color: 'from-[#007AFF] to-[#2EFFAF]', path: '/admin/providers' },
-          { label: 'Today Revenue', value: revenueFormatted, icon: DollarSign, color: 'from-[#2EFFAF] to-[#007AFF]', path: '/admin/payments' },
-          { label: 'Total Users', value: String(userCount || 0), icon: Users, color: 'from-[#007AFF] to-[#2EFFAF]', path: '/admin/users' },
+          { label: 'Active Jobs', value: String(activeJobsCount || 0), icon: Briefcase, color: 'from-[#008CE5] to-[#0070B8]', path: '/admin/jobs' },
+          { label: 'Online Providers', value: String(providersCount || 0), icon: Users, color: 'from-[#0070B8] to-[#008CE5]', path: '/admin/providers' },
+          { label: 'Today Revenue', value: revenueFormatted, icon: DollarSign, color: 'from-[#008CE5] to-[#0070B8]', path: '/admin/payments' },
+          { label: 'Total Users', value: String(userCount || 0), icon: Users, color: 'from-[#0070B8] to-[#008CE5]', path: '/admin/users' },
         ]);
         setOps({
           pendingProviders: pendingProvidersCount || 0,
@@ -365,7 +365,7 @@ export function AdminDashboard() {
                   className="text-left rounded-2xl p-4 bg-white/5 hover:bg-white/10 border border-white/10"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <Icon className="w-5 h-5 text-[#2EFFAF]" />
+                    <Icon className="w-5 h-5 text-[#008CE5]" />
                     <span className="text-white font-bold text-lg">{card.value}</span>
                   </div>
                   <p className="text-white font-semibold">{card.label}</p>
@@ -386,7 +386,7 @@ export function AdminDashboard() {
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-white">Recent Alerts</h2>
-              <button className="text-[#2EFFAF] text-sm font-semibold hover:underline">
+              <button className="text-[#008CE5] text-sm font-semibold hover:underline">
                 View All
               </button>
             </div>
@@ -403,7 +403,7 @@ export function AdminDashboard() {
                       ? 'text-red-400'
                       : alert.type === 'warning'
                         ? 'text-orange-400'
-                        : 'text-[#007AFF]'
+                        : 'text-[#0070B8]'
                   }`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-white font-medium">{alert.message}</p>
@@ -425,7 +425,7 @@ export function AdminDashboard() {
             <div className="space-y-3">
               <button 
                 onClick={() => navigate('/admin/jobs')}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold hover:shadow-lg transition-all"
+                className="w-full p-4 rounded-2xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold hover:shadow-lg transition-all"
               >
                 Monitor Active Jobs
               </button>
@@ -457,7 +457,7 @@ export function AdminDashboard() {
                 onClick={() => navigate('/admin/finance')}
                 className="w-full p-4 rounded-2xl glass text-white font-semibold hover:bg-white/10 transition-all"
               >
-                Open Finance (P&amp;L)
+                Open Financial Hub
               </button>
               <button
                 onClick={() => navigate('/admin/reporting')}
@@ -478,7 +478,7 @@ export function AdminDashboard() {
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">Pending Provider Queue</h2>
-              <button onClick={() => navigate('/admin/provider-approval')} className="text-[#2EFFAF] text-sm font-semibold hover:underline">
+              <button onClick={() => navigate('/admin/provider-approval')} className="text-[#008CE5] text-sm font-semibold hover:underline">
                 View queue
               </button>
             </div>
@@ -508,7 +508,7 @@ export function AdminDashboard() {
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-white">Urgent Tickets</h2>
-              <button onClick={() => navigate('/admin/support')} className="text-[#2EFFAF] text-sm font-semibold hover:underline">
+              <button onClick={() => navigate('/admin/support')} className="text-[#008CE5] text-sm font-semibold hover:underline">
                 View tickets
               </button>
             </div>

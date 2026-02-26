@@ -25,8 +25,9 @@ export function ForgotPassword() {
 
     setLoading(true);
     try {
+      const siteUrl = import.meta.env.VITE_APP_URL || window.location.origin;
       const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${siteUrl}/auth/callback`,
       });
       if (error) throw error;
       setSent(true);
@@ -49,12 +50,12 @@ export function ForgotPassword() {
       <div className="absolute inset-0 pointer-events-none">
         <div
           className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] rounded-full"
-          style={{ backgroundColor: '#2EFFAF', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
+          style={{ backgroundColor: '#008CE5', filter: 'blur(180px)', opacity: isDark ? 0.08 : 0.04 }}
         />
       </div>
 
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate('/login')}
@@ -78,36 +79,36 @@ export function ForgotPassword() {
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 200, delay: 0.1 }}
               className="w-24 h-24 rounded-full mx-auto mb-6 flex items-center justify-center"
-              style={{ backgroundColor: 'rgba(46,255,175,0.15)' }}
+              style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}
             >
-              <CheckCircle className="w-12 h-12" style={{ color: '#2EFFAF' }} />
+              <CheckCircle className="w-12 h-12" style={{ color: '#008CE5' }} />
             </motion.div>
 
             <h1 className="text-3xl font-bold mb-3" style={{ color: textColor }}>Check Your Email</h1>
             <p className="mb-2" style={{ color: subColor }}>
               We sent a password reset link to
             </p>
-            <p className="font-semibold text-lg mb-8" style={{ color: '#2EFFAF' }}>{email}</p>
+            <p className="font-semibold text-lg mb-8" style={{ color: '#008CE5' }}>{email}</p>
 
             <div
               className="rounded-[24px] p-6 mb-6 text-left"
               style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
               }}
             >
               <h3 className="font-semibold mb-3" style={{ color: textColor }}>What's next?</h3>
               <ol className="space-y-2 text-sm" style={{ color: subColor }}>
                 <li className="flex gap-3">
-                  <span className="font-bold" style={{ color: '#2EFFAF' }}>1.</span>
+                  <span className="font-bold" style={{ color: '#008CE5' }}>1.</span>
                   <span>Check your email inbox (and spam folder)</span>
                 </li>
                 <li className="flex gap-3">
-                  <span className="font-bold" style={{ color: '#2EFFAF' }}>2.</span>
+                  <span className="font-bold" style={{ color: '#008CE5' }}>2.</span>
                   <span>Click the password reset link</span>
                 </li>
                 <li className="flex gap-3">
-                  <span className="font-bold" style={{ color: '#2EFFAF' }}>3.</span>
+                  <span className="font-bold" style={{ color: '#008CE5' }}>3.</span>
                   <span>Set your new password</span>
                 </li>
               </ol>
@@ -116,7 +117,7 @@ export function ForgotPassword() {
             <button
               onClick={() => navigate('/login')}
               className="font-semibold hover:underline"
-              style={{ color: '#2EFFAF' }}
+              style={{ color: '#008CE5' }}
             >
               Back to Login
             </button>
@@ -130,9 +131,9 @@ export function ForgotPassword() {
           >
             <div
               className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, rgba(46,255,175,0.2), rgba(0,122,255,0.2))' }}
+              style={{ background: 'linear-gradient(135deg, rgba(0,140,229,0.2), rgba(0,122,255,0.2))' }}
             >
-              <KeyRound className="w-10 h-10" style={{ color: '#2EFFAF' }} />
+              <KeyRound className="w-10 h-10" style={{ color: '#008CE5' }} />
             </div>
 
             <h1 className="text-3xl font-bold mb-2" style={{ color: textColor }}>
@@ -166,13 +167,13 @@ export function ForgotPassword() {
                   Email Address
                 </label>
                 <div
-                  className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#2EFFAF]/50"
+                  className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                   style={{
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB',
-                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
                   }}
                 >
-                  <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#2EFFAF' }} />
+                  <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                   <input
                     type="email"
                     placeholder="you@example.com"
@@ -190,7 +191,7 @@ export function ForgotPassword() {
                 whileTap={{ scale: 0.98 }}
                 type="submit"
                 disabled={!email.trim() || loading}
-                className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
@@ -207,7 +208,7 @@ export function ForgotPassword() {
               <button
                 onClick={() => navigate('/login')}
                 className="font-semibold hover:underline"
-                style={{ color: '#2EFFAF' }}
+                style={{ color: '#008CE5' }}
               >
                 Back to Login
               </button>

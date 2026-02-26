@@ -118,7 +118,7 @@ export function AdminLiveDispatch() {
   }, []);
 
   const stats = [
-    { label: 'Active Jobs', value: jobs.filter(j => j.status !== 'completed').length, icon: Activity, color: 'from-[#2EFFAF] to-[#007AFF]' },
+    { label: 'Active Jobs', value: jobs.filter(j => j.status !== 'completed').length, icon: Activity, color: 'from-[#008CE5] to-[#0070B8]' },
     { label: 'Providers Assigned', value: jobs.filter(j => !!j.providerId).length, icon: Users, color: 'from-green-400 to-emerald-500' },
     { label: 'Pending Requests', value: jobs.filter(j => j.status === 'pending').length, icon: AlertCircle, color: 'from-orange-400 to-red-500' },
     { label: 'Open Conversations', value: messages.length, icon: Clock, color: 'from-purple-400 to-pink-500' },
@@ -128,9 +128,9 @@ export function AdminLiveDispatch() {
     switch (status) {
       case 'pending': return 'bg-orange-500';
       case 'matched': return 'bg-blue-500';
-      case 'enroute': return 'bg-[#007AFF]';
+      case 'enroute': return 'bg-[#0070B8]';
       case 'inprogress': return 'bg-purple-500';
-      case 'completed': return 'bg-[#2EFFAF]';
+      case 'completed': return 'bg-[#008CE5]';
       default: return 'bg-gray-500';
     }
   };
@@ -239,7 +239,7 @@ export function AdminLiveDispatch() {
                       transition={{ delay: index * 0.05 }}
                       onClick={() => setSelectedJob(job.id)}
                       className={`glass-light rounded-[16px] p-4 cursor-pointer transition-all border-2 ${
-                        selectedJob === job.id ? 'border-[#2EFFAF]/50' : 'border-transparent hover:border-white/10'
+                        selectedJob === job.id ? 'border-[#008CE5]/50' : 'border-transparent hover:border-white/10'
                       }`}
                     >
                       <div className="flex items-start justify-between mb-2">
@@ -253,7 +253,7 @@ export function AdminLiveDispatch() {
                       </div>
                       <div className="space-y-1.5 mb-2">
                         <div className="flex items-center gap-2">
-                          <MapPin className="w-3 h-3 text-[#2EFFAF]" />
+                          <MapPin className="w-3 h-3 text-[#008CE5]" />
                           <p className="text-white/70 text-xs">{job.location.address}</p>
                         </div>
                         <p className="text-white text-sm font-semibold">{job.service}</p>
@@ -281,7 +281,7 @@ export function AdminLiveDispatch() {
 
               <div className="glass-light rounded-2xl p-4 mb-4">
                 <h3 className="text-white font-semibold mb-2 flex items-center gap-2">
-                  <Send className="w-4 h-4 text-[#2EFFAF]" />
+                  <Send className="w-4 h-4 text-[#008CE5]" />
                   Broadcast message
                 </h3>
                 <select
@@ -304,7 +304,7 @@ export function AdminLiveDispatch() {
                 <button
                   onClick={sendAnnouncement}
                   disabled={sending || !announcement.trim()}
-                  className="mt-3 w-full rounded-xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419] font-semibold py-2 disabled:opacity-50"
+                  className="mt-3 w-full rounded-xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold py-2 disabled:opacity-50"
                 >
                   {sending ? 'Sending...' : 'Send announcement'}
                 </button>
@@ -313,7 +313,7 @@ export function AdminLiveDispatch() {
 
               <div className="glass-light rounded-2xl p-4">
                 <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-[#2EFFAF]" />
+                  <MessageSquare className="w-4 h-4 text-[#008CE5]" />
                   Recent user/provider messages
                 </h3>
                 {messages.length === 0 ? (

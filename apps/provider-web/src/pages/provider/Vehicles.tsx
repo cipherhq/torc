@@ -41,7 +41,7 @@ export function ProviderVehicles() {
   const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
 
   useEffect(() => {
     if (!user) {
@@ -161,14 +161,14 @@ export function ProviderVehicles() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
-      <div className="p-6 flex items-center gap-4">
+    <div className="min-h-screen" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Back to profile">
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
         <h1 className="text-xl font-bold flex-1" style={{ color: textColor }}>Vehicles</h1>
-        <button onClick={beginAdd} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#2EFFAF] to-[#007AFF]" title="Add vehicle">
-          <Plus className="w-5 h-5 text-[#0F1419]" />
+        <button onClick={beginAdd} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#008CE5] to-[#0070B8]" title="Add vehicle">
+          <Plus className="w-5 h-5 text-white" />
         </button>
       </div>
 
@@ -178,17 +178,17 @@ export function ProviderVehicles() {
             <h3 className="font-semibold mb-4" style={{ color: textColor }}>{editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}</h3>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                <input type="text" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="Make (e.g. Toyota)" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }} />
-                <input type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="Model (e.g. Camry)" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }} />
+                <input type="text" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="Make (e.g. Toyota)" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
+                <input type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="Model (e.g. Camry)" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <input type="text" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} placeholder="Year" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }} />
-                <input type="text" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder="Color" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }} />
-                <input type="text" value={form.plate} onChange={(e) => setForm({ ...form, plate: e.target.value })} placeholder="Plate" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB' }} />
+                <input type="text" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} placeholder="Year" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
+                <input type="text" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder="Color" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
+                <input type="text" value={form.plate} onChange={(e) => setForm({ ...form, plate: e.target.value })} placeholder="Plate" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => { setShowForm(false); setEditingVehicleId(null); setForm(emptyForm); }} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F3F4F6', color: subColor }}>Cancel</button>
-                <button onClick={saveVehicle} disabled={!form.make.trim() || !form.model.trim() || saving} className="flex-1 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-xl py-3 font-bold text-sm text-[#0F1419] disabled:opacity-50">
+                <button onClick={() => { setShowForm(false); setEditingVehicleId(null); setForm(emptyForm); }} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F2ED', color: subColor }}>Cancel</button>
+                <button onClick={saveVehicle} disabled={!form.make.trim() || !form.model.trim() || saving} className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl py-3 font-bold text-sm text-white disabled:opacity-50">
                   {saving ? 'Saving...' : editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}
                 </button>
               </div>
@@ -203,7 +203,7 @@ export function ProviderVehicles() {
         )}
 
         {loading ? (
-          <div className="text-center py-12"><div className="w-8 h-8 border-2 border-[#2EFFAF] border-t-transparent rounded-full animate-spin mx-auto" /></div>
+          <div className="text-center py-12"><div className="w-8 h-8 border-2 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto" /></div>
         ) : vehicles.length === 0 ? (
           <div className="text-center py-16">
             <Car className="w-16 h-16 mx-auto mb-4" style={{ color: subColor }} />
@@ -213,21 +213,21 @@ export function ProviderVehicles() {
         ) : (
           <div className="space-y-3">
             {vehicles.map((v, i) => (
-              <motion.div key={v.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="rounded-2xl p-4 flex items-center gap-4" style={{ backgroundColor: cardBg, border: `1px solid ${v.is_default ? '#2EFFAF' : cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)' }}>
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(46,255,175,0.1)' }}>
-                  <Car className="w-6 h-6" style={{ color: '#2EFFAF' }} />
+              <motion.div key={v.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="rounded-2xl p-4 flex items-center gap-4" style={{ backgroundColor: cardBg, border: `1px solid ${v.is_default ? '#008CE5' : cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 2px rgba(0,0,0,0.04)' }}>
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
+                  <Car className="w-6 h-6" style={{ color: '#008CE5' }} />
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold" style={{ color: textColor }}>{v.year ? `${v.year} ` : ''}{v.make} {v.model}</p>
                   <p className="text-sm" style={{ color: subColor }}>{[v.color, v.plate].filter(Boolean).join(' • ') || 'No details'}</p>
                 </div>
-                {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(46,255,175,0.15)', color: '#2EFFAF' }}>Default</span>}
+                {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>Default</span>}
                 {!v.is_default && (
-                  <button onClick={() => setDefaultVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6' }} title="Set as default">
+                  <button onClick={() => setDefaultVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }} title="Set as default">
                     <Star className="w-4 h-4" style={{ color: subColor }} />
                   </button>
                 )}
-                <button onClick={() => beginEdit(v)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F3F4F6' }} title="Edit vehicle">
+                <button onClick={() => beginEdit(v)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }} title="Edit vehicle">
                   <Pencil className="w-4 h-4" style={{ color: subColor }} />
                 </button>
                 <button onClick={() => deleteVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.08)' }} title="Delete vehicle">

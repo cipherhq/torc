@@ -61,7 +61,7 @@ export function ProviderProfile() {
     <div className="min-h-screen bg-[#252B3D] relative overflow-hidden pb-24">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -85,27 +85,27 @@ export function ProviderProfile() {
           className="glass rounded-[32px] p-6 text-center"
         >
           <div 
-            className="w-24 h-24 rounded-full bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto mb-4"
+            className="w-24 h-24 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-4"
             style={{
               boxShadow: '0 10px 30px rgba(46, 255, 175, 0.3)',
             }}
           >
-            <span className="text-[#0F1419] font-bold text-3xl">{initials}</span>
+            <span className="text-white font-bold text-3xl">{initials}</span>
           </div>
           <h2 className="text-white font-bold text-2xl mb-1">{displayName}</h2>
           <p className="text-white/60 mb-4">Provider since {memberSince}</p>
 
           <div className="grid grid-cols-3 gap-3">
             <div className="glass rounded-2xl p-3">
-              <p className="text-[#2EFFAF] font-bold text-xl">{pRating > 0 ? pRating.toFixed(1) : '-'}</p>
+              <p className="text-[#008CE5] font-bold text-xl">{pRating > 0 ? pRating.toFixed(1) : '-'}</p>
               <p className="text-white/60 text-xs">Rating</p>
             </div>
             <div className="glass rounded-2xl p-3">
-              <p className="text-[#2EFFAF] font-bold text-xl">{pJobs}</p>
+              <p className="text-[#008CE5] font-bold text-xl">{pJobs}</p>
               <p className="text-white/60 text-xs">Jobs</p>
             </div>
             <div className="glass rounded-2xl p-3">
-              <p className="text-[#2EFFAF] font-bold text-xl">{pAccept > 0 ? `${Math.round(pAccept)}%` : '-'}</p>
+              <p className="text-[#008CE5] font-bold text-xl">{pAccept > 0 ? `${Math.round(pAccept)}%` : '-'}</p>
               <p className="text-white/60 text-xs">Accept</p>
             </div>
           </div>
@@ -141,7 +141,7 @@ export function ProviderProfile() {
                     </div>
                     <div className="flex items-center gap-2">
                       {item.badge && (
-                        <span className="px-3 py-1 rounded-full bg-[#2EFFAF]/20 text-[#2EFFAF] text-xs font-semibold">
+                        <span className="px-3 py-1 rounded-full bg-[#008CE5]/20 text-[#008CE5] text-xs font-semibold">
                           {item.badge}
                         </span>
                       )}

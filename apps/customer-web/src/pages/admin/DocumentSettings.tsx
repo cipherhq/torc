@@ -138,7 +138,7 @@ export function DocumentSettings() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowAddModal(true)}
-              className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl px-6 py-3 font-semibold text-[#0F1419] flex items-center gap-2"
+              className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl px-6 py-3 font-semibold text-white flex items-center gap-2"
             >
               <Plus className="w-5 h-5" />
               Add Document Type
@@ -150,7 +150,7 @@ export function DocumentSettings() {
           {/* Stats */}
           <div className="grid grid-cols-4 gap-6 mb-8">
             <div className="glass rounded-[24px] p-6">
-              <FileText className="w-8 h-8 text-[#2EFFAF] mb-3" />
+              <FileText className="w-8 h-8 text-[#008CE5] mb-3" />
               <p className="text-white/60 text-sm">Total Documents</p>
               <p className="text-white text-3xl font-bold">{documents.length}</p>
             </div>
@@ -162,14 +162,14 @@ export function DocumentSettings() {
               </p>
             </div>
             <div className="glass rounded-[24px] p-6">
-              <FileText className="w-8 h-8 text-[#007AFF] mb-3" />
+              <FileText className="w-8 h-8 text-[#0070B8] mb-3" />
               <p className="text-white/60 text-sm">Optional</p>
               <p className="text-white text-3xl font-bold">
                 {documents.filter(d => !d.required).length}
               </p>
             </div>
             <div className="glass rounded-[24px] p-6">
-              <FileText className="w-8 h-8 text-[#2EFFAF] mb-3" />
+              <FileText className="w-8 h-8 text-[#008CE5] mb-3" />
               <p className="text-white/60 text-sm">Active</p>
               <p className="text-white text-3xl font-bold">
                 {documents.filter(d => d.enabled).length}
@@ -198,7 +198,7 @@ export function DocumentSettings() {
                           type="text"
                           value={editForm.name}
                           onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                          className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none"
+                          className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none"
                         />
                       </div>
 
@@ -208,7 +208,7 @@ export function DocumentSettings() {
                           value={editForm.description}
                           onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                           rows={2}
-                          className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none"
+                          className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none"
                         />
                       </div>
 
@@ -219,7 +219,7 @@ export function DocumentSettings() {
                             type="number"
                             value={editForm.maxSizeMB}
                             onChange={(e) => setEditForm({ ...editForm, maxSizeMB: parseInt(e.target.value) })}
-                            className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none"
+                            className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none"
                           />
                         </div>
 
@@ -228,7 +228,7 @@ export function DocumentSettings() {
                           <select
                             value={editForm.required ? 'true' : 'false'}
                             onChange={(e) => setEditForm({ ...editForm, required: e.target.value === 'true' })}
-                            className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none"
+                            className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none"
                           >
                             <option value="true">Yes</option>
                             <option value="false">No</option>
@@ -241,7 +241,7 @@ export function DocumentSettings() {
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={handleSave}
-                          className="flex-1 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-xl py-3 font-semibold text-[#0F1419] flex items-center justify-center gap-2"
+                          className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl py-3 font-semibold text-white flex items-center justify-center gap-2"
                         >
                           <Save className="w-5 h-5" />
                           Save Changes
@@ -291,7 +291,7 @@ export function DocumentSettings() {
                             className="p-2 rounded-xl hover:bg-white/10"
                           >
                             {doc.enabled ? (
-                              <ToggleRight className="w-6 h-6 text-[#2EFFAF]" />
+                              <ToggleRight className="w-6 h-6 text-[#008CE5]" />
                             ) : (
                               <ToggleLeft className="w-6 h-6 text-white/40" />
                             )}
@@ -302,7 +302,7 @@ export function DocumentSettings() {
                             onClick={() => handleEdit(doc)}
                             className="p-2 rounded-xl hover:bg-white/10"
                           >
-                            <Edit2 className="w-5 h-5 text-[#007AFF]" />
+                            <Edit2 className="w-5 h-5 text-[#0070B8]" />
                           </motion.button>
                           <motion.button
                             whileHover={{ scale: 1.1 }}
@@ -357,7 +357,7 @@ export function DocumentSettings() {
                   value={newDoc.name}
                   onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
                   placeholder="e.g., Commercial Driver's License"
-                  className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none placeholder-white/40"
+                  className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none placeholder-white/40"
                 />
               </div>
 
@@ -368,7 +368,7 @@ export function DocumentSettings() {
                   onChange={(e) => setNewDoc({ ...newDoc, description: e.target.value })}
                   placeholder="Brief description of what this document is"
                   rows={3}
-                  className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none placeholder-white/40"
+                  className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none placeholder-white/40"
                 />
               </div>
 
@@ -379,7 +379,7 @@ export function DocumentSettings() {
                     type="number"
                     value={newDoc.maxSizeMB}
                     onChange={(e) => setNewDoc({ ...newDoc, maxSizeMB: parseInt(e.target.value) })}
-                    className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none"
+                    className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none"
                   />
                 </div>
 
@@ -388,7 +388,7 @@ export function DocumentSettings() {
                   <select
                     value={newDoc.required ? 'true' : 'false'}
                     onChange={(e) => setNewDoc({ ...newDoc, required: e.target.value === 'true' })}
-                    className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#2EFFAF] focus:outline-none"
+                    className="w-full bg-white/10 rounded-xl px-4 py-3 text-white border border-white/20 focus:border-[#008CE5] focus:outline-none"
                   >
                     <option value="false">No</option>
                     <option value="true">Yes</option>
@@ -400,7 +400,7 @@ export function DocumentSettings() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleAddDocument}
-                className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 font-bold text-[#0F1419]"
+                className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white"
               >
                 Add Document Type
               </motion.button>

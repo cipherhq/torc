@@ -3,19 +3,26 @@ import { useNavigate } from 'react-router';
 import { ArrowLeft, Clock, Calendar, Zap } from 'lucide-react';
 import { updateRequestContext } from '../../data/requestContext';
 import { useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 
 export function ScheduleService() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [timing, setTiming] = useState<'now' | 'scheduled'>('now');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
+
+  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
 
   const handleContinue = () => {
     let scheduledFor = null;
     if (timing === 'scheduled' && selectedDate && selectedTime) {
       scheduledFor = new Date(`${selectedDate}T${selectedTime}`);
     }
-    
+
     updateRequestContext({ scheduledFor });
     navigate('/pricing');
   };
@@ -27,23 +34,18 @@ export function ScheduleService() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] flex flex-col relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
-      </div>
-
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4">
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
-          whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate(-1)}
-          className="glass rounded-full p-3"
+          className="w-10 h-10 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
         >
-          <ArrowLeft className="w-6 h-6 text-white" />
+          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </motion.button>
-        <h1 className="text-2xl font-bold text-white">When do you need help?</h1>
+        <h1 className="text-xl font-bold" style={{ color: textColor }}>When do you need help?</h1>
       </div>
 
       <div className="relative z-10 flex-1 px-6 pb-32 overflow-y-auto">
@@ -51,120 +53,102 @@ export function ScheduleService() {
         <div className="space-y-4 mb-8">
           {/* Now */}
           <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            whileTap={{ scale: 0.98 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileTap={{ scale: 0.97 }}
             onClick={() => setTiming('now')}
-            className={`w-full rounded-[32px] p-6 flex items-center gap-4 transition-all ${
-              timing === 'now'
-                ? 'bg-gradient-to-r from-[#2EFFAF]/20 to-[#007AFF]/20 border-2 border-[#2EFFAF]'
-                : 'glass'
-            }`}
+            className="w-full rounded-2xl p-5 flex items-center gap-4 transition-all active:opacity-80"
+            style={{
+              backgroundColor: timing === 'now' ? (isDark ? 'rgba(78,205,196,0.12)' : 'rgba(78,205,196,0.08)') : cardBg,
+              border: `2px solid ${timing === 'now' ? '#008CE5' : cardBorder}`,
+              boxShadow: timing === 'now' ? '0 4px 16px rgba(78,205,196,0.25)' : 'none',
+            }}
           >
-            <div 
-              className={`w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 ${
-                timing === 'now'
-                  ? 'bg-gradient-to-br from-[#2EFFAF] to-[#007AFF]'
-                  : 'bg-white/5'
-              }`}
-              style={timing === 'now' ? {
-                boxShadow: '0 8px 24px rgba(46, 255, 175, 0.4)',
-              } : {}}
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{
+                background: timing === 'now' ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED'),
+                boxShadow: timing === 'now' ? '0 6px 20px rgba(78,205,196,0.4)' : 'none',
+              }}
             >
-              <Zap className={`w-8 h-8 ${timing === 'now' ? 'text-[#0A0F1E]' : 'text-white/40'}`} />
+              <Zap className="w-7 h-7" style={{ color: timing === 'now' ? '#0F1419' : subColor }} />
             </div>
             <div className="flex-1 text-left">
-              <h3 className={`text-xl font-bold mb-1 ${timing === 'now' ? 'text-white' : 'text-white/80'}`}>
-                Right Now
-              </h3>
-              <p className="text-white/60 text-sm">Get help as soon as possible</p>
+              <h3 className="text-lg font-bold" style={{ color: textColor }}>Right Now</h3>
+              <p className="text-sm" style={{ color: subColor }}>Get help as soon as possible</p>
               {timing === 'now' && (
-                <p className="text-[#2EFFAF] text-sm mt-2 font-semibold">
+                <p className="text-sm mt-1.5 font-semibold" style={{ color: '#008CE5' }}>
                   Avg arrival: 8-15 minutes
                 </p>
               )}
             </div>
-            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-              timing === 'now' ? 'border-[#2EFFAF]' : 'border-white/40'
-            }`}>
-              {timing === 'now' && (
-                <div className="w-3 h-3 rounded-full bg-[#2EFFAF]" />
-              )}
+            <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{
+              borderColor: timing === 'now' ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.25)' : '#D1D5DB'),
+              backgroundColor: timing === 'now' ? '#008CE5' : 'transparent',
+            }}>
+              {timing === 'now' && <div className="w-2.5 h-2.5 rounded-full bg-[#0F1419]" />}
             </div>
           </motion.button>
 
           {/* Scheduled */}
           <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            whileTap={{ scale: 0.98 }}
+            whileTap={{ scale: 0.97 }}
             onClick={() => setTiming('scheduled')}
-            className={`w-full rounded-[32px] p-6 flex items-center gap-4 transition-all ${
-              timing === 'scheduled'
-                ? 'bg-gradient-to-r from-[#2EFFAF]/20 to-[#007AFF]/20 border-2 border-[#2EFFAF]'
-                : 'glass'
-            }`}
+            className="w-full rounded-2xl p-5 flex items-center gap-4 transition-all active:opacity-80"
+            style={{
+              backgroundColor: timing === 'scheduled' ? (isDark ? 'rgba(78,205,196,0.12)' : 'rgba(78,205,196,0.08)') : cardBg,
+              border: `2px solid ${timing === 'scheduled' ? '#008CE5' : cardBorder}`,
+              boxShadow: timing === 'scheduled' ? '0 4px 16px rgba(78,205,196,0.25)' : 'none',
+            }}
           >
-            <div 
-              className={`w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 ${
-                timing === 'scheduled'
-                  ? 'bg-gradient-to-br from-[#2EFFAF] to-[#007AFF]'
-                  : 'bg-white/5'
-              }`}
-              style={timing === 'scheduled' ? {
-                boxShadow: '0 8px 24px rgba(46, 255, 175, 0.4)',
-              } : {}}
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{
+                background: timing === 'scheduled' ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED'),
+                boxShadow: timing === 'scheduled' ? '0 6px 20px rgba(78,205,196,0.4)' : 'none',
+              }}
             >
-              <Clock className={`w-8 h-8 ${timing === 'scheduled' ? 'text-[#0A0F1E]' : 'text-white/40'}`} />
+              <Clock className="w-7 h-7" style={{ color: timing === 'scheduled' ? '#0F1419' : subColor }} />
             </div>
             <div className="flex-1 text-left">
-              <h3 className={`text-xl font-bold mb-1 ${timing === 'scheduled' ? 'text-white' : 'text-white/80'}`}>
-                Schedule for Later
-              </h3>
-              <p className="text-white/60 text-sm">Choose a date and time</p>
+              <h3 className="text-lg font-bold" style={{ color: textColor }}>Schedule for Later</h3>
+              <p className="text-sm" style={{ color: subColor }}>Choose a date and time</p>
             </div>
-            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-              timing === 'scheduled' ? 'border-[#2EFFAF]' : 'border-white/40'
-            }`}>
-              {timing === 'scheduled' && (
-                <div className="w-3 h-3 rounded-full bg-[#2EFFAF]" />
-              )}
+            <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{
+              borderColor: timing === 'scheduled' ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.25)' : '#D1D5DB'),
+              backgroundColor: timing === 'scheduled' ? '#008CE5' : 'transparent',
+            }}>
+              {timing === 'scheduled' && <div className="w-2.5 h-2.5 rounded-full bg-[#0F1419]" />}
             </div>
           </motion.button>
         </div>
 
         {/* Schedule picker */}
         {timing === 'scheduled' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             {/* Date */}
             <div>
               <div className="flex items-center gap-3 mb-3">
-                <Calendar className="w-5 h-5 text-[#2EFFAF]" />
-                <p className="text-white font-semibold">Select Date</p>
+                <Calendar className="w-5 h-5" style={{ color: '#008CE5' }} />
+                <p className="font-semibold" style={{ color: textColor }}>Select Date</p>
               </div>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 min={new Date().toISOString().split('T')[0]}
-                className="w-full glass rounded-[24px] px-4 py-4 text-white focus:outline-none focus:border-[#2EFFAF] border-2 border-transparent transition-colors"
+                className="w-full rounded-2xl px-4 py-4"
+                style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: textColor }}
               />
             </div>
 
             {/* Time */}
             {selectedDate && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="flex items-center gap-3 mb-3">
-                  <Clock className="w-5 h-5 text-[#2EFFAF]" />
-                  <p className="text-white font-semibold">Select Time</p>
+                  <Clock className="w-5 h-5" style={{ color: '#008CE5' }} />
+                  <p className="font-semibold" style={{ color: textColor }}>Select Time</p>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   {timeSlots.map((time) => (
@@ -172,11 +156,13 @@ export function ScheduleService() {
                       key={time}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setSelectedTime(time)}
-                      className={`py-3 rounded-2xl font-semibold transition-all ${
-                        selectedTime === time
-                          ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0A0F1E]'
-                          : 'glass text-white/80'
-                      }`}
+                      className="py-3 rounded-2xl font-semibold text-sm transition-all active:opacity-80"
+                      style={{
+                        background: selectedTime === time ? 'linear-gradient(135deg, #008CE5, #0070B8)' : cardBg,
+                        color: selectedTime === time ? '#0F1419' : textColor,
+                        border: `1px solid ${selectedTime === time ? '#008CE5' : cardBorder}`,
+                        boxShadow: selectedTime === time ? '0 4px 12px rgba(78,205,196,0.3)' : 'none',
+                      }}
                     >
                       {time}
                     </motion.button>
@@ -189,16 +175,14 @@ export function ScheduleService() {
       </div>
 
       {/* Fixed bottom button */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6 glass border-t border-white/10">
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
+        <button
           onClick={handleContinue}
           disabled={timing === 'scheduled' && (!selectedDate || !selectedTime)}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50"
+          className="torc-btn-primary"
         >
           Continue to Payment
-        </motion.button>
+        </button>
       </div>
     </div>
   );

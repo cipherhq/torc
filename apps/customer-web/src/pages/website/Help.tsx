@@ -19,7 +19,7 @@ export function WebsiteHelp() {
           <button onClick={() => navigate('/website')} className="p-2 hover:bg-gray-100 rounded-xl" title="Back to website home">
             <ArrowLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#008CE5] to-[#0070B8] bg-clip-text text-transparent">
             TORC
           </h1>
         </div>
@@ -45,7 +45,7 @@ export function WebsiteHelp() {
             {faqs.map((faq, index) => (
               <div key={index} className="bg-white rounded-3xl p-8 shadow-lg border border-gray-100">
                 <div className="flex items-start gap-4">
-                  <HelpCircle className="w-6 h-6 text-[#007AFF] flex-shrink-0 mt-1" />
+                  <HelpCircle className="w-6 h-6 text-[#0070B8] flex-shrink-0 mt-1" />
                   <div>
                     <h3 className="text-xl font-bold text-gray-900 mb-3">{faq.q}</h3>
                     <p className="text-gray-600">{faq.a}</p>
@@ -55,10 +55,10 @@ export function WebsiteHelp() {
             ))}
           </div>
 
-          <div className="mt-16 text-center bg-gradient-to-br from-[#2EFFAF]/10 to-[#007AFF]/10 rounded-3xl p-12">
+          <div className="mt-16 text-center bg-gradient-to-br from-[#008CE5]/10 to-[#0070B8]/10 rounded-3xl p-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Still Need Help?</h2>
             <p className="text-gray-600 mb-6">Our support team is available 24/7</p>
-            <button className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white font-bold">
+            <button className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold">
               Contact Support
             </button>
           </div>

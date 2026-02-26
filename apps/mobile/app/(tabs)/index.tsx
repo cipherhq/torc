@@ -2,7 +2,6 @@ import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Sty
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { registerForPushNotifications } from '../../utils/pushNotifications';
 import { supabase } from '../../lib/supabase';
 
 interface ServiceRow {
@@ -19,23 +18,28 @@ export default function HomeScreen() {
   const [availableServices, setAvailableServices] = useState<ServiceRow[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
 
+  // Redirect authenticated users to the WebView
   useEffect(() => {
-    if (isAuthenticated && !pushToken) {
-      registerForPushNotifications().then((token) => {
-        if (token) {
-          setPushToken(token);
-          console.log('Push token registered:', token);
-        }
-      }).catch(err => {
-        console.log('Push token registration skipped:', err.message);
-      });
+    if (!loading && isAuthenticated && profile?.role) {
+      router.replace('/webview');
     }
-  }, [isAuthenticated, pushToken]);
+  }, [loading, isAuthenticated, profile?.role, router]);
 
   useEffect(() => {
-    if (!isAuthenticated || !profile?.role) return;
-    loadServices();
-  }, [isAuthenticated, profile?.role]);
+    if (isAuthenticated && !pushToken) {
+      import('../../utils/pushNotifications')
+        .then(({ registerForPushNotifications }) => registerForPushNotifications())
+        .then((token) => {
+          if (token) {
+            setPushToken(token);
+            console.log('Push token registered:', token);
+          }
+        })
+        .catch(err => {
+          console.log('Push token registration skipped:', err.message);
+        });
+    }
+  }, [isAuthenticated, pushToken]);
 
   const loadServices = async () => {
     try {
@@ -55,6 +59,12 @@ export default function HomeScreen() {
       setServicesLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      loadServices();
+    }
+  }, [loading, isAuthenticated]);
 
   const handleSignOut = async () => {
     try {
@@ -122,7 +132,7 @@ export default function HomeScreen() {
 
         <View style={styles.content}>
           <TouchableOpacity
-            onPress={() => Alert.alert('Request Service', 'Service booking coming soon!')}
+            onPress={() => router.replace({ pathname: '/webview', params: { initialPath: '/service-selection' } })}
             style={styles.requestServiceButton}
           >
             <Text style={styles.requestServiceTitle}>Request Service</Text>
@@ -142,7 +152,7 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   key={service.id}
                   style={styles.serviceItem}
-                  onPress={() => Alert.alert('Service', `${service.name} selected`)}
+                  onPress={() => router.replace({ pathname: '/webview', params: { initialPath: `/service-details/${service.id}` } })}
                 >
                   <Text style={styles.serviceText}>{service.name}</Text>
                   <Text style={styles.servicePrice}>${Number(service.base_price || 0).toFixed(2)}</Text>

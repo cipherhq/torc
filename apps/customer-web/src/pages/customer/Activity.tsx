@@ -4,14 +4,21 @@ import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 import { Clock, CheckCircle, Calendar, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
 
 export function Activity() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
 
   useEffect(() => {
     if (!user) {
@@ -46,46 +53,46 @@ export function Activity() {
   const displayJobs = activeTab === 'upcoming' ? upcomingJobs : pastJobs;
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] pb-24 relative overflow-hidden">
+    <div className="min-h-screen pb-24 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
-      <div className="relative z-10 p-6">
-        <h1 className="text-3xl font-bold text-white mb-2">Activity</h1>
-        <p className="text-white/60">Your rescue history and upcoming services</p>
+      <div className="relative z-10 p-6" style={{ paddingTop: 'var(--safe-top)' }}>
+        <h1 className="text-3xl font-bold mb-2" style={{ color: textColor }}>Activity</h1>
+        <p style={{ color: subColor }}>Your rescue history and upcoming services</p>
       </div>
 
       {/* Tabs */}
       <div className="relative z-10 px-6 mb-6">
-        <div className="glass rounded-[24px] p-2 flex">
+        <div className="rounded-2xl p-2 flex" style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 rounded-[18px] font-semibold transition-all relative ${
-                activeTab === tab.id
-                  ? 'text-[#0A0F1E]'
-                  : 'text-white/60'
-              }`}
+              className={`flex-1 py-3 rounded-[18px] font-semibold transition-all relative`}
+              style={{ color: activeTab === tab.id ? '#0A0F1E' : subColor }}
             >
               {activeTab === tab.id && (
                 <motion.div
                   layoutId="activeActivityTab"
-                  className="absolute inset-0 bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[18px]"
+                  className="absolute inset-0 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[18px]"
                   transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                 />
               )}
               <span className="relative z-10 flex items-center justify-center gap-2">
                 {tab.label}
                 {tab.count > 0 && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    activeTab === tab.id
-                      ? 'bg-[#0A0F1E]/20'
-                      : 'bg-white/10'
-                  }`}>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{
+                      backgroundColor: activeTab === tab.id
+                        ? 'rgba(10,15,30,0.2)'
+                        : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+                    }}
+                  >
                     {tab.count}
                   </span>
                 )}
@@ -101,27 +108,35 @@ export function Activity() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-[32px] p-12 text-center"
+            className="rounded-2xl p-12 text-center"
+            style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
           >
-            <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-              <div className="w-10 h-10 border-4 border-[#2EFFAF] border-t-transparent rounded-full animate-spin" />
+            <div
+              className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}
+            >
+              <div className="w-10 h-10 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin" />
             </div>
-            <p className="text-white/60">Loading your activity...</p>
+            <p style={{ color: subColor }}>Loading your activity...</p>
           </motion.div>
         ) : displayJobs.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-[32px] p-12 text-center"
+            className="rounded-2xl p-12 text-center"
+            style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
           >
-            <div className="w-20 h-20 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-4">
+            <div
+              className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)' }}
+            >
               {activeTab === 'upcoming' ? (
-                <Calendar className="w-10 h-10 text-white/40" />
+                <Calendar className="w-10 h-10" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
               ) : (
-                <Clock className="w-10 h-10 text-white/40" />
+                <Clock className="w-10 h-10" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
               )}
             </div>
-            <p className="text-white/60">
+            <p style={{ color: subColor }}>
               {activeTab === 'upcoming'
                 ? 'No services yet. Request assistance to get started!'
                 : 'No past services'}
@@ -138,21 +153,22 @@ export function Activity() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => navigate(`/job/${job.id}`)}
-                className="w-full glass rounded-[32px] p-6 text-left group"
+                className="w-full rounded-2xl p-6 text-left group active:opacity-80"
+                style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
               >
                 <div className="flex items-start gap-4">
                   {/* Icon */}
-                  <div 
+                  <div
                     className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${
                       job.status === 'completed'
-                        ? 'bg-gradient-to-br from-[#2EFFAF] to-[#007AFF]'
-                        : 'bg-gradient-to-br from-[#007AFF]/20 to-[#2EFFAF]/20'
+                        ? 'bg-gradient-to-br from-[#008CE5] to-[#0070B8]'
+                        : 'bg-gradient-to-br from-[#0070B8]/20 to-[#008CE5]/20'
                     }`}
                   >
                     {job.status === 'completed' ? (
                       <CheckCircle className="w-7 h-7 text-[#0A0F1E]" />
                     ) : (
-                      <Clock className="w-7 h-7 text-[#2EFFAF]" />
+                      <Clock className="w-7 h-7 text-[#008CE5]" />
                     )}
                   </div>
 
@@ -160,18 +176,18 @@ export function Activity() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <h3 className="text-white font-semibold text-lg">{job.service?.name || job.service_id || 'Service'}</h3>
-                        <p className="text-white/60 text-sm truncate">Vehicle</p>
+                        <h3 className="font-semibold text-lg" style={{ color: textColor }}>{job.service?.name || job.service_id || 'Service'}</h3>
+                        <p className="text-sm truncate" style={{ color: subColor }}>Vehicle</p>
                       </div>
-                      <ChevronRight className="w-5 h-5 text-[#2EFFAF] group-hover:translate-x-1 transition-transform flex-shrink-0" />
+                      <ChevronRight className="w-5 h-5 text-[#008CE5] group-hover:translate-x-1 transition-transform flex-shrink-0" />
                     </div>
 
-                    <p className="text-white/60 text-sm mb-3 truncate">{job.pickup_address || 'No location'}</p>
+                    <p className="text-sm mb-3 truncate" style={{ color: subColor }}>{job.pickup_address || 'No location'}</p>
 
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-[#2EFFAF]" />
-                        <span className="text-white/80 text-sm">
+                        <Calendar className="w-4 h-4 text-[#008CE5]" />
+                        <span className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.8)' : '#374151' }}>
                           {job.status === 'completed' && job.completed_at
                             ? new Date(job.completed_at).toLocaleDateString()
                             : (job.scheduled_for || job.created_at)
@@ -180,8 +196,8 @@ export function Activity() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4 text-[#2EFFAF]" />
-                        <span className="text-[#2EFFAF] font-semibold text-sm">
+                        <DollarSign className="w-4 h-4 text-[#008CE5]" />
+                        <span className="text-[#008CE5] font-semibold text-sm">
                           ${job.total_price || job.base_price || '-'}
                         </span>
                       </div>

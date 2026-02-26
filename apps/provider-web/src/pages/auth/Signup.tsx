@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Mail, Phone, Lock } from 'lucide-react';
+import { ArrowLeft, User, Mail, Phone, Lock, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
 
 export function Signup() {
@@ -13,8 +13,15 @@ export function Signup() {
     password: '',
     confirmPassword: '',
   });
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSignup = () => {
+    if (!acceptedTerms) {
+      setError('Please accept the Terms and Privacy Policy to continue.');
+      return;
+    }
+    setError('');
     // Navigate to permissions after signup
     navigate('/permissions');
   };
@@ -23,8 +30,8 @@ export function Signup() {
     <div className="min-h-screen bg-[#252B3D] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
-        <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#0070B8] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -54,11 +61,18 @@ export function Signup() {
 
         {/* Form fields */}
         <div className="space-y-4">
+          {error && (
+            <div className="glass rounded-[20px] p-4 flex items-center gap-2 text-red-300 text-sm">
+              <AlertCircle className="w-4 h-4" />
+              <span>{error}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-white/80 text-sm mb-2 block">First Name</label>
               <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-                <User className="w-5 h-5 text-[#2EFFAF]" />
+                <User className="w-5 h-5 text-[#008CE5]" />
                 <input
                   type="text"
                   value={formData.firstName}
@@ -85,7 +99,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Email</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Mail className="w-5 h-5 text-[#2EFFAF]" />
+              <Mail className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="email"
                 value={formData.email}
@@ -99,7 +113,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Phone</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Phone className="w-5 h-5 text-[#2EFFAF]" />
+              <Phone className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="tel"
                 value={formData.phone}
@@ -113,7 +127,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Password</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Lock className="w-5 h-5 text-[#2EFFAF]" />
+              <Lock className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="password"
                 value={formData.password}
@@ -127,7 +141,7 @@ export function Signup() {
           <div>
             <label className="text-white/80 text-sm mb-2 block">Confirm Password</label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-              <Lock className="w-5 h-5 text-[#2EFFAF]" />
+              <Lock className="w-5 h-5 text-[#008CE5]" />
               <input
                 type="password"
                 value={formData.confirmPassword}
@@ -139,18 +153,32 @@ export function Signup() {
           </div>
 
           <div className="glass rounded-[20px] p-4 mt-4">
-            <p className="text-white/60 text-xs leading-relaxed">
-              By signing up, you agree to TORC's{' '}
-              <span className="text-[#2EFFAF]">Terms of Service</span> and{' '}
-              <span className="text-[#2EFFAF]">Privacy Policy</span>.
-            </p>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-1 h-4 w-4 accent-[#008CE5]"
+              />
+              <p className="text-white/60 text-xs leading-relaxed">
+                I agree to TORC&apos;s{' '}
+                <a href="https://www.torcapp.com/terms?role=provider" target="_blank" rel="noreferrer" className="text-[#008CE5]">
+                  Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="https://www.torcapp.com/privacy" target="_blank" rel="noreferrer" className="text-[#008CE5]">
+                  Privacy Policy
+                </a>.
+              </p>
+            </label>
           </div>
 
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleSignup}
-            className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 mt-6"
+            disabled={!acceptedTerms}
+            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 mt-6 disabled:opacity-50"
           >
             Create Account
           </motion.button>
@@ -160,7 +188,7 @@ export function Signup() {
               Already have an account?{' '}
               <button
                 onClick={() => navigate('/login')}
-                className="text-[#2EFFAF] font-semibold"
+                className="text-[#008CE5] font-semibold"
               >
                 Log In
               </button>

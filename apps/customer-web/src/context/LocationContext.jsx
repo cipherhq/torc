@@ -1,6 +1,50 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 const LocationContext = createContext({});
+
+function normalizePermissionState(state) {
+  if (state === 'granted') return 'granted';
+  if (state === 'denied') return 'denied';
+  return 'prompt';
+}
+
+function classifyLocationError(error) {
+  const code = Number(error?.code);
+  const message = String(error?.message || '').toLowerCase();
+
+  if (
+    code === 1
+    || message.includes('denied')
+    || message.includes('not authorized')
+    || message.includes('not allowed')
+    || message.includes('permission')
+  ) {
+    return {
+      status: 'denied',
+      message: 'Location access was denied. Enable it in device settings or search for your address manually.',
+    };
+  }
+
+  if (code === 3 || message.includes('timeout')) {
+    return {
+      status: 'prompt',
+      message: 'Location request timed out. Try again or search for your address manually.',
+    };
+  }
+
+  if (code === 2 || message.includes('unavailable') || message.includes('network')) {
+    return {
+      status: 'prompt',
+      message: 'Current location is unavailable. Set emulator/device location or search for your address manually.',
+    };
+  }
+
+  return {
+    status: 'prompt',
+    message: error?.message || 'Unable to get current location. Search for your address manually.',
+  };
+}
 
 export function LocationProvider({ children }) {
   const [currentLocation, setCurrentLocation] = useState(null);
@@ -8,13 +52,28 @@ export function LocationProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [address, setAddress] = useState('');
   const [permissionStatus, setPermissionStatus] = useState('prompt'); // 'granted' | 'denied' | 'prompt'
+  const isNative = typeof window !== 'undefined' && (window.__TORC_NATIVE__ === true || Capacitor.isNativePlatform());
 
   useEffect(() => {
     checkPermission();
-  }, []);
+  }, [isNative]);
 
   async function checkPermission() {
     try {
+      if (isNative) {
+        const { Geolocation } = await import('@capacitor/geolocation');
+        const result = await Geolocation.checkPermissions();
+        const state = normalizePermissionState(result?.location || result?.coarseLocation);
+        setPermissionStatus(state);
+
+        if (state === 'granted') {
+          await getCurrentLocation();
+        } else {
+          setLoading(false);
+        }
+        return;
+      }
+
       if (navigator.permissions) {
         const result = await navigator.permissions.query({ name: 'geolocation' });
         setPermissionStatus(result.state);
@@ -33,89 +92,99 @@ export function LocationProvider({ children }) {
         }
       } else {
         // Fallback: just try to get location
-        getCurrentLocation();
+        await getCurrentLocation();
       }
     } catch {
-      getCurrentLocation();
+      await getCurrentLocation();
+    }
+  }
+
+  function applyLocationFromPosition(position) {
+    const location = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+    };
+    setCurrentLocation(location);
+    setPermissionStatus('granted');
+    return location;
+  }
+
+  function getBrowserCurrentPosition() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        const unsupportedError = new Error('Geolocation is not supported by your browser');
+        unsupportedError.code = 0;
+        reject(unsupportedError);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      });
+    });
+  }
+
+  async function getNativeCurrentPosition({ requestPermissions = false } = {}) {
+    const { Geolocation } = await import('@capacitor/geolocation');
+
+    if (requestPermissions) {
+      const requested = await Geolocation.requestPermissions();
+      const state = normalizePermissionState(requested?.location || requested?.coarseLocation);
+      setPermissionStatus(state);
+      if (state !== 'granted') {
+        const deniedError = new Error('Location permission denied');
+        deniedError.code = 1;
+        throw deniedError;
+      }
+    }
+
+    const checked = await Geolocation.checkPermissions();
+    const state = normalizePermissionState(checked?.location || checked?.coarseLocation);
+    setPermissionStatus(state);
+    if (state !== 'granted') {
+      const permissionError = new Error('Location permission not granted');
+      permissionError.code = state === 'denied' ? 1 : 0;
+      throw permissionError;
+    }
+
+    return Geolocation.getCurrentPosition({
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
+  }
+
+  async function fetchCurrentLocation({ requestPermissions = false } = {}) {
+    setLoading(true);
+    setLocationError(null);
+
+    try {
+      const position = isNative
+        ? await getNativeCurrentPosition({ requestPermissions })
+        : await getBrowserCurrentPosition();
+
+      const location = applyLocationFromPosition(position);
+      await reverseGeocode(location);
+      setLoading(false);
+      return true;
+    } catch (error) {
+      const parsed = classifyLocationError(error);
+      setLocationError(parsed.message);
+      setPermissionStatus(parsed.status);
+      setLoading(false);
+      return false;
     }
   }
 
   function requestPermission() {
-    return new Promise((resolve) => {
-      setLoading(true);
-      setLocationError(null);
-
-      if (!navigator.geolocation) {
-        setLocationError('Geolocation is not supported by your browser');
-        setLoading(false);
-        resolve(false);
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-          };
-          setCurrentLocation(location);
-          setPermissionStatus('granted');
-          await reverseGeocode(location);
-          setLoading(false);
-          resolve(true);
-        },
-        (error) => {
-          setLocationError(error.message);
-          setPermissionStatus('denied');
-          setLoading(false);
-          resolve(false);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        }
-      );
-    });
+    return fetchCurrentLocation({ requestPermissions: isNative });
   }
 
   function getCurrentLocation() {
-    setLoading(true);
-    setLocationError(null);
-
-    if (!navigator.geolocation) {
-      setLocationError('Geolocation is not supported by your browser');
-      setLoading(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const location = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        };
-        setCurrentLocation(location);
-        setPermissionStatus('granted');
-
-        await reverseGeocode(location);
-        setLoading(false);
-      },
-      (error) => {
-        setLocationError(error.message);
-        if (error.code === 1) {
-          setPermissionStatus('denied');
-        }
-        setLoading(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    );
+    return fetchCurrentLocation({ requestPermissions: false });
   }
 
   async function reverseGeocode(location) {

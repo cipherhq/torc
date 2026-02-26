@@ -39,7 +39,7 @@ export function Permissions() {
     <div className="min-h-screen bg-[#0A0F1E] flex flex-col p-6 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       <div className="relative z-10 flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
@@ -49,12 +49,12 @@ export function Permissions() {
           className="text-center mb-12"
         >
           <div 
-            className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mx-auto mb-6"
+            className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#008CE5] to-[#007AFF] flex items-center justify-center mx-auto mb-6"
             style={{
-              boxShadow: '0 20px 40px rgba(46, 255, 175, 0.3)',
+              boxShadow: '0 20px 40px rgba(0, 140, 229, 0.3)',
             }}
           >
-            <MapPin className="w-12 h-12 text-[#0A0F1E]" />
+            <MapPin className="w-12 h-12 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-3">
             Enable Permissions
@@ -80,12 +80,12 @@ export function Permissions() {
                   <div 
                     className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${
                       permission.granted
-                        ? 'bg-gradient-to-br from-[#2EFFAF] to-[#007AFF]'
+                        ? 'bg-gradient-to-br from-[#008CE5] to-[#007AFF]'
                         : 'bg-white/5'
                     }`}
                   >
                     <Icon className={`w-7 h-7 ${
-                      permission.granted ? 'text-[#0A0F1E]' : 'text-white/40'
+                      permission.granted ? 'text-white' : 'text-white/40'
                     }`} />
                   </div>
 
@@ -93,7 +93,7 @@ export function Permissions() {
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className="text-white font-semibold">{permission.title}</h3>
                       {permission.required && (
-                        <span className="text-[#2EFFAF] text-xs font-semibold">REQUIRED</span>
+                        <span className="text-[#008CE5] text-xs font-semibold">REQUIRED</span>
                       )}
                     </div>
                     <p className="text-white/60 text-sm mb-4">{permission.description}</p>
@@ -103,12 +103,12 @@ export function Permissions() {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={permission.onGrant}
-                        className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl px-6 py-2 text-sm font-semibold text-[#0A0F1E]"
+                        className="bg-gradient-to-r from-[#008CE5] to-[#007AFF] rounded-2xl px-6 py-2 text-sm font-semibold text-white"
                       >
                         Grant Access
                       </motion.button>
                     ) : (
-                      <div className="flex items-center gap-2 text-[#2EFFAF]">
+                      <div className="flex items-center gap-2 text-[#008CE5]">
                         <Check className="w-4 h-4" />
                         <span className="text-sm font-semibold">Granted</span>
                       </div>
@@ -125,7 +125,7 @@ export function Permissions() {
           whileTap={{ scale: allGranted ? 0.98 : 1 }}
           onClick={handleContinue}
           disabled={!allGranted}
-          className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#2EFFAF]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-gradient-to-r from-[#008CE5] to-[#007AFF] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {allGranted ? 'Continue to App' : 'Grant All Permissions to Continue'}
         </motion.button>

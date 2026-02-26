@@ -10,7 +10,7 @@ export function WebsiteHome() {
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#008CE5] to-[#0070B8] bg-clip-text text-transparent">
             TORC
           </h1>
           <div className="hidden md:flex items-center gap-8">
@@ -28,7 +28,7 @@ export function WebsiteHome() {
             </button>
             <button 
               onClick={() => navigate('/')}
-              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white font-semibold hover:shadow-lg transition-all"
+              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold hover:shadow-lg transition-all"
             >
               Get Started
             </button>
@@ -50,7 +50,7 @@ export function WebsiteHome() {
             >
               <h1 className="text-6xl font-bold text-gray-900 mb-6">
                 Roadside Help,<br />
-                <span className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] bg-clip-text text-transparent">
                   Uber Fast
                 </span>
               </h1>
@@ -62,7 +62,7 @@ export function WebsiteHome() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => navigate('/')}
-                  className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white font-bold text-lg shadow-2xl shadow-[#2EFFAF]/30"
+                  className="px-8 py-4 rounded-2xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold text-lg shadow-2xl shadow-[#008CE5]/30"
                 >
                   Get Help Now
                 </motion.button>
@@ -83,8 +83,8 @@ export function WebsiteHome() {
               transition={{ duration: 0.6 }}
               className="relative"
             >
-              <div className="w-full aspect-square rounded-[48px] bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 flex items-center justify-center">
-                <Zap className="w-64 h-64 text-[#2EFFAF]" />
+              <div className="w-full aspect-square rounded-[48px] bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 flex items-center justify-center">
+                <Zap className="w-64 h-64 text-[#008CE5]" />
               </div>
             </motion.div>
           </div>
@@ -110,7 +110,7 @@ export function WebsiteHome() {
                   transition={{ delay: index * 0.2 }}
                   className="bg-white rounded-3xl p-8 shadow-lg hover:shadow-xl transition-shadow"
                 >
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#2EFFAF] to-[#007AFF] flex items-center justify-center mb-6">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-6">
                     <Icon className="w-8 h-8 text-white" />
                   </div>
                   <h3 className="text-2xl font-bold text-gray-900 mb-3">{feature.title}</h3>
@@ -131,7 +131,7 @@ export function WebsiteHome() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate('/')}
-            className="px-12 py-5 rounded-3xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white font-bold text-xl shadow-2xl shadow-[#2EFFAF]/30 inline-flex items-center gap-3"
+            className="px-12 py-5 rounded-3xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-bold text-xl shadow-2xl shadow-[#008CE5]/30 inline-flex items-center gap-3"
           >
             Launch App <ArrowRight className="w-6 h-6" />
           </motion.button>

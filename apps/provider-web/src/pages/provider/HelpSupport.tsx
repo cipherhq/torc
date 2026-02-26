@@ -77,12 +77,18 @@ export function HelpSupport() {
   }
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#F5F7FA' }}>
+    <div
+      className="min-h-screen p-6"
+      style={{
+        background: isDark ? '#0F1419' : '#FAF8F5',
+        paddingBottom: 'calc(120px + env(safe-area-inset-bottom, 0px))',
+      }}
+    >
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB' }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE' }}
           title="Back to profile"
         >
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
@@ -90,9 +96,9 @@ export function HelpSupport() {
         <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Help & Support</h1>
       </div>
 
-      <div className="rounded-2xl p-6 mb-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6 mb-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <div className="flex items-center gap-3 mb-2">
-          <HelpCircle className="w-5 h-5" style={{ color: '#2EFFAF' }} />
+          <HelpCircle className="w-5 h-5" style={{ color: '#008CE5' }} />
           <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Support center</p>
         </div>
         <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>
@@ -100,7 +106,7 @@ export function HelpSupport() {
         </p>
       </div>
 
-      <div className="rounded-2xl p-6 mb-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6 mb-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <h2 className="text-lg font-semibold mb-3" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Create Support Request</h2>
         <div className="space-y-3">
           <div>
@@ -112,8 +118,8 @@ export function HelpSupport() {
               placeholder="e.g., Payout not received"
               className="w-full px-4 py-3 rounded-xl border focus:outline-none"
               style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB',
-                borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8',
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E8E4DE',
                 color: isDark ? '#FFFFFF' : '#1A1F2E',
               }}
             />
@@ -126,8 +132,8 @@ export function HelpSupport() {
               onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high' | 'urgent')}
               className="w-full px-4 py-3 rounded-xl border focus:outline-none"
               style={{
-                backgroundColor: isDark ? '#1A1F2E' : '#F9FAFB',
-                borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+                backgroundColor: isDark ? '#1A1F2E' : '#FDFBF8',
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E8E4DE',
                 color: isDark ? '#FFFFFF' : '#1A1F2E',
               }}
             >
@@ -146,8 +152,8 @@ export function HelpSupport() {
               rows={4}
               className="w-full px-4 py-3 rounded-xl border focus:outline-none"
               style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB',
-                borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E5E7EB',
+                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8',
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E8E4DE',
                 color: isDark ? '#FFFFFF' : '#1A1F2E',
               }}
             />
@@ -157,7 +163,7 @@ export function HelpSupport() {
             disabled={submitting}
             className="w-full py-3 rounded-xl font-semibold"
             style={{
-              background: 'linear-gradient(90deg, #2EFFAF 0%, #007AFF 100%)',
+              background: 'linear-gradient(90deg, #008CE5 0%, #0070B8 100%)',
               color: '#0F1419',
               opacity: submitting ? 0.6 : 1,
             }}
@@ -172,7 +178,7 @@ export function HelpSupport() {
         </div>
       </div>
 
-      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
         <h2 className="text-lg font-semibold mb-3" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>My Support Requests</h2>
         {loading ? (
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>Loading requests...</p>
@@ -185,13 +191,13 @@ export function HelpSupport() {
                 key={ticket.id}
                 className="rounded-xl p-3"
                 style={{
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F9FAFB',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
                 }}
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{ticket.subject}</p>
-                  <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB', color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+                  <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE', color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
                     {ticket.status}
                   </span>
                 </div>

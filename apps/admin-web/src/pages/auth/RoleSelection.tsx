@@ -11,14 +11,14 @@ export function RoleSelection() {
       title: 'Customer',
       description: 'Get help when you need it',
       icon: User,
-      gradient: 'from-[#2EFFAF] to-[#007AFF]',
+      gradient: 'linear-gradient(135deg, #008CE5, #007AFF)',
     },
     {
       id: 'provider',
       title: 'Provider',
       description: 'Help others and earn money',
       icon: Truck,
-      gradient: 'from-[#007AFF] to-[#2EFFAF]',
+      gradient: 'linear-gradient(135deg, #007AFF, #008CE5)',
     },
   ];
 
@@ -26,7 +26,7 @@ export function RoleSelection() {
     <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full" />
       </div>
 
@@ -56,16 +56,17 @@ export function RoleSelection() {
                 className="w-full glass rounded-[32px] p-8 flex items-center gap-6 group relative overflow-hidden"
               >
                 {/* Hover gradient */}
-                <div className={`absolute inset-0 bg-gradient-to-r ${role.gradient} opacity-0 group-hover:opacity-10 transition-opacity`} />
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity" style={{ background: role.gradient }} />
 
                 {/* Icon */}
-                <div 
-                  className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${role.gradient} flex items-center justify-center flex-shrink-0`}
+                <div
+                  className="w-20 h-20 rounded-2xl flex items-center justify-center flex-shrink-0"
                   style={{
-                    boxShadow: '0 8px 24px rgba(46, 255, 175, 0.3)',
+                    background: role.gradient,
+                    boxShadow: '0 8px 24px rgba(0, 140, 229, 0.3)',
                   }}
                 >
-                  <Icon className="w-10 h-10 text-[#0A0F1E]" />
+                  <Icon className="w-10 h-10 text-white" />
                 </div>
 
                 {/* Content */}
@@ -75,7 +76,7 @@ export function RoleSelection() {
                 </div>
 
                 {/* Arrow */}
-                <svg className="w-6 h-6 text-[#2EFFAF] group-hover:translate-x-2 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-6 h-6 text-[#008CE5] group-hover:translate-x-2 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </motion.button>

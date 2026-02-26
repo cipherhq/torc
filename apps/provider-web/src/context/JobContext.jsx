@@ -129,9 +129,18 @@ export function JobProvider({ children }) {
   }
 
   async function updateJobStatus(jobId, status) {
+    const updateData = { status };
+    if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
+    if (status === 'in_progress' || status === 'inprogress') {
+      updateData.started_at = new Date().toISOString();
+    }
+    if (status === 'completed') {
+      updateData.completed_at = new Date().toISOString();
+    }
+
     const { data, error } = await supabase
       .from('jobs')
-      .update({ status })
+      .update(updateData)
       .eq('id', jobId)
       .select()
       .single();
@@ -141,7 +150,87 @@ export function JobProvider({ children }) {
     // Refetch enriched job data with all relationships
     await fetchJob(jobId);
 
+    // Send completion emails (fire-and-forget) when provider completes a job.
+    if (status === 'completed' && data) {
+      sendCompletionEmails(data).catch((e) => console.warn('Completion emails failed:', e));
+    }
+
     return data;
+  }
+
+  async function sendTemplatedEmail(to, template, data = {}) {
+    try {
+      const { error } = await supabase.functions.invoke('send-email', {
+        body: { to, template, data },
+      });
+      if (error) {
+        console.warn(`Email (${template}) failed:`, error.message);
+      }
+    } catch (err) {
+      console.warn(`Email (${template}) error:`, err);
+    }
+  }
+
+  async function sendCompletionEmails(job) {
+    try {
+      const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const amount = job.total_amount
+        ? `$${Number(job.total_amount).toFixed(2)}`
+        : (job.base_price ? `$${Number(job.base_price).toFixed(2)}` : '$0.00');
+
+      const [customerRes, providerRes, serviceRes] = await Promise.all([
+        job.customer_id
+          ? supabase.from('profiles').select('email, first_name, last_name').eq('id', job.customer_id).maybeSingle()
+          : { data: null },
+        job.provider_id
+          ? supabase.from('profiles').select('email, first_name, last_name').eq('id', job.provider_id).maybeSingle()
+          : { data: null },
+        job.service_id
+          ? supabase.from('services').select('name').eq('id', job.service_id).maybeSingle()
+          : { data: null },
+      ]);
+
+      const customerProfile = customerRes?.data;
+      const providerProfile = providerRes?.data;
+      const serviceName = serviceRes?.data?.name || 'Roadside Assistance';
+      const customerName = customerProfile
+        ? `${customerProfile.first_name || ''} ${customerProfile.last_name || ''}`.trim()
+        : (job.requester_name || 'Customer');
+      const providerName = providerProfile
+        ? `${providerProfile.first_name || ''} ${providerProfile.last_name || ''}`.trim()
+        : 'Provider';
+
+      if (customerProfile?.email) {
+        await sendTemplatedEmail(customerProfile.email, 'customer_invoice', {
+          customerName,
+          serviceName,
+          providerName,
+          date: now,
+          amount,
+          address: job.pickup_address || 'N/A',
+          jobId: job.id,
+        });
+      }
+
+      if (providerProfile?.email) {
+        const duration = (job.started_at && job.completed_at)
+          ? `${Math.round((new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 60000)} min`
+          : undefined;
+
+        await sendTemplatedEmail(providerProfile.email, 'provider_completion', {
+          providerName,
+          customerName,
+          serviceName,
+          date: now,
+          payout: amount,
+          address: job.pickup_address || 'N/A',
+          jobId: job.id,
+          duration,
+        });
+      }
+    } catch (e) {
+      console.warn('sendCompletionEmails error:', e);
+    }
   }
 
   async function cancelJob(jobId, reason) {
@@ -185,18 +274,58 @@ export function JobProvider({ children }) {
   }
 
   async function rateJob(jobId, rating, review) {
+    if (!Number.isFinite(Number(rating)) || Number(rating) < 1 || Number(rating) > 5) {
+      throw new Error('A rating from 1 to 5 stars is required.');
+    }
+
     const { data, error } = await supabase
       .from('jobs')
-      .update({ 
-        rating,
-        review,
-        reviewed_at: new Date().toISOString(),
+      .update({
+        // Provider feedback must be stored separately from customer->provider rating.
+        provider_rating: Number(rating),
+        provider_review: review || null,
       })
       .eq('id', jobId)
-      .select()
+      .select('id, customer_id')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      const message = String(error?.message || '');
+      if (message.toLowerCase().includes('provider_rating') || message.toLowerCase().includes('provider_review')) {
+        throw new Error('Provider feedback columns are missing. Please run migration 025_provider_feedback_columns.sql.');
+      }
+      throw error;
+    }
+
+    // Recalculate customer rating from provider feedback.
+    if (data?.customer_id) {
+      try {
+        // Preferred path if SQL function exists.
+        await supabase.rpc('recalculate_customer_rating', { p_customer_id: data.customer_id });
+      } catch {
+        // Fallback path for environments where the RPC has not been added yet.
+        try {
+          const { data: completedJobs } = await supabase
+            .from('jobs')
+            .select('provider_rating')
+            .eq('customer_id', data.customer_id)
+            .eq('status', 'completed')
+            .not('provider_rating', 'is', null);
+
+          const ratings = (completedJobs || []).map((j) => Number(j.provider_rating)).filter((n) => Number.isFinite(n));
+          const average = ratings.length > 0
+            ? Math.round((ratings.reduce((sum, n) => sum + n, 0) / ratings.length) * 100) / 100
+            : 0;
+
+          await supabase
+            .from('profiles')
+            .update({ rating: average })
+            .eq('id', data.customer_id);
+        } catch (calcErr) {
+          console.warn('Failed to recalculate customer rating:', calcErr);
+        }
+      }
+    }
 
     // Refetch enriched job data
     await fetchJob(jobId);

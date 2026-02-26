@@ -19,8 +19,8 @@ export function ProviderLogin() {
     <div className="min-h-screen bg-[#1A1F2E] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
-        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#2EFFAF] opacity-10 blur-[120px] rounded-full" />
-        <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#007AFF] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
+        <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-[#0070B8] opacity-10 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -54,7 +54,7 @@ export function ProviderLogin() {
             onClick={() => setLoginMethod('phone')}
             className={`flex-1 py-3 rounded-[24px] font-semibold transition-all ${
               loginMethod === 'phone'
-                ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                 : 'text-white/60'
             }`}
           >
@@ -64,7 +64,7 @@ export function ProviderLogin() {
             onClick={() => setLoginMethod('email')}
             className={`flex-1 py-3 rounded-[24px] font-semibold transition-all ${
               loginMethod === 'email'
-                ? 'bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-[#0F1419]'
+                ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
                 : 'text-white/60'
             }`}
           >
@@ -78,7 +78,7 @@ export function ProviderLogin() {
             <div>
               <label className="text-white/80 text-sm mb-2 block">Phone Number</label>
               <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-                <Phone className="w-5 h-5 text-[#2EFFAF]" />
+                <Phone className="w-5 h-5 text-[#008CE5]" />
                 <input
                   type="tel"
                   value={phoneNumber}
@@ -93,7 +93,7 @@ export function ProviderLogin() {
               <div>
                 <label className="text-white/80 text-sm mb-2 block">Email</label>
                 <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-                  <Mail className="w-5 h-5 text-[#2EFFAF]" />
+                  <Mail className="w-5 h-5 text-[#008CE5]" />
                   <input
                     type="email"
                     value={email}
@@ -106,7 +106,7 @@ export function ProviderLogin() {
               <div>
                 <label className="text-white/80 text-sm mb-2 block">Password</label>
                 <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
-                  <Lock className="w-5 h-5 text-[#2EFFAF]" />
+                  <Lock className="w-5 h-5 text-[#008CE5]" />
                   <input
                     type="password"
                     value={password}
@@ -123,13 +123,13 @@ export function ProviderLogin() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleLogin}
-            className="w-full bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-[32px] py-5 font-bold text-[#0F1419] text-lg shadow-lg shadow-[#2EFFAF]/30 mt-6"
+            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 mt-6"
           >
             {loginMethod === 'phone' ? 'Send Code' : 'Log In'}
           </motion.button>
 
           <div className="text-center mt-4">
-            <button className="text-[#2EFFAF] text-sm font-semibold">
+            <button className="text-[#008CE5] text-sm font-semibold">
               Forgot Password?
             </button>
           </div>

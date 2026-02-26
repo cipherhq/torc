@@ -17,7 +17,7 @@ export function AdminDirectory() {
           <div className="flex-1">
             <h1 className="text-3xl font-bold text-white">Directory Management</h1>
           </div>
-          <button className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] text-white font-semibold flex items-center gap-2">
+          <button className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold flex items-center gap-2">
             <Plus className="w-5 h-5" />
             Add Listing
           </button>
@@ -30,8 +30,8 @@ export function AdminDirectory() {
               <div key={listing.id} className="p-5 rounded-2xl bg-gray-50 hover:bg-gray-100 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2EFFAF]/20 to-[#007AFF]/20 flex items-center justify-center">
-                      <MapPin className="w-6 h-6 text-[#2EFFAF]" />
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5]/20 to-[#0070B8]/20 flex items-center justify-center">
+                      <MapPin className="w-6 h-6 text-[#008CE5]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">

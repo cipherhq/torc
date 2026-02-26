@@ -1,6 +1,28 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  safelist: [
+    'bg-gradient-to-r',
+    'bg-gradient-to-br',
+    'from-[#008CE5]',
+    'to-[#0070B8]',
+    'from-[#007AFF]',
+    'to-[#0051D5]',
+    'from-[#22C55E]',
+    'to-[#16A34A]',
+    'from-[#0070B8]',
+    'to-[#008CE5]',
+    'from-[#FF6B6B]',
+    'to-[#FF5252]',
+    'from-[#FFA500]',
+    'to-[#FF8C00]',
+    'from-[#8B5CF6]',
+    'to-[#7C3AED]',
+    'from-[#EF4444]',
+    'to-[#DC2626]',
+    'text-white',
+    'shadow-lg',
+  ],
   theme: {
     extend: {},
   },
