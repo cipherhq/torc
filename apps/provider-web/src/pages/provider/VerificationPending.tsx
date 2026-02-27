@@ -114,7 +114,7 @@ export function VerificationPending() {
     return (
       <div
         className="min-h-screen flex items-center justify-center"
-        style={{ background: isDark ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)' }}
+        style={{ background: isDark ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)' }}
       >
         <div className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#008CE5', borderTopColor: 'transparent' }} />
       </div>
@@ -126,8 +126,8 @@ export function VerificationPending() {
       className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <motion.button
@@ -172,7 +172,7 @@ export function VerificationPending() {
               <Clock className="w-10 h-10 text-white" />
             )}
           </div>
-          <h1 className="text-3xl font-bold mb-2" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+          <h1 className="text-3xl font-bold mb-2" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
             {isApproved ? 'Application Approved!' : isRejected ? 'Action Required' : 'Verification Pending'}
           </h1>
           <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
@@ -219,12 +219,12 @@ export function VerificationPending() {
           className="rounded-2xl p-6 mb-6"
           style={{
             backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-            border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
+            border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`,
             boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
           }}
         >
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Application Status</h3>
+            <h3 className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Application Status</h3>
             {hasDocuments && (
               <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.1)', color: '#008CE5' }}>
                 {documents.length} doc{documents.length !== 1 ? 's' : ''}
@@ -248,7 +248,7 @@ export function VerificationPending() {
                     className="font-medium text-sm"
                     style={{
                       color: step.status === 'completed'
-                        ? (isDark ? '#FFFFFF' : '#1A1F2E')
+                        ? (isDark ? '#FFFFFF' : '#14263D')
                         : step.status === 'rejected'
                           ? (isDark ? '#F59E0B' : '#92400E')
                           : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF'),

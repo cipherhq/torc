@@ -16,10 +16,10 @@ export function ServiceCompletion() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   useEffect(() => {
     if (jobId && !currentJob) {
@@ -58,7 +58,7 @@ export function ServiceCompletion() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#008CE5] blur-[120px] rounded-full" style={{ opacity: isDark ? 0.1 : 0.06 }} />
@@ -77,7 +77,7 @@ export function ServiceCompletion() {
               boxShadow: '0 25px 50px -12px rgba(46, 255, 175, 0.5)',
             }}
           >
-            <CheckCircle className="w-16 h-16" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
+            <CheckCircle className="w-16 h-16" style={{ color: isDark ? '#081427' : '#14263D' }} />
           </div>
           <h1 className="text-3xl font-bold mb-3" style={{ color: textColor }}>Service Complete!</h1>
           <p className="text-lg" style={{ color: subColor }}>Your vehicle is ready to go</p>
@@ -164,7 +164,7 @@ export function ServiceCompletion() {
                       : ''
                   }`}
                   style={tip === amount
-                    ? { color: isDark ? '#0A0F1E' : '#1A1F2E' }
+                    ? { color: isDark ? '#081427' : '#14263D' }
                     : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: subColor }
                   }
                 >
@@ -278,7 +278,7 @@ export function ServiceCompletion() {
       </div>
 
       {/* Fixed bottom button */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderTop: '1px solid ' + cardBorder }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: '1px solid ' + cardBorder }}>
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.96 }}

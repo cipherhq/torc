@@ -46,8 +46,8 @@ export function ProviderIntro() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
@@ -86,7 +86,7 @@ export function ProviderIntro() {
             <Icon className="w-12 h-12" style={{ color: current.accent }} />
           </div>
 
-          <h1 className="text-3xl font-bold mb-3" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+          <h1 className="text-3xl font-bold mb-3" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
             {current.title}
           </h1>
           <p className="text-base leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : '#4B5563' }}>

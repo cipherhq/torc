@@ -8,7 +8,7 @@ import { useRealtimeLocation, useWatchPosition } from '../../hooks/useRealtimeLo
 import { useJob } from '../../context/JobContext';
 import { ChatModal } from '../../components/ChatModal';
 import { CallModal } from '../../components/CallModal';
-import { callPhone, shareJobDetails } from '../../utils/communication';
+import { callPhone, shareContent, shareJobDetails } from '../../utils/communication';
 import { supabase } from '../../lib/supabase';
 import { showToast } from '../../components/NotificationToast';
 import { initAudio, playMessageSound } from '../../utils/audio';
@@ -581,7 +581,7 @@ export function LiveTracking() {
           className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg"
           style={{ backgroundColor: 'rgba(255,255,255,0.95)', touchAction: 'manipulation' }}
         >
-          <ArrowLeft className="w-5 h-5" style={{ color: '#1A1F2E' }} />
+          <ArrowLeft className="w-5 h-5" style={{ color: '#14263D' }} />
         </button>
         <button
           onClick={recenterMap}
@@ -641,7 +641,7 @@ export function LiveTracking() {
                   {providerInfo.initials}
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-bold text-lg" style={{ color: '#1A1F2E' }}>{providerInfo.name}</h3>
+                  <h3 className="font-bold text-lg" style={{ color: '#14263D' }}>{providerInfo.name}</h3>
                   <div className="flex items-center gap-2 mt-0.5">
                     {providerInfo.rating > 0 && (
                       <>
@@ -666,19 +666,19 @@ export function LiveTracking() {
                   {providerInfo.vehicle && (
                     <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
                       <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>Vehicle</p>
-                      <p className="text-xs font-semibold" style={{ color: '#1A1F2E' }}>{providerInfo.vehicle}</p>
+                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.vehicle}</p>
                     </div>
                   )}
                   {providerInfo.license && (
                     <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
                       <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>License</p>
-                      <p className="text-xs font-semibold" style={{ color: '#1A1F2E' }}>{providerInfo.license}</p>
+                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.license}</p>
                     </div>
                   )}
                   {providerInfo.plate && (
                     <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
                       <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>Plate</p>
-                      <p className="text-xs font-semibold" style={{ color: '#1A1F2E' }}>{providerInfo.plate}</p>
+                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.plate}</p>
                     </div>
                   )}
                 </div>
@@ -690,7 +690,7 @@ export function LiveTracking() {
               <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: '#F3F4F6' }}>
                 <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#008CE5' }} />
               </div>
-              <h3 className="font-bold" style={{ color: '#1A1F2E' }}>Finding Provider...</h3>
+              <h3 className="font-bold" style={{ color: '#14263D' }}>Finding Provider...</h3>
               <p className="text-sm mt-1" style={{ color: '#6B7280' }}>
                 We're matching you with the best available provider nearby
               </p>
@@ -746,7 +746,7 @@ export function LiveTracking() {
                 <button
                   onClick={() => navigate('/customer/home')}
                   className="w-full rounded-2xl py-4 font-bold text-sm mb-3 active:scale-[0.98] transition-transform"
-                  style={{ backgroundColor: '#F3F4F6', color: '#1A1F2E', touchAction: 'manipulation' }}
+                  style={{ backgroundColor: '#F3F4F6', color: '#14263D', touchAction: 'manipulation' }}
                 >
                   Back to Home
                 </button>
@@ -765,7 +765,7 @@ export function LiveTracking() {
                 <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(78,205,196,0.12)' }}>
                   <Phone className="w-5 h-5" style={{ color: '#008CE5' }} />
                 </div>
-                <span className="text-xs font-semibold" style={{ color: '#1A1F2E' }}>Call</span>
+                <span className="text-xs font-semibold" style={{ color: '#14263D' }}>Call</span>
               </button>
               <button
                 onClick={handleMessage}
@@ -775,7 +775,7 @@ export function LiveTracking() {
                 <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(42,157,143,0.12)' }}>
                   <MessageCircle className="w-5 h-5" style={{ color: '#0070B8' }} />
                 </div>
-                <span className="text-xs font-semibold" style={{ color: '#1A1F2E' }}>Message</span>
+                <span className="text-xs font-semibold" style={{ color: '#14263D' }}>Message</span>
               </button>
               <button
                 onClick={handleShare}
@@ -785,7 +785,7 @@ export function LiveTracking() {
                 <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(107,114,128,0.1)' }}>
                   <Share2 className="w-5 h-5" style={{ color: '#6B7280' }} />
                 </div>
-                <span className="text-xs font-semibold" style={{ color: '#1A1F2E' }}>Share</span>
+                <span className="text-xs font-semibold" style={{ color: '#14263D' }}>Share</span>
               </button>
             </div>
           )}
@@ -902,7 +902,7 @@ export function LiveTracking() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" style={{ color: '#EF4444' }} />
-                <h2 className="font-bold text-lg" style={{ color: '#1A1F2E' }}>Cancel Request?</h2>
+                <h2 className="font-bold text-lg" style={{ color: '#14263D' }}>Cancel Request?</h2>
               </div>
               <button
                 onClick={() => setShowCancelConfirm(false)}
@@ -980,7 +980,7 @@ export function LiveTracking() {
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-red-400" />
-                <h2 className="font-bold text-lg" style={{ color: '#1A1F2E' }}>Safety & Support</h2>
+                <h2 className="font-bold text-lg" style={{ color: '#14263D' }}>Safety & Support</h2>
               </div>
               <button onClick={() => setShowSafety(false)} style={{ touchAction: 'manipulation' }}>
                 <X className="w-5 h-5" style={{ color: '#6B7280' }} />
@@ -1013,7 +1013,7 @@ export function LiveTracking() {
                   <Phone className="w-5 h-5" style={{ color: '#0070B8' }} />
                 </div>
                 <div>
-                  <p className="font-semibold" style={{ color: '#1A1F2E' }}>Torc Support Line</p>
+                  <p className="font-semibold" style={{ color: '#14263D' }}>Torc Support Line</p>
                   <p className="text-xs" style={{ color: '#6B7280' }}>Talk to our support team</p>
                 </div>
               </button>
@@ -1021,15 +1021,13 @@ export function LiveTracking() {
               {/* Share Live Location */}
               <button
                 onClick={async () => {
-                  try {
-                    await navigator.share({
-                      title: 'My Live Location',
-                      text: `I'm using Torc roadside assistance. Track my location: https://maps.google.com/?q=${customerPos.lat},${customerPos.lng}`,
-                      url: `https://maps.google.com/?q=${customerPos.lat},${customerPos.lng}`,
-                    });
-                  } catch {
-                    const link = `https://maps.google.com/?q=${customerPos.lat},${customerPos.lng}`;
-                    navigator.clipboard?.writeText(link);
+                  const link = `https://maps.google.com/?q=${customerPos.lat},${customerPos.lng}`;
+                  const shared = await shareContent({
+                    title: 'My Live Location',
+                    text: `I'm using Torc roadside assistance. Track my location: ${link}`,
+                    url: link,
+                  });
+                  if (shared) {
                     setShareToast(true);
                     setTimeout(() => setShareToast(false), 2500);
                   }
@@ -1042,7 +1040,7 @@ export function LiveTracking() {
                   <MapPinned className="w-5 h-5" style={{ color: '#008CE5' }} />
                 </div>
                 <div>
-                  <p className="font-semibold" style={{ color: '#1A1F2E' }}>Share My Location</p>
+                  <p className="font-semibold" style={{ color: '#14263D' }}>Share My Location</p>
                   <p className="text-xs" style={{ color: '#6B7280' }}>Send your live location to someone</p>
                 </div>
               </button>
@@ -1062,7 +1060,7 @@ export function LiveTracking() {
                   <Flag className="w-5 h-5" style={{ color: '#F59E0B' }} />
                 </div>
                 <div>
-                  <p className="font-semibold" style={{ color: '#1A1F2E' }}>Report an Issue</p>
+                  <p className="font-semibold" style={{ color: '#14263D' }}>Report an Issue</p>
                   <p className="text-xs" style={{ color: '#6B7280' }}>Report a safety concern or problem</p>
                 </div>
               </button>

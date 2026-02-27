@@ -128,7 +128,7 @@ export function NotificationToastProvider() {
               <Icon style={{ width: isMessage ? 20 : 18, height: isMessage ? 20 : 18, color: colors.icon }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: isMessage ? 15 : 14, fontWeight: 600, color: '#1A1F2E', margin: 0 }}>
+              <p style={{ fontSize: isMessage ? 15 : 14, fontWeight: 600, color: '#14263D', margin: 0 }}>
                 {toast.title}
               </p>
               {toast.message && (

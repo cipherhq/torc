@@ -171,15 +171,15 @@ export function AccountSecurity() {
     }
   }
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const inputBg = isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const inputBg = isDark ? 'rgba(255,255,255,0.04)' : '#F5F9FF';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2';
 
   return (
-    <div className="min-h-screen pb-10" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen pb-10" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button
           onClick={() => navigate('/profile')}

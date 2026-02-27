@@ -28,8 +28,8 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#1A1F2E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { elementType: 'geometry', stylers: [{ color: '#14263D' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#14263D' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6B7280' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A3040' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0E1621' }] },
@@ -47,10 +47,10 @@ export function Explore() {
   const [mapRef, setMapRef] = useState<google.maps.Map | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   // Get provider location
   useEffect(() => {
@@ -119,7 +119,7 @@ export function Explore() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex flex-col" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
       <div className="p-6 pb-3" style={{ paddingTop: 'var(--safe-top)' }}>
         <h1 className="text-2xl font-bold mb-4" style={{ color: textColor }}>Explore Shops</h1>
@@ -212,7 +212,7 @@ export function Explore() {
               )}
             </GoogleMap>
           ) : (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: isDark ? '#1A1F2E' : '#F5F2ED' }}>
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: isDark ? '#14263D' : '#E8F0FB' }}>
               <div className="w-8 h-8 border-3 border-[#008CE5] border-t-transparent rounded-full animate-spin" />
             </div>
           )}

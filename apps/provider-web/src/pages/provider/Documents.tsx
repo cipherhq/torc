@@ -274,14 +274,15 @@ export function ProviderDocuments() {
   };
 
   const allRequiredUploaded = documentConfig.filter(d => d.required).every(d => !!documents[d.id]);
+  const canSubmit = allRequiredUploaded && consentChecked;
 
   return (
     <div
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
@@ -293,10 +294,10 @@ export function ProviderDocuments() {
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
         </motion.button>
-        <h1 className="text-xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Upload Documents</h1>
+        <h1 className="text-xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Upload Documents</h1>
       </div>
 
-      <div className="relative z-10 flex-1 px-6 pb-8 overflow-y-auto">
+      <div className="relative z-10 flex-1 px-6 pb-28 overflow-y-auto">
         {pageError && (
           <div className="rounded-2xl p-4 mb-4 border border-red-500/30" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }}>
             <p className="text-red-400 text-sm">{pageError}</p>
@@ -304,7 +305,7 @@ export function ProviderDocuments() {
         )}
 
         {/* Instructions */}
-        <div className="rounded-2xl p-5 mb-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E8E4DE'}` }}>
+        <div className="rounded-2xl p-5 mb-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#D3E0F2'}` }}>
           <p className="text-sm mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>
             Upload clear photos or PDFs of your documents. All documents must be valid and not expired.
           </p>
@@ -325,12 +326,12 @@ export function ProviderDocuments() {
             const upload = documents[doc.id];
             return (
               <motion.div key={doc.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}
-                className="rounded-2xl p-5" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.04)' }}
+                className="rounded-2xl p-5" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.04)' }}
               >
                 <div className="flex items-start gap-3 mb-4">
                   {getStatusIcon(upload?.status || 'empty')}
                   <div className="flex-1">
-                    <h3 className="font-semibold flex items-center gap-2" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+                    <h3 className="font-semibold flex items-center gap-2" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
                       {doc.name}
                       {doc.required && <span className="text-red-500 text-xs">*Required</span>}
                     </h3>
@@ -342,22 +343,22 @@ export function ProviderDocuments() {
                 </div>
 
                 {upload?.file_url && (
-                  <div className="mb-4 rounded-xl p-3 flex items-center gap-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8' }}>
+                  <div className="mb-4 rounded-xl p-3 flex items-center gap-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF' }}>
                     {(upload.mime_type || '').startsWith('image/') ? (
                       <img src={upload.file_url} alt="Preview" className="w-16 h-16 object-cover rounded-lg" />
                     ) : (
-                      <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8E4DE' }}>
+                      <div className="w-16 h-16 rounded-lg flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#D3E0F2' }}>
                         <FileText className="w-6 h-6" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{upload.file_name || 'Document'}</p>
+                      <p className="text-sm font-medium truncate" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>{upload.file_name || 'Document'}</p>
                       <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>
                         {upload.file_size ? `${(upload.file_size / 1024 / 1024).toFixed(2)} MB` : '-'} • {upload.status}
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <button title={`Preview ${doc.name}`} onClick={() => setPreviewDoc({ id: doc.id, url: upload.file_url!, mimeType: upload.mime_type, fileName: upload.file_name })} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED' }}>
+                      <button title={`Preview ${doc.name}`} onClick={() => setPreviewDoc({ id: doc.id, url: upload.file_url!, mimeType: upload.mime_type, fileName: upload.file_name })} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB' }}>
                         <Eye className="w-4 h-4" style={{ color: isDark ? '#FFFFFF' : '#6B7280' }} />
                       </button>
                       <button title={`Remove ${doc.name}`} onClick={() => handleRemoveDocument(doc.id)} disabled={savingDocId === doc.id} className="p-2 rounded-lg disabled:opacity-50" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }}>
@@ -373,8 +374,8 @@ export function ProviderDocuments() {
                   disabled={savingDocId === doc.id}
                   className="w-full rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 transition-all"
                   style={{
-                    backgroundColor: upload?.file_url ? (isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8') : 'rgba(0,140,229,0.1)',
-                    border: `1px solid ${upload?.file_url ? (isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE') : 'rgba(0,140,229,0.3)'}`,
+                    backgroundColor: upload?.file_url ? (isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF') : 'rgba(0,140,229,0.1)',
+                    border: `1px solid ${upload?.file_url ? (isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2') : 'rgba(0,140,229,0.3)'}`,
                     color: upload?.file_url ? (isDark ? 'rgba(255,255,255,0.6)' : '#6B7280') : '#008CE5',
                   }}
                 >
@@ -387,11 +388,15 @@ export function ProviderDocuments() {
         </div>
 
         {/* Consent */}
-        <div className="rounded-2xl p-5 mb-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E8E4DE'}` }}>
+        <div
+          id="documents-consent-card"
+          className="rounded-2xl p-5 mb-6"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#D3E0F2'}` }}
+        >
           <label className="flex items-start gap-3 cursor-pointer">
             <input type="checkbox" checked={consentChecked} onChange={(e) => setConsentChecked(e.target.checked)} className="mt-1 w-5 h-5 rounded accent-[#008CE5]" />
             <div>
-              <h3 className="font-semibold mb-1" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Background Check Consent</h3>
+              <h3 className="font-semibold mb-1" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Background Check Consent</h3>
               <p className="text-sm leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
                 I consent to TORC conducting a background check, which may include criminal records, driving history, and identity verification.
               </p>
@@ -399,36 +404,41 @@ export function ProviderDocuments() {
           </label>
         </div>
 
-        {/* Submit */}
-        <motion.button whileHover={{ scale: allRequiredUploaded && consentChecked ? 1.02 : 1 }} whileTap={{ scale: allRequiredUploaded && consentChecked ? 0.98 : 1 }}
-          onClick={handleSubmit} disabled={!allRequiredUploaded || !consentChecked}
-          className="w-full rounded-2xl py-4 font-bold text-lg disabled:opacity-40"
-          style={{
-            background: allRequiredUploaded && consentChecked ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'),
-            color: allRequiredUploaded && consentChecked ? '#0F1419' : (isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF'),
-          }}
-        >
-          Submit Documents for Review
-        </motion.button>
-        <p className="text-sm text-center mt-4" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>
-          Review typically takes 24-48 hours
-        </p>
+        <div className="mb-8">
+          <motion.button
+            whileTap={{ scale: loading || !!savingDocId ? 1 : 0.98 }}
+            onClick={handleSubmit}
+            disabled={loading || !!savingDocId}
+            className="w-full rounded-xl py-3.5 font-semibold text-sm disabled:opacity-60 flex items-center justify-center gap-2"
+            style={{
+              background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+              color: '#FFFFFF',
+              boxShadow: '0 6px 16px rgba(0,140,229,0.30)',
+            }}
+          >
+            {savingDocId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            {savingDocId ? 'Uploading...' : 'Save Documents'}
+          </motion.button>
+          <p className="text-xs text-center mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#6B7280' }}>
+            {canSubmit ? 'Ready to continue to payout setup' : 'Upload required documents and check consent to continue'}
+          </p>
+        </div>
       </div>
 
       {/* Preview Modal */}
       {previewDoc && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={() => setPreviewDoc(null)}>
-          <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="max-w-lg w-full rounded-2xl p-6 overflow-auto" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF' }} onClick={(e) => e.stopPropagation()}>
+          <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="max-w-lg w-full rounded-2xl p-6 overflow-auto" style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-lg" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Document Preview</h3>
-              <button title="Close preview" onClick={() => setPreviewDoc(null)} className="p-2 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#F5F2ED' }}>
+              <h3 className="font-bold text-lg" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Document Preview</h3>
+              <button title="Close preview" onClick={() => setPreviewDoc(null)} className="p-2 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E8F0FB' }}>
                 <X className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#6B7280' }} />
               </button>
             </div>
             {(previewDoc.mimeType || '').startsWith('image/') ? (
               <img src={previewDoc.url} alt="Document" className="w-full rounded-xl" />
             ) : (
-              <div className="rounded-xl p-12 text-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8' }}>
+              <div className="rounded-xl p-12 text-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF' }}>
                 <FileText className="w-16 h-16 mx-auto mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF' }} />
                 <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>{previewDoc.fileName || 'Document'}</p>
                 <button

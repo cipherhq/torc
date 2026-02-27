@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Loader, MapPin, CheckCircle, Star, Navigation, User } from 'lucide-react';
+import { Loader, MapPin, CheckCircle, Star, Navigation, User, ArrowLeft } from 'lucide-react';
 import { getRequestContext } from '../../data/requestContext';
 import { useEffect, useState, useRef } from 'react';
 import { useJob } from '../../context/JobContext';
@@ -27,10 +27,10 @@ export function Matching() {
   const jobCreated = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -278,7 +278,23 @@ export function Matching() {
   }, [createdJobId, navigate, pickupCoords]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingTop: 'var(--safe-top)' }}>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
+      {/* Back / Cancel button */}
+      <button
+        onClick={async () => {
+          try {
+            if (createdJobId) await cancelJob(createdJobId, 'user_cancelled');
+          } catch (e) {
+            console.warn('Cancel failed:', e);
+          }
+          navigate('/home');
+        }}
+        className="absolute top-0 left-0 z-20 m-6 w-10 h-10 rounded-full flex items-center justify-center"
+        style={{ marginTop: 'calc(var(--safe-top) + 8px)', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
+      >
+        <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
+      </button>
+
       {/* Background effects */}
       <div className="absolute inset-0">
         <motion.div
@@ -331,7 +347,7 @@ export function Matching() {
                 className="w-28 h-28 rounded-full bg-gradient-to-br from-[#008CE5] to-[#00C98D] flex items-center justify-center mx-auto"
                 style={{ boxShadow: '0 25px 60px -12px rgba(46, 255, 175, 0.6)' }}
               >
-                <CheckCircle className="w-14 h-14" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
+                <CheckCircle className="w-14 h-14" style={{ color: isDark ? '#081427' : '#14263D' }} />
               </div>
             </motion.div>
 
@@ -368,7 +384,7 @@ export function Matching() {
                   {providerFound.photo ? (
                     <img src={providerFound.photo} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <User className="w-8 h-8" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
+                    <User className="w-8 h-8" style={{ color: isDark ? '#081427' : '#14263D' }} />
                   )}
                 </div>
                 <div className="flex-1 text-left">
@@ -418,7 +434,7 @@ export function Matching() {
                   animate={{ rotate: -360 }}
                   transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                 >
-                  <Loader className="w-16 h-16" style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }} />
+                  <Loader className="w-16 h-16" style={{ color: isDark ? '#081427' : '#14263D' }} />
                 </motion.div>
               </div>
             </motion.div>
@@ -485,7 +501,7 @@ export function Matching() {
                     jobCreated.current = false;
                     window.location.reload();
                   }}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-[#0A0F1E] bg-gradient-to-r from-[#008CE5] to-[#0070B8]"
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-[#081427] bg-gradient-to-r from-[#008CE5] to-[#0070B8]"
                 >
                   Retry
                 </button>

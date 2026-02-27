@@ -375,7 +375,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
           border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           touchAction: 'manipulation',
         }} aria-label="Go back">
-          <ArrowLeft style={{ width: 20, height: 20, color: '#1A1F2E' }} />
+          <ArrowLeft style={{ width: 20, height: 20, color: '#14263D' }} />
         </button>
         <div style={{
           width: 40, height: 40, borderRadius: '50%',
@@ -385,7 +385,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
           <span style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 }}>{peerInitials}</span>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 style={{ color: '#1A1F2E', fontWeight: 600, fontSize: 14, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{peerName}</h3>
+          <h3 style={{ color: '#14263D', fontWeight: 600, fontSize: 14, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{peerName}</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: isConnected ? '#22C55E' : '#D1D5DB' }} />
             <span style={{ color: '#6B7280', fontSize: 12 }}>{isConnected ? 'Online' : 'Connecting...'}</span>
@@ -468,7 +468,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
                     maxWidth: '80%', borderRadius: 16,
                     padding: msg.image && !msg.text ? '4px' : '10px 16px',
                     background: isMe ? 'linear-gradient(90deg, #008CE5, #0070B8)' : '#FFFFFF',
-                    color: isMe ? '#FFFFFF' : '#1A1F2E',
+                    color: isMe ? '#FFFFFF' : '#14263D',
                     boxShadow: isMe ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
                     border: isMe ? 'none' : '1px solid #E5E7EB',
                     overflow: 'hidden',
@@ -541,7 +541,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
           }}>
             <CheckCircle style={{ width: 22, height: 22, color: jobStatus === 'completed' ? '#22C55E' : '#EF4444', flexShrink: 0 }} />
             <div>
-              <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1F2E', margin: 0 }}>
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#14263D', margin: 0 }}>
                 {jobStatus === 'completed' ? 'Service Completed' : 'Service Cancelled'}
               </p>
               <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0 0' }}>
@@ -611,7 +611,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
               placeholder="Type a message..."
               style={{
                 flex: 1, background: '#F3F4F6', border: '1px solid #E5E7EB', borderRadius: 9999,
-                padding: '12px 16px', color: '#1A1F2E', fontSize: 16, outline: 'none',
+                padding: '12px 16px', color: '#14263D', fontSize: 16, outline: 'none',
                 WebkitAppearance: 'none' as any, WebkitUserSelect: 'text' as any, userSelect: 'text' as any, touchAction: 'manipulation',
               }}
             />

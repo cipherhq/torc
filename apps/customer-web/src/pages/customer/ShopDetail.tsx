@@ -83,7 +83,7 @@ export function ShopDetail() {
             boxShadow: '0 20px 40px rgba(46, 255, 175, 0.5)',
           }}
         >
-          <MapPin className="w-12 h-12 text-[#0A0F1E]" />
+          <MapPin className="w-12 h-12 text-[#081427]" />
         </motion.div>
       </div>
 
@@ -122,7 +122,7 @@ export function ShopDetail() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[24px] py-4 flex items-center justify-center gap-3 font-bold text-[#0A0F1E]"
+                className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[24px] py-4 flex items-center justify-center gap-3 font-bold text-[#081427]"
               >
                 <Phone className="w-5 h-5" />
                 Call Shop
@@ -195,7 +195,7 @@ export function ShopDetail() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => navigate('/who-needs-help')}
-            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30"
+            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg shadow-lg shadow-[#008CE5]/30"
           >
             Request Service Here
           </motion.button>

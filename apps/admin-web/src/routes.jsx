@@ -130,5 +130,5 @@ export const router = createBrowserRouter(
     element: <Navigate to="/dashboard" replace />,
   },
 ],
-  { basename: '/admin' }
+  { basename: '/' }
 );

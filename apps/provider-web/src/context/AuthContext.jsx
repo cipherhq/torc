@@ -246,7 +246,7 @@ export function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
+      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/60">Loading...</p>
@@ -274,7 +274,7 @@ export function ProviderProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
+      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/60">Loading...</p>

@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
-import { CreditCard, Plus, DollarSign, Gift, Download, Trash2 } from 'lucide-react';
+import { CreditCard, Plus, DollarSign, Gift, Download, Trash2, ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -25,10 +25,10 @@ export function Wallet() {
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [walletError, setWalletError] = useState<string | null>(null);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   useEffect(() => {
     if (!user) {
@@ -122,10 +122,19 @@ export function Wallet() {
   }
 
   return (
-    <div className="min-h-screen pb-24 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
-      <div className="relative z-10 p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-        <h1 className="text-2xl font-bold mb-1" style={{ color: textColor }}>Wallet</h1>
-        <p className="text-sm" style={{ color: subColor }}>Manage payments and credits</p>
+    <div className="min-h-screen pb-24 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
+        <button
+          onClick={() => navigate(-1)}
+          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
+        >
+          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold mb-1" style={{ color: textColor }}>Wallet</h1>
+          <p className="text-sm" style={{ color: subColor }}>Manage payments and credits</p>
+        </div>
       </div>
 
       <div className="relative z-10 px-6">

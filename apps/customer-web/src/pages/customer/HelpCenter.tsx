@@ -3,10 +3,17 @@ import { useNavigate } from 'react-router';
 import { ArrowLeft, Search, MessageCircle, Phone, Mail, ChevronRight, HelpCircle, Shield, CreditCard, MapPin, Users, FileText, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
 export function HelpCenter() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
+  const subColor = isDark ? 'rgba(255,255,255,0.6)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
   const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [subject, setSubject] = useState('');
@@ -183,33 +190,36 @@ export function HelpCenter() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
+    <div className="min-h-screen pb-24"
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
-      <div className="glass-light border-b border-white/10 sticky top-0 z-10">
+      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
         <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-4">
             <motion.button
               whileTap={{ scale: 0.9 }}
               onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
             >
-              <ArrowLeft className="w-5 h-5 text-white" />
+              <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
             </motion.button>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-white">Help Center</h1>
-              <p className="text-white/70 text-sm">We're here to help 24/7</p>
+              <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Help Center</h1>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>We're here to help 24/7</p>
             </div>
           </div>
 
           {/* Search Bar */}
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search for help..."
-              className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-[20px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
+              className="w-full pl-12 pr-4 py-3 rounded-[20px] focus:outline-none focus:border-[#008CE5]/50"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
             />
           </div>
         </div>
@@ -218,7 +228,7 @@ export function HelpCenter() {
       <div className="max-w-2xl mx-auto p-6 space-y-8">
         {/* Quick Actions */}
         <div>
-          <h2 className="text-white font-bold text-lg mb-4">Contact Support</h2>
+          <h2 className="font-bold text-lg mb-4" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Contact Support</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {quickActions.map((action, index) => {
               const Icon = action.icon;
@@ -231,13 +241,14 @@ export function HelpCenter() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={action.action}
-                  className="glass-light rounded-[20px] p-5 text-left"
+                  className="rounded-[20px] p-5 text-left"
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}
                 >
                   <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${action.color} flex items-center justify-center mb-3`}>
                     <Icon className="w-6 h-6 text-white" />
                   </div>
-                  <h3 className="text-white font-bold mb-1">{action.title}</h3>
-                  <p className="text-white/60 text-sm">{action.description}</p>
+                  <h3 className="font-bold mb-1" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>{action.title}</h3>
+                  <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>{action.description}</p>
                 </motion.button>
               );
             })}
@@ -245,28 +256,30 @@ export function HelpCenter() {
         </div>
 
         {/* Create ticket */}
-        <div id="support-ticket-form" className="glass-light rounded-[24px] p-6 border border-[#008CE5]/20">
-          <h2 className="text-white font-bold text-lg mb-1">Create Support Request</h2>
-          <p className="text-white/60 text-sm mb-4">Send an issue to support with details so we can help quickly.</p>
+        <div id="support-ticket-form" className="rounded-[24px] p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(0,140,229,0.2)' : 'rgba(0,140,229,0.15)'}` }}>
+          <h2 className="font-bold text-lg mb-1" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Create Support Request</h2>
+          <p className="text-sm mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>Send an issue to support with details so we can help quickly.</p>
 
           <div className="space-y-3">
             <div>
-              <label className="text-white/70 text-sm mb-1 block">Subject</label>
+              <label className="text-sm mb-1 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Subject</label>
               <input
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="e.g., Charged twice for a completed job"
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
+                className="w-full px-4 py-3 rounded-[14px] focus:outline-none focus:border-[#008CE5]/50"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
               />
             </div>
             <div>
-              <label className="text-white/70 text-sm mb-1 block">Priority</label>
+              <label className="text-sm mb-1 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Priority</label>
               <select
                 title="Ticket priority"
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high' | 'urgent')}
-                className="w-full px-4 py-3 bg-[#1E2433] border border-white/10 rounded-[14px] text-white focus:outline-none focus:border-[#008CE5]/50"
+                className="w-full px-4 py-3 rounded-[14px] focus:outline-none focus:border-[#008CE5]/50"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
               >
                 <option value="low">Low</option>
                 <option value="normal">Normal</option>
@@ -275,13 +288,14 @@ export function HelpCenter() {
               </select>
             </div>
             <div>
-              <label className="text-white/70 text-sm mb-1 block">Description</label>
+              <label className="text-sm mb-1 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Description</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe your issue in detail..."
                 rows={4}
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-[14px] text-white placeholder-white/40 focus:outline-none focus:border-[#008CE5]/50"
+                className="w-full px-4 py-3 rounded-[14px] focus:outline-none focus:border-[#008CE5]/50"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
               />
             </div>
             <motion.button
@@ -293,29 +307,29 @@ export function HelpCenter() {
             >
               {submitting ? 'Submitting...' : 'Submit Support Request'}
             </motion.button>
-            {submitMessage && <p className="text-sm text-white/70">{submitMessage}</p>}
+            {submitMessage && <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#6B7280' }}>{submitMessage}</p>}
           </div>
         </div>
 
         {/* My support tickets */}
         <div>
-          <h2 className="text-white font-bold text-lg mb-4">My Support Requests</h2>
+          <h2 className="font-bold text-lg mb-4" style={{ color: textColor }}>My Support Requests</h2>
           <div className="space-y-3">
             {loadingTickets ? (
-              <div className="glass-light rounded-[20px] p-4 text-white/60">Loading tickets...</div>
+              <div className="rounded-[20px] p-4" style={{ color: subColor }}>Loading tickets...</div>
             ) : myTickets.length === 0 ? (
-              <div className="glass-light rounded-[20px] p-4 text-white/60">No support requests yet.</div>
+              <div className="rounded-[20px] p-4" style={{ color: subColor }}>No support requests yet.</div>
             ) : (
               myTickets.map((ticket) => (
-                <div key={ticket.id} className="glass-light rounded-[20px] p-4">
+                <div key={ticket.id} className="rounded-[20px] p-4" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
                   <div className="flex items-center justify-between gap-3 mb-1">
-                    <p className="text-white font-semibold">{ticket.subject}</p>
-                    <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">{ticket.status}</span>
+                    <p className="font-semibold" style={{ color: textColor }}>{ticket.subject}</p>
+                    <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: subColor }}>{ticket.status}</span>
                   </div>
-                  <p className="text-white/60 text-sm">Priority: {ticket.priority}</p>
-                  <p className="text-white/50 text-xs mt-1">{new Date(ticket.created_at).toLocaleString()}</p>
+                  <p className="text-sm" style={{ color: subColor }}>Priority: {ticket.priority}</p>
+                  <p className="text-xs mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>{new Date(ticket.created_at).toLocaleString()}</p>
                   {ticket.admin_note && (
-                    <p className="text-white/70 text-sm mt-2 border-t border-white/10 pt-2">
+                    <p className="text-sm mt-2 pt-2" style={{ color: subColor, borderTop: `1px solid ${cardBorder}` }}>
                       Admin note: {ticket.admin_note}
                     </p>
                   )}
@@ -327,7 +341,7 @@ export function HelpCenter() {
 
         {/* Help Categories */}
         <div>
-          <h2 className="text-white font-bold text-lg mb-4">Browse Topics</h2>
+          <h2 className="font-bold text-lg mb-4" style={{ color: textColor }}>Browse Topics</h2>
           <div className="space-y-3">
             {helpCategories.map((category, index) => {
               const Icon = category.icon;
@@ -337,23 +351,25 @@ export function HelpCenter() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 + index * 0.05 }}
-                  className="glass-light rounded-[20px] p-5"
+                  className="rounded-[20px] p-5"
+                  style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
                 >
                   <div className="flex items-center gap-3 mb-3">
                     <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${category.color} flex items-center justify-center`}>
                       <Icon className="w-5 h-5 text-white" />
                     </div>
-                    <h3 className="text-white font-bold text-lg">{category.title}</h3>
+                    <h3 className="font-bold text-lg" style={{ color: textColor }}>{category.title}</h3>
                   </div>
                   <div className="space-y-2">
                     {category.articles.map((article) => (
                       <motion.button
                         key={article}
                         whileHover={{ x: 4 }}
-                        className="w-full flex items-center justify-between p-3 rounded-[12px] hover:bg-white/5 transition-colors"
+                        className="w-full flex items-center justify-between p-3 rounded-[12px] transition-colors"
+                        style={{ color: subColor }}
                       >
-                        <span className="text-white/70 text-sm">{article}</span>
-                        <ChevronRight className="w-4 h-4 text-white/40" />
+                        <span className="text-sm">{article}</span>
+                        <ChevronRight className="w-4 h-4" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
                       </motion.button>
                     ))}
                   </div>
@@ -365,7 +381,7 @@ export function HelpCenter() {
 
         {/* FAQs */}
         <div>
-          <h2 className="text-white font-bold text-lg mb-4">Frequently Asked Questions</h2>
+          <h2 className="font-bold text-lg mb-4" style={{ color: textColor }}>Frequently Asked Questions</h2>
           <div className="space-y-3">
             {faqs.map((faq, index) => (
               <motion.div
@@ -373,13 +389,14 @@ export function HelpCenter() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 + index * 0.05 }}
-                className="glass-light rounded-[20px] p-5"
+                className="rounded-[20px] p-5"
+                style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
               >
                 <div className="flex gap-3 mb-2">
                   <HelpCircle className="w-5 h-5 text-[#008CE5] flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="text-white font-bold mb-2">{faq.question}</h3>
-                    <p className="text-white/70 text-sm leading-relaxed">{faq.answer}</p>
+                    <h3 className="font-bold mb-2" style={{ color: textColor }}>{faq.question}</h3>
+                    <p className="text-sm leading-relaxed" style={{ color: subColor }}>{faq.answer}</p>
                   </div>
                 </div>
               </motion.div>
@@ -392,10 +409,11 @@ export function HelpCenter() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.8 }}
-          className="glass rounded-[24px] p-6 border border-[#008CE5]/30 text-center"
+          className="rounded-[24px] p-6 text-center"
+          style={{ backgroundColor: cardBg, border: '1px solid rgba(0,140,229,0.3)' }}
         >
-          <h3 className="text-white font-bold text-lg mb-2">Still need help?</h3>
-          <p className="text-white/70 text-sm mb-4">
+          <h3 className="font-bold text-lg mb-2" style={{ color: textColor }}>Still need help?</h3>
+          <p className="text-sm mb-4" style={{ color: subColor }}>
             Our support team is available 24/7 to assist you
           </p>
           <motion.button
@@ -411,6 +429,7 @@ export function HelpCenter() {
           </motion.button>
         </motion.div>
       </div>
+      <CustomerBottomNav />
     </div>
   );
 }

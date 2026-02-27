@@ -104,15 +104,15 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
   const quickReplies = role === 'provider' ? PROVIDER_QUICK_REPLIES : CUSTOMER_QUICK_REPLIES;
 
   // Theme-aware colors
-  const bgColor = isDark ? '#0A0F1E' : '#FFFFFF';
+  const bgColor = isDark ? '#081427' : '#FFFFFF';
   const headerBg = isDark ? 'rgba(26,31,46,0.95)' : 'rgba(255,255,255,0.95)';
   const headerBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subTextColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const inputBg = isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6';
   const inputBorder = isDark ? 'rgba(255,255,255,0.15)' : '#E5E7EB';
   const peerBubbleBg = isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF';
-  const peerBubbleText = isDark ? '#FFFFFF' : '#1A1F2E';
+  const peerBubbleText = isDark ? '#FFFFFF' : '#14263D';
   const peerBubbleBorder = isDark ? 'none' : '1px solid #E5E7EB';
   const messageAreaBg = isDark ? 'transparent' : '#F9FAFB';
   const btnBg = isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6';
@@ -574,7 +574,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
         {showAttachMenu && chatSettings.enableImages && (
           <div style={{
             position: 'absolute', bottom: '100%', left: 16, right: 16, marginBottom: 8,
-            background: isDark ? '#1A1F2E' : '#FFFFFF', borderRadius: 16,
+            background: isDark ? '#14263D' : '#FFFFFF', borderRadius: 16,
             border: `1px solid ${headerBorder}`,
             boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 8, display: 'flex', gap: 8,
           }}>

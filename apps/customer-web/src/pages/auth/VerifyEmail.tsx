@@ -4,9 +4,11 @@ import { Mail, ArrowLeft, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
+import { useTheme } from '../../context/ThemeContext';
 
 export function VerifyEmail() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
   const email = localStorage.getItem('pendingVerificationEmail');
@@ -35,7 +37,8 @@ export function VerifyEmail() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1A1F2E] flex flex-col p-6 relative overflow-hidden" style={{ paddingTop: 'var(--safe-top)' }}>
+    <div className="min-h-screen flex flex-col p-6 relative overflow-hidden"
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <motion.div
@@ -57,11 +60,12 @@ export function VerifyEmail() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate('/login')}
-          className="glass rounded-full p-3"
+          className="rounded-full p-3"
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
         >
-          <ArrowLeft className="w-6 h-6 text-white" />
+          <ArrowLeft className="w-6 h-6" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
         </motion.button>
-        <h1 className="text-2xl font-bold text-white">Verify Email</h1>
+        <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Verify Email</h1>
       </div>
 
       {/* Content */}
@@ -72,7 +76,7 @@ export function VerifyEmail() {
           transition={{ type: 'spring', duration: 0.6 }}
         >
           <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-8 mx-auto">
-            <Mail className="w-16 h-16 text-[#0A0F1E]" />
+            <Mail className="w-16 h-16 text-[#081427]" />
           </div>
         </motion.div>
 
@@ -81,19 +85,19 @@ export function VerifyEmail() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <h2 className="text-3xl font-bold text-white mb-4">
+          <h2 className="text-3xl font-bold mb-4" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
             Check Your Email
           </h2>
-          <p className="text-white/60 text-lg mb-2">
+          <p className="text-lg mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>
             We sent a verification link to
           </p>
           <p className="text-[#008CE5] font-semibold text-lg mb-8">
             {email || 'your email'}
           </p>
 
-          <div className="glass rounded-[24px] p-6 mb-6 text-left">
-            <h3 className="text-white font-semibold mb-3">What's next?</h3>
-            <ol className="space-y-2 text-white/60 text-sm">
+          <div className="rounded-[24px] p-6 mb-6 text-left" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
+            <h3 className="font-semibold mb-3" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>What's next?</h3>
+            <ol className="space-y-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>
               <li className="flex gap-3">
                 <span className="text-[#008CE5] font-bold">1.</span>
                 <span>Check your email inbox (and spam folder)</span>
@@ -114,7 +118,8 @@ export function VerifyEmail() {
             whileTap={{ scale: 0.98 }}
             onClick={handleResend}
             disabled={resending || resent}
-            className="w-full glass rounded-[32px] py-4 font-semibold text-white flex items-center justify-center gap-2 mb-4 disabled:opacity-50"
+            className="w-full rounded-[32px] py-4 font-semibold flex items-center justify-center gap-2 mb-4 disabled:opacity-50"
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', color: isDark ? '#FFFFFF' : '#14263D' }}
           >
             <RefreshCw className={`w-5 h-5 ${resending ? 'animate-spin' : ''}`} />
             {resent ? 'Email Sent!' : resending ? 'Sending...' : 'Resend Email'}

@@ -72,6 +72,22 @@ export const router = createBrowserRouter([
         Component: ResetPassword,
       },
       {
+        path: "/role-selection",
+        element: <Navigate to="/login" replace />,
+      },
+      {
+        path: "/permissions",
+        element: <Navigate to="/login" replace />,
+      },
+      {
+        path: "/provider/login",
+        element: <Navigate to="/login" replace />,
+      },
+      {
+        path: "/provider/signup",
+        element: <Navigate to="/signup" replace />,
+      },
+      {
         path: "/onboarding",
         Component: ProviderOnboarding,
       },

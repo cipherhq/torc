@@ -34,7 +34,7 @@ export function PulsePin() {
           ease: "easeInOut",
         }}
       >
-        <MapPin className="w-8 h-8 text-[#0A0F1E]" fill="#0A0F1E" />
+        <MapPin className="w-8 h-8 text-[#081427]" fill="#081427" />
       </motion.div>
     </div>
   );

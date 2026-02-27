@@ -27,7 +27,7 @@ export function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-[#252B3D] flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-[#1B2F4A] flex flex-col relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />

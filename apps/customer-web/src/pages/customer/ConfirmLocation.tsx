@@ -12,13 +12,13 @@ import { updateRequestContext } from '../../data/requestContext';
 const mapContainerStyle = { width: '100%', height: '100%' };
 
 const darkMapStyles = [
-  { elementType: 'geometry', stylers: [{ color: '#1A1F2E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { elementType: 'geometry', stylers: [{ color: '#14263D' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#14263D' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6B7280' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A3441' }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#323B4C' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252B3D' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#1B2F4A' }] },
 ];
 
 const lightMapStyles = [
@@ -43,10 +43,10 @@ export function ConfirmLocation() {
   const { updateJobDetails } = useJob();
   const { isDark } = useTheme();
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   const [isHazardous, setIsHazardous] = useState(false);
   const [address, setAddress] = useState('');
@@ -191,7 +191,7 @@ export function ConfirmLocation() {
       : 'Allow location access so we can find your exact position for faster assistance.');
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
       <div className="relative z-40 p-4 flex items-center gap-3" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
@@ -241,7 +241,7 @@ export function ConfirmLocation() {
                       whileTap={{ scale: 0.95 }}
                       onClick={handleAllowLocation}
                       className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#008CE5] to-[#0070B8] font-semibold text-xs"
-                      style={{ color: isDark ? '#0A0F1E' : '#1A1F2E' }}
+                      style={{ color: isDark ? '#081427' : '#14263D' }}
                     >
                       {permissionStatus === 'denied' ? 'Try Again' : 'Allow Location'}
                     </motion.button>
@@ -312,7 +312,7 @@ export function ConfirmLocation() {
                     className="w-full rounded-2xl pl-12 pr-10 py-4 focus:outline-none transition-colors text-sm"
                     style={{
                       backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                      border: '1px solid ' + (isDark ? 'rgba(255,255,255,0.2)' : '#E8E4DE'),
+                      border: '1px solid ' + (isDark ? 'rgba(255,255,255,0.2)' : '#D3E0F2'),
                       color: textColor,
                     }}
                   />
@@ -475,7 +475,7 @@ export function ConfirmLocation() {
         initial={{ y: 60 }}
         animate={{ y: 0 }}
         className="relative z-30 rounded-t-[28px] p-5"
-        style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', borderTop: '1px solid ' + (isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE') }}
+        style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: '1px solid ' + (isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2') }}
       >
         {/* Address display with search trigger */}
         <div className="mb-4">

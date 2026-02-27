@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
 function IconBadge({ children, color = '#008CE5' }: { children: React.ReactNode; color?: string }) {
   return (
@@ -34,10 +35,10 @@ export function Vehicles() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ make: '', model: '', year: '', color: '', plate: '' });
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   useEffect(() => {
     if (user) fetchVehicles();
@@ -81,13 +82,13 @@ export function Vehicles() {
   };
 
   const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
     color: isDark ? '#FFFFFF' : '#1F2937',
   };
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
@@ -98,7 +99,7 @@ export function Vehicles() {
         </button>
       </div>
 
-      <div className="px-6 pb-8">
+      <div className="px-6 pb-24">
         {/* Add Vehicle Form */}
         {showAdd && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
@@ -131,7 +132,7 @@ export function Vehicles() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setShowAdd(false)} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED', color: subColor }}>Cancel</button>
+                <button onClick={() => setShowAdd(false)} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB', color: subColor }}>Cancel</button>
                 <button onClick={addVehicle} disabled={!form.make || !form.model || saving} className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl py-3 font-bold text-sm text-white disabled:opacity-50">
                   {saving ? 'Adding...' : 'Add Vehicle'}
                 </button>
@@ -165,7 +166,7 @@ export function Vehicles() {
                 </div>
                 {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>Default</span>}
                 {!v.is_default && (
-                  <button onClick={() => setDefault(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }}>
+                  <button onClick={() => setDefault(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }}>
                     <Star className="w-4 h-4" style={{ color: subColor }} />
                   </button>
                 )}
@@ -177,6 +178,7 @@ export function Vehicles() {
           </div>
         )}
       </div>
+      <CustomerBottomNav />
     </div>
   );
 }

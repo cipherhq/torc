@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
 export function PersonalInfo() {
   const navigate = useNavigate();
@@ -97,8 +98,8 @@ export function PersonalInfo() {
   };
 
   const inputContainerStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
   };
 
   const inputStyle = {
@@ -110,15 +111,15 @@ export function PersonalInfo() {
   };
 
   const labelColor = isDark ? 'rgba(255,255,255,0.7)' : '#374151';
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
 
   return (
     <div
       className="min-h-screen flex flex-col"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)'
+          : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)',
       }}
     >
       {/* Header */}
@@ -134,7 +135,7 @@ export function PersonalInfo() {
       </div>
 
       {/* Form Content */}
-      <div className="px-6 pb-8 flex-1 flex flex-col max-w-md mx-auto w-full">
+      <div className="px-6 pb-24 flex-1 flex flex-col max-w-md mx-auto w-full">
         {/* Error message */}
         {error && (
           <motion.div
@@ -259,14 +260,14 @@ export function PersonalInfo() {
           className="w-full rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50"
           style={{
             background: 'linear-gradient(to right, #008CE5, #0070B8)',
-            color: '#0F1419',
-            boxShadow: '0 8px 24px rgba(78,205,196,0.3)',
+            color: '#FFFFFF',
+            boxShadow: '0 8px 24px rgba(0,140,229,0.3)',
             touchAction: 'manipulation',
           }}
         >
           {loading ? (
             <>
-              <div className="w-5 h-5 border-2 border-[#0A0F1E] border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               Saving...
             </>
           ) : (
@@ -277,6 +278,7 @@ export function PersonalInfo() {
           )}
         </button>
       </div>
+      <CustomerBottomNav />
     </div>
   );
 }

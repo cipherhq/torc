@@ -41,8 +41,8 @@ export function Login() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       {/* Ambient glow */}
@@ -64,7 +64,7 @@ export function Login() {
             alt="Torc"
             className="w-48 h-auto mx-auto object-contain mb-4"
           />
-          <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+          <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
             Welcome Back
           </h1>
           <p className="mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
@@ -101,8 +101,8 @@ export function Login() {
               <div
                 className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                 style={{
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
                 }}
               >
                 <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
@@ -132,8 +132,8 @@ export function Login() {
               <div
                 className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                 style={{
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
                 }}
               >
                 <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
@@ -177,7 +177,7 @@ export function Login() {
           >
             {loading ? (
               <>
-                <div className="w-5 h-5 border-2 border-[#0A0F1E] border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-[#081427] border-t-transparent rounded-full animate-spin" />
                 Signing In...
               </>
             ) : (
@@ -187,9 +187,9 @@ export function Login() {
 
           {/* Divider */}
           <div className="flex items-center gap-4 my-6">
-            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE' }} />
+            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2' }} />
             <span className="text-xs font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.3)' : '#9CA3AF' }}>OR</span>
-            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE' }} />
+            <div className="flex-1 h-px" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2' }} />
           </div>
 
           {/* Social login placeholders */}
@@ -199,7 +199,7 @@ export function Login() {
               className="w-full flex items-center justify-center gap-3 rounded-2xl py-4 font-semibold text-sm transition-all"
               style={{
                 backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
                 color: isDark ? '#FFFFFF' : '#1F2937',
               }}
             >

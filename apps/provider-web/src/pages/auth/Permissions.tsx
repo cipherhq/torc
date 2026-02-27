@@ -84,7 +84,7 @@ export function Permissions() {
   const allGranted = locationGranted && notificationsGranted;
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] flex flex-col relative overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div className="min-h-screen bg-[#081427] flex flex-col relative overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -100,7 +100,7 @@ export function Permissions() {
             className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-6"
             style={{ boxShadow: '0 20px 40px rgba(78, 205, 196, 0.3)' }}
           >
-            <MapPin className="w-12 h-12 text-[#0A0F1E]" />
+            <MapPin className="w-12 h-12 text-[#081427]" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-3">Enable Permissions</h1>
           <p className="text-white/60">To provide the best service experience, we need access to:</p>
@@ -121,7 +121,7 @@ export function Permissions() {
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${
                     permission.granted ? 'bg-gradient-to-br from-[#008CE5] to-[#0070B8]' : 'bg-white/5'
                   }`}>
-                    <Icon className={`w-7 h-7 ${permission.granted ? 'text-[#0A0F1E]' : 'text-white/40'}`} />
+                    <Icon className={`w-7 h-7 ${permission.granted ? 'text-[#081427]' : 'text-white/40'}`} />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
@@ -144,7 +144,7 @@ export function Permissions() {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={permission.onGrant}
-                        className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl px-6 py-2 text-sm font-semibold text-[#0A0F1E]"
+                        className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl px-6 py-2 text-sm font-semibold text-[#081427]"
                       >
                         Grant Access
                       </motion.button>
@@ -161,7 +161,7 @@ export function Permissions() {
           whileTap={{ scale: allGranted ? 0.98 : 1 }}
           onClick={handleContinue}
           disabled={!allGranted}
-          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {allGranted ? 'Continue to App' : 'Grant All Permissions to Continue'}
         </motion.button>

@@ -43,12 +43,12 @@ function getShopType(types: string[]): string {
 }
 
 const darkMapStyles = [
-  { elementType: 'geometry', stylers: [{ color: '#1A1F2E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { elementType: 'geometry', stylers: [{ color: '#14263D' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#14263D' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6B7280' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A3441' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252B3D' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#1B2F4A' }] },
 ];
 
 export function Explore() {
@@ -66,11 +66,11 @@ export function Explore() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const serviceRef = useRef<google.maps.places.PlacesService | null>(null);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const pageBg = isDark ? '#0F1419' : '#FAF8F5';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const pageBg = isDark ? '#0A1626' : '#EEF4FF';
 
   useEffect(() => {
     if (!currentLocation) {
@@ -212,10 +212,10 @@ export function Explore() {
             <SlidersHorizontal className="w-5 h-5" style={{ color: showFilter ? '#008CE5' : subColor }} />
           </button>
           <div className="flex rounded-xl overflow-hidden" style={{ border: `1px solid ${cardBorder}` }}>
-            <button onClick={() => setView('list')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'list' ? '#008CE5' : 'transparent', color: view === 'list' ? '#0F1419' : subColor }}>
+            <button onClick={() => setView('list')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'list' ? '#008CE5' : 'transparent', color: view === 'list' ? '#0A1626' : subColor }}>
               List
             </button>
-            <button onClick={() => setView('map')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'map' ? '#008CE5' : 'transparent', color: view === 'map' ? '#0F1419' : subColor }}>
+            <button onClick={() => setView('map')} className="px-4 py-2 text-sm font-semibold transition-all" style={{ backgroundColor: view === 'map' ? '#008CE5' : 'transparent', color: view === 'map' ? '#0A1626' : subColor }}>
               Map
             </button>
           </div>
@@ -345,7 +345,7 @@ export function Explore() {
                           <span className="text-xs" style={{ color: subColor }}>({shop.user_ratings_total})</span>
                         </div>
                       )}
-                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F2ED', color: subColor }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E8F0FB', color: subColor }}>
                         {getShopType(shop.types)}
                       </span>
                     </div>

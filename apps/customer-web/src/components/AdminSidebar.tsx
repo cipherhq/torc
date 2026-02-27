@@ -98,7 +98,7 @@ export function AdminSidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div className="w-72 h-screen bg-gradient-to-b from-[#0F1419] to-[#1A1F2E] border-r border-white/10 flex flex-col">
+    <div className="w-72 h-screen bg-gradient-to-b from-[#0A1626] to-[#14263D] border-r border-white/10 flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-white/10">
         <motion.button

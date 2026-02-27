@@ -43,8 +43,8 @@ export function ResetPassword() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
@@ -133,8 +133,8 @@ export function ResetPassword() {
                 <div
                   className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                   style={{
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
                   }}
                 >
                   <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
@@ -171,8 +171,8 @@ export function ResetPassword() {
                 <div
                   className="flex items-center gap-3 rounded-2xl px-4 py-4 transition-all focus-within:ring-2 focus-within:ring-[#008CE5]/50"
                   style={{
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
                   }}
                 >
                   <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
@@ -206,7 +206,7 @@ export function ResetPassword() {
                           style={{
                             backgroundColor: level <= strength
                               ? colors[strength - 1]
-                              : (isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'),
+                              : (isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'),
                           }}
                         />
                       );
@@ -227,7 +227,7 @@ export function ResetPassword() {
               >
                 {loading ? (
                   <>
-                    <div className="w-5 h-5 border-2 border-[#0A0F1E] border-t-transparent rounded-full animate-spin" />
+                    <div className="w-5 h-5 border-2 border-[#081427] border-t-transparent rounded-full animate-spin" />
                     Updating...
                   </>
                 ) : (

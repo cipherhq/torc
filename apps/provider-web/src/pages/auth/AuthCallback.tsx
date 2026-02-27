@@ -62,7 +62,7 @@ export function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#14263D] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
         <motion.div

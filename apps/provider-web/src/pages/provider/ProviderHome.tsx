@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { Power, Settings, DollarSign, MapPin, Clock, Navigation, Bell, MessageCircle, X, Star, Check, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -43,11 +43,11 @@ function getTimeAgo(dateStr: string): string {
 }
 
 const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#1A1F2E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { elementType: 'geometry', stylers: [{ color: '#14263D' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#14263D' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6B7280' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A3040' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#14263D' }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#333B4D' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0E1621' }] },
   { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
@@ -59,8 +59,8 @@ const lightMapStyle = [
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#c9e7f7' }] },
   { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E8E4DE' }] },
-  { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#F0F4F8' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#D3E0F2' }] },
+  { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#EAF3FF' }] },
 ];
 
 const mapContainerStyle = { width: '100%', height: '100%' };
@@ -437,8 +437,6 @@ export function ProviderHome() {
   }, [isOnline, user, loadPending, closeIncomingRequest]);
 
   const toggleOnline = async () => {
-    if (!isVerified) return; // Block unverified providers from going online
-
     // Initialize audio context + request notification permission on user gesture
     initAudio();
     requestNotificationPermission();
@@ -468,7 +466,7 @@ export function ProviderHome() {
   const defaultCenter = currentPos || { lat: 40.7128, lng: -74.006 };
 
   // Theme-aware colors
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.92)';
   const cardBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)';
@@ -479,7 +477,7 @@ export function ProviderHome() {
     : 'linear-gradient(to bottom, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.0) 35%, rgba(255,255,255,0.0) 50%, rgba(245,247,250,0.9) 75%, rgba(245,247,250,1) 100%)';
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: isDark ? '#0A1626' : '#EEF4FF' }}>
       {/* Full-screen Google Map */}
       <div className="absolute inset-0 z-0">
         {isLoaded && currentPos ? (
@@ -506,14 +504,14 @@ export function ProviderHome() {
                   scale: 10,
                   fillColor: '#008CE5',
                   fillOpacity: 1,
-                  strokeColor: isDark ? '#FFFFFF' : '#1A1F2E',
+                  strokeColor: isDark ? '#FFFFFF' : '#14263D',
                   strokeWeight: 3,
                 }}
               />
             )}
           </GoogleMap>
         ) : (
-          <div className="w-full h-full" style={{ backgroundColor: isDark ? '#1A1F2E' : '#E8ECF0' }}>
+          <div className="w-full h-full" style={{ backgroundColor: isDark ? '#14263D' : '#DDE8F7' }}>
             <div className="absolute inset-0" style={{ opacity: isDark ? 0.15 : 0.3 }}>
               <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
                 <defs>
@@ -676,7 +674,7 @@ export function ProviderHome() {
                   Verification Required
                 </p>
                 <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
-                  Your application is under review. You cannot go online until approved.
+                  Verification is still required. You can continue accepting requests while your application status is finalized.
                 </p>
                 <button
                   onClick={() => navigate('/verification-pending')}
@@ -690,11 +688,14 @@ export function ProviderHome() {
           )}
 
           {/* Online status toggle */}
-          <motion.div
+          <motion.button
+            type="button"
             whileTap={{ scale: 0.98 }}
             onClick={toggleOnline}
-            className="rounded-[28px] p-5 cursor-pointer transition-all backdrop-blur-xl"
+            className="w-full rounded-[28px] p-5 text-left transition-all backdrop-blur-xl"
             style={{
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent',
               background: isOnline
                 ? 'linear-gradient(135deg, #008CE5, #0070B8)'
                 : offlineBg,
@@ -729,7 +730,7 @@ export function ProviderHome() {
                   }} />
               </div>
             </div>
-          </motion.div>
+          </motion.button>
 
           {/* Stats row */}
           <div className="grid grid-cols-3 gap-3">
@@ -779,7 +780,7 @@ export function ProviderHome() {
                         key={req.id}
                         whileTap={{ scale: 0.98 }}
                         className="w-full rounded-2xl p-3.5 flex items-center gap-3"
-                        style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}
+                        style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}
                       >
                         <button
                           onClick={() => { stopRequestRingtone(); navigate(`/request/${req.id}`); }}

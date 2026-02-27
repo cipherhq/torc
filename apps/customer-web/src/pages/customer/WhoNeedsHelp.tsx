@@ -12,10 +12,10 @@ export function WhoNeedsHelp() {
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
   const mutedColor = isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF';
   const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB';
   const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB';
@@ -34,7 +34,7 @@ export function WhoNeedsHelp() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       {isDark && (
         <div className="absolute inset-0">
@@ -83,7 +83,7 @@ export function WhoNeedsHelp() {
                 boxShadow: '0 8px 24px rgba(46, 255, 175, 0.3)',
               }}
             >
-              <User className="w-8 h-8 text-[#0A0F1E]" />
+              <User className="w-8 h-8 text-[#081427]" />
             </div>
             <div className="flex-1 text-left">
               <h3 className="font-semibold text-lg" style={{ color: textColor }}>Myself</h3>
@@ -149,7 +149,7 @@ export function WhoNeedsHelp() {
                   whileTap={{ scale: 0.96 }}
                   onClick={handleNewPerson}
                   disabled={!newName || !newPhone}
-                  className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-3 text-[#0A0F1E] font-semibold disabled:opacity-50"
+                  className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-3 text-[#081427] font-semibold disabled:opacity-50"
                   style={{ boxShadow: '0 8px 24px rgba(78,205,196,0.4)' }}
                 >
                   Continue

@@ -59,60 +59,64 @@ export function PersonalInformation() {
   }
 
   const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
     color: isDark ? '#FFFFFF' : '#1F2937',
   };
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
+  const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingTop: 'var(--safe-top)' }}>
+    <div className="min-h-screen p-6 pb-28" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
       <div className="flex items-center gap-4 mb-6">
         <button
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE' }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2' }}
           title="Back to profile"
         >
-          <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }} />
+          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
-        <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Personal Information</h1>
+        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Personal Information</h1>
       </div>
 
-      <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
+      <div className="rounded-3xl p-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 4px 20px rgba(0,0,0,0.05)' }}>
         <div className="flex items-center gap-3 mb-4">
           <User className="w-5 h-5" style={{ color: '#008CE5' }} />
-          <p className="font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Account details</p>
+          <p className="font-semibold" style={{ color: textColor }}>Account details</p>
         </div>
 
         <div className="space-y-4 text-sm">
           <div>
-            <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>Full name</p>
-            <p style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{fullName || '-'}</p>
+            <p style={{ color: subColor }}>Full name</p>
+            <p style={{ color: textColor }}>{fullName || '-'}</p>
           </div>
           <div>
-            <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>Email</p>
-            <p style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{user?.email || '-'}</p>
+            <p style={{ color: subColor }}>Email</p>
+            <p style={{ color: textColor }}>{user?.email || '-'}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <input type="text" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} placeholder="First name" className="rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
-            <input type="text" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder="Last name" className="rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
+            <input type="text" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} placeholder="First name" className="rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
+            <input type="text" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder="Last name" className="rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
           </div>
 
-          <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
+          <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" className="w-full rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
 
           <div className="pt-2">
-            <p className="font-semibold mb-2" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Address</p>
+            <p className="font-semibold mb-2" style={{ color: textColor }}>Address</p>
             <div className="space-y-3">
-              <input type="text" value={form.address_line1} onChange={(e) => setForm({ ...form, address_line1: e.target.value })} placeholder="Address line 1" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
-              <input type="text" value={form.address_line2} onChange={(e) => setForm({ ...form, address_line2: e.target.value })} placeholder="Address line 2 (optional)" className="w-full rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
+              <input type="text" value={form.address_line1} onChange={(e) => setForm({ ...form, address_line1: e.target.value })} placeholder="Address line 1" className="w-full rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
+              <input type="text" value={form.address_line2} onChange={(e) => setForm({ ...form, address_line2: e.target.value })} placeholder="Address line 2 (optional)" className="w-full rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
               <div className="grid grid-cols-2 gap-3">
-                <input type="text" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="City" className="rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
-                <input type="text" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="State" className="rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
+                <input type="text" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="City" className="rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
+                <input type="text" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="State" className="rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <input type="text" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} placeholder="Postal code" className="rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
-                <input type="text" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} placeholder="Country" className="rounded-xl px-3 py-2 bg-transparent outline-none" style={inputStyle} />
+                <input type="text" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} placeholder="Postal code" className="rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
+                <input type="text" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} placeholder="Country" className="rounded-xl px-4 py-3 bg-transparent outline-none" style={inputStyle} />
               </div>
             </div>
           </div>
@@ -128,14 +132,15 @@ export function PersonalInformation() {
             <button
               onClick={() => navigate('/profile')}
               className="flex-1 rounded-xl py-3 font-medium"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: isDark ? '#FFFFFF' : '#6B7280' }}
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: isDark ? '#FFFFFF' : '#6B7280' }}
             >
               Cancel
             </button>
             <button
               onClick={onSave}
               disabled={saving}
-              className="flex-1 rounded-xl py-3 font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 rounded-xl py-3 font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', color: '#FFFFFF', boxShadow: '0 6px 16px rgba(0,140,229,0.30)' }}
             >
               <Save className="w-4 h-4" />
               {saving ? 'Saving...' : 'Save Changes'}

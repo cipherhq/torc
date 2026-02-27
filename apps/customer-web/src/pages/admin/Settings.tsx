@@ -262,7 +262,7 @@ export function AdminSettings() {
                               className="px-4 py-2 bg-white/5 border border-white/10 rounded-[12px] text-white focus:outline-none focus:border-[#008CE5]/50"
                             >
                               {item.options?.map((option) => (
-                                <option key={option} value={option} className="bg-[#1A1F2E]">
+                                <option key={option} value={option} className="bg-[#14263D]">
                                   {option}
                                 </option>
                               ))}

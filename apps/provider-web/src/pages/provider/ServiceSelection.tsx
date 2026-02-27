@@ -88,8 +88,8 @@ export function ProviderServiceSelection() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
@@ -101,7 +101,7 @@ export function ProviderServiceSelection() {
         <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
           <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
         </motion.button>
-        <h1 className="text-xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Select Services</h1>
+        <h1 className="text-xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Select Services</h1>
       </div>
 
       <div className="relative z-10 flex-1 px-6 pb-32 overflow-y-auto">
@@ -133,18 +133,18 @@ export function ProviderServiceSelection() {
                   backgroundColor: isSelected
                     ? (isDark ? 'rgba(0,140,229,0.1)' : 'rgba(0,140,229,0.08)')
                     : (isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF'),
-                  border: `2px solid ${isSelected ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE')}`,
+                  border: `2px solid ${isSelected ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2')}`,
                   boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.04)',
                 }}
               >
                 <div className="relative">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center"
                     style={{
-                      backgroundColor: isSelected ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED'),
+                      backgroundColor: isSelected ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB'),
                       background: isSelected ? 'linear-gradient(135deg, #008CE5, #0070B8)' : undefined,
                     }}
                   >
-                    {Icon && <Icon className="w-6 h-6" style={{ color: isSelected ? '#0F1419' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }} />}
+                    {Icon && <Icon className="w-6 h-6" style={{ color: isSelected ? '#0A1626' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }} />}
                   </div>
                   {isSelected && (
                     <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#008CE5] flex items-center justify-center">
@@ -153,7 +153,7 @@ export function ProviderServiceSelection() {
                   )}
                 </div>
                 <div className="text-center">
-                  <p className="font-semibold text-sm" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{service.name}</p>
+                  <p className="font-semibold text-sm" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>{service.name}</p>
                   <p className="text-xs mt-0.5" style={{ color: isSelected ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF') }}>${Number(service.base_price || 0)}+</p>
                 </div>
               </motion.button>
@@ -164,7 +164,7 @@ export function ProviderServiceSelection() {
       </div>
 
       {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
         <p className="text-sm mb-3 text-center" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
           {selectedServices.length} service{selectedServices.length !== 1 ? 's' : ''} selected
         </p>

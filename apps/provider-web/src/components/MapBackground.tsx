@@ -4,7 +4,7 @@ export function MapBackground() {
   return (
     <div className="absolute inset-0 overflow-hidden">
       {/* Simulated 3D map with glowing roads - lighter version */}
-      <div className="absolute inset-0 bg-gradient-to-br from-[#1A1F2E] via-[#252B3D] to-[#2F3548]">
+      <div className="absolute inset-0 bg-gradient-to-br from-[#14263D] via-[#1B2F4A] to-[#2F3548]">
         {/* Grid pattern */}
         <div className="absolute inset-0 opacity-15">
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">

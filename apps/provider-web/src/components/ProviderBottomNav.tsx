@@ -24,8 +24,11 @@ export function ProviderBottomNav() {
       <div className="px-4 py-3 backdrop-blur-xl"
         style={{
           paddingBottom: 'max(calc(12px + var(--safe-bottom, 0px)), 28px)',
-          backgroundColor: isDark ? 'rgba(15,20,25,0.85)' : 'rgba(255,255,255,0.92)',
-          borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
+          background: isDark
+            ? 'linear-gradient(180deg, rgba(9,20,36,0.92) 0%, rgba(8,16,28,0.92) 100%)'
+            : 'linear-gradient(180deg, rgba(245,250,255,0.96) 0%, rgba(238,246,255,0.96) 100%)',
+          borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`,
+          boxShadow: isDark ? '0 -10px 30px rgba(2,8,23,0.35)' : '0 -8px 28px rgba(15,71,145,0.08)',
         }}
       >
         <div className="flex items-center justify-around max-w-lg mx-auto">

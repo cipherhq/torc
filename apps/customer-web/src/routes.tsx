@@ -146,6 +146,14 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute requiredRole="customer"><Notifications /></ProtectedRoute>,
   },
   {
+    path: "/customer/notification-settings",
+    element: <ProtectedRoute requiredRole="customer"><Notifications /></ProtectedRoute>,
+  },
+  {
+    path: "/notification-settings",
+    element: <Navigate to="/customer/notification-settings" replace />,
+  },
+  {
     path: "/customer/help-center",
     element: <ProtectedRoute requiredRole="customer"><HelpCenter /></ProtectedRoute>,
   },

@@ -92,7 +92,7 @@ export function AdminSidebar() {
           onClick={() => navigate('/dashboard')}
           className="flex items-center gap-3 w-full"
         >
-          <img src="/admin/logo.svg" alt="TORC" className="h-10" />
+          <img src="/logo.svg" alt="TORC" className="h-10" />
           <div className="text-left">
             <p className="text-gray-400 text-xs">Management Console</p>
           </div>

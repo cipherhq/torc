@@ -7,11 +7,11 @@ export function NotFound() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       {isDark && (
         <div className="absolute inset-0">
@@ -44,7 +44,7 @@ export function NotFound() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate('/home')}
-            className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] px-8 py-4 font-bold text-[#0A0F1E] text-lg inline-flex items-center gap-3"
+            className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] px-8 py-4 font-bold text-[#081427] text-lg inline-flex items-center gap-3"
             style={{ boxShadow: '0 8px 24px rgba(78,205,196,0.4)' }}
           >
             <Home className="w-5 h-5" />

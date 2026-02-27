@@ -240,7 +240,7 @@ export function AdminPayments() {
   return (
     <AdminLayout>
       <div className="p-8">
-        <div className="bg-gradient-to-r from-[#1A1F2E] to-[#2F3548] p-8 rounded-3xl mb-8">
+        <div className="bg-gradient-to-r from-[#14263D] to-[#2F3548] p-8 rounded-3xl mb-8">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white">Payments, Refunds & Transactions</h1>

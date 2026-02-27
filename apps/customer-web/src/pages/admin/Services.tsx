@@ -341,7 +341,7 @@ export function AdminServices() {
                       title="Service icon"
                       value={form.icon}
                       onChange={(e) => setForm((prev) => ({ ...prev, icon: e.target.value }))}
-                      className="w-full px-4 py-3 bg-[#1A1F2E] border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
+                      className="w-full px-4 py-3 bg-[#14263D] border border-white/10 rounded-[16px] text-white focus:outline-none focus:border-[#008CE5]/50"
                     >
                       {ICON_OPTIONS.map((icon) => (
                         <option key={icon} value={icon}>

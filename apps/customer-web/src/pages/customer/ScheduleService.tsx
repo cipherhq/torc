@@ -12,10 +12,10 @@ export function ScheduleService() {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   const handleContinue = () => {
     let scheduledFor = null;
@@ -34,7 +34,7 @@ export function ScheduleService() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
       <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <motion.button
@@ -66,11 +66,11 @@ export function ScheduleService() {
           >
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: timing === 'now' ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED'),
+                background: timing === 'now' ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB'),
                 boxShadow: timing === 'now' ? '0 6px 20px rgba(78,205,196,0.4)' : 'none',
               }}
             >
-              <Zap className="w-7 h-7" style={{ color: timing === 'now' ? '#0F1419' : subColor }} />
+              <Zap className="w-7 h-7" style={{ color: timing === 'now' ? '#0A1626' : subColor }} />
             </div>
             <div className="flex-1 text-left">
               <h3 className="text-lg font-bold" style={{ color: textColor }}>Right Now</h3>
@@ -85,7 +85,7 @@ export function ScheduleService() {
               borderColor: timing === 'now' ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.25)' : '#D1D5DB'),
               backgroundColor: timing === 'now' ? '#008CE5' : 'transparent',
             }}>
-              {timing === 'now' && <div className="w-2.5 h-2.5 rounded-full bg-[#0F1419]" />}
+              {timing === 'now' && <div className="w-2.5 h-2.5 rounded-full bg-[#0A1626]" />}
             </div>
           </motion.button>
 
@@ -105,11 +105,11 @@ export function ScheduleService() {
           >
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
               style={{
-                background: timing === 'scheduled' ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED'),
+                background: timing === 'scheduled' ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB'),
                 boxShadow: timing === 'scheduled' ? '0 6px 20px rgba(78,205,196,0.4)' : 'none',
               }}
             >
-              <Clock className="w-7 h-7" style={{ color: timing === 'scheduled' ? '#0F1419' : subColor }} />
+              <Clock className="w-7 h-7" style={{ color: timing === 'scheduled' ? '#0A1626' : subColor }} />
             </div>
             <div className="flex-1 text-left">
               <h3 className="text-lg font-bold" style={{ color: textColor }}>Schedule for Later</h3>
@@ -119,7 +119,7 @@ export function ScheduleService() {
               borderColor: timing === 'scheduled' ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.25)' : '#D1D5DB'),
               backgroundColor: timing === 'scheduled' ? '#008CE5' : 'transparent',
             }}>
-              {timing === 'scheduled' && <div className="w-2.5 h-2.5 rounded-full bg-[#0F1419]" />}
+              {timing === 'scheduled' && <div className="w-2.5 h-2.5 rounded-full bg-[#0A1626]" />}
             </div>
           </motion.button>
         </div>
@@ -159,7 +159,7 @@ export function ScheduleService() {
                       className="py-3 rounded-2xl font-semibold text-sm transition-all active:opacity-80"
                       style={{
                         background: selectedTime === time ? 'linear-gradient(135deg, #008CE5, #0070B8)' : cardBg,
-                        color: selectedTime === time ? '#0F1419' : textColor,
+                        color: selectedTime === time ? '#0A1626' : textColor,
                         border: `1px solid ${selectedTime === time ? '#008CE5' : cardBorder}`,
                         boxShadow: selectedTime === time ? '0 4px 12px rgba(78,205,196,0.3)' : 'none',
                       }}
@@ -175,7 +175,7 @@ export function ScheduleService() {
       </div>
 
       {/* Fixed bottom button */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
         <button
           onClick={handleContinue}
           disabled={timing === 'scheduled' && (!selectedDate || !selectedTime)}

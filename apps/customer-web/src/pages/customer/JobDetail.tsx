@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { ArrowLeft, MapPin, Calendar, Star, Download, RotateCw } from 'lucide-react';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 import { useEffect, useState } from 'react';
 
 export function JobDetail() {
@@ -13,10 +14,10 @@ export function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   useEffect(() => {
     if (!jobId) {
@@ -51,7 +52,7 @@ export function JobDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
         <div className="w-10 h-10 border-2 border-[#008CE5] border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -59,10 +60,10 @@ export function JobDetail() {
 
   if (!currentJob) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
         <div className="rounded-2xl p-6 text-center" style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}>
           <p className="mb-3" style={{ color: subColor }}>{loadError || 'Job details are unavailable.'}</p>
-          <button onClick={() => navigate('/customer/history')} className="px-4 py-2 rounded-xl bg-[#008CE5] text-[#0A0F1E] font-semibold">
+          <button onClick={() => navigate('/customer/history')} className="px-4 py-2 rounded-xl bg-[#008CE5] text-[#081427] font-semibold">
             Back to History
           </button>
         </div>
@@ -75,7 +76,7 @@ export function JobDetail() {
   const serviceTotal = job.total_amount || ((job.base_price || 0) + (job.service_fee || 0) + (job.tax || 0));
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -95,7 +96,7 @@ export function JobDetail() {
         <h1 className="text-2xl font-bold" style={{ color: textColor }}>Job Details</h1>
       </div>
 
-      <div className="relative z-10 px-6 pb-6">
+      <div className="relative z-10 px-6 pb-24">
         {/* Status */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -160,7 +161,7 @@ export function JobDetail() {
           >
             <h3 className="font-semibold text-lg mb-4" style={{ color: textColor }}>Provider</h3>
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-xl font-bold text-[#0A0F1E]">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-xl font-bold text-[#081427]">
                 {job.provider.name ? job.provider.name.split(' ').map((n: string) => n[0]).join('') : 'P'}
               </div>
               <div className="flex-1">
@@ -252,7 +253,7 @@ export function JobDetail() {
             transition={{ delay: 0.4 }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-5 font-bold text-[#0A0F1E] text-lg flex items-center justify-center gap-3"
+            className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-5 font-bold text-[#081427] text-lg flex items-center justify-center gap-3"
             style={{ boxShadow: '0 8px 24px rgba(78,205,196,0.4)' }}
           >
             <RotateCw className="w-5 h-5" />
@@ -274,6 +275,7 @@ export function JobDetail() {
           )}
         </div>
       </div>
+      <CustomerBottomNav />
     </div>
   );
 }

@@ -1,4 +1,8 @@
 :root {
+  --torc-brand-primary: #008ce5;
+  --torc-brand-primary-deep: #0070b8;
+  --torc-surface-light: #f8fbff;
+  --torc-surface-dark: #0a1626;
   --safe-top-env: env(safe-area-inset-top, 0px);
   --safe-bottom-env: env(safe-area-inset-bottom, 0px);
   --safe-left-env: env(safe-area-inset-left, 0px);
@@ -28,6 +32,13 @@ body,
 
 body {
   overflow-x: hidden;
+  background: linear-gradient(180deg, var(--torc-surface-light) 0%, #eaf2ff 100%);
+  color: #14263d;
+}
+
+html.dark body {
+  background: linear-gradient(180deg, var(--torc-surface-dark) 0%, #081427 100%);
+  color: #ffffff;
 }
 
 .h-screen {

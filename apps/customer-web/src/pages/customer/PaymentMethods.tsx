@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import type { PaymentMethod as StripePaymentMethod, StripeCardElementOptions } from '@stripe/stripe-js';
@@ -141,7 +142,7 @@ function AddCardForm({
         <button
           onClick={onCancel}
           className="flex-1 px-5 py-3 rounded-xl font-semibold text-sm"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: textColor }}
+          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
         >
           Cancel
         </button>
@@ -165,12 +166,12 @@ export function PaymentMethods() {
   const [saving, setSaving] = useState(false);
   const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2';
 
   useEffect(() => {
     if (!user) return;
@@ -235,8 +236,8 @@ export function PaymentMethods() {
   }
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
-      <div className="sticky top-0 z-10 p-6" style={{ paddingTop: 'var(--safe-top)', backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderBottom: `1px solid ${cardBorder}` }}>
+    <div className="min-h-screen pb-24" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+      <div className="sticky top-0 z-10 p-6" style={{ paddingTop: 'var(--safe-top)', backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderBottom: `1px solid ${cardBorder}` }}>
         <div className="max-w-2xl mx-auto flex items-center gap-4">
           <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
             <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
@@ -315,6 +316,8 @@ export function PaymentMethods() {
         )}
       </div>
 
+      <CustomerBottomNav />
+
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAddModal(false)}>
           <motion.div
@@ -322,7 +325,7 @@ export function PaymentMethods() {
             animate={{ opacity: 1, y: 0 }}
             onClick={(e) => e.stopPropagation()}
             className="rounded-t-3xl md:rounded-3xl p-6 w-full md:max-w-md max-h-[90vh] overflow-y-auto"
-            style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF' }}
+            style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF' }}
           >
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-bold text-xl" style={{ color: textColor }}>Add Credit Card</h2>

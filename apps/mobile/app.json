@@ -17,6 +17,7 @@
         ],
         "NSLocationWhenInUseUsageDescription": "Torc needs your location to connect you with nearby roadside assistance.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Torc needs location for live tracking during service.",
+        "NSMicrophoneUsageDescription": "Torc needs microphone access for in-app provider and customer calls.",
         "NSCameraUsageDescription": "Take photos of your vehicle for service requests.",
         "NSPhotoLibraryUsageDescription": "Select photos of your vehicle for service requests.",
         "ITSAppUsesNonExemptEncryption": false
@@ -42,6 +43,8 @@
       "permissions": [
         "POST_NOTIFICATIONS",
         "VIBRATE",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ],

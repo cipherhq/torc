@@ -4,6 +4,8 @@ import { ArrowLeft, MapPin, Clock, DollarSign, Star, Download, Calendar } from '
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
 interface Service {
   id: string;
@@ -18,13 +20,22 @@ interface Service {
   receiptUrl?: string;
 }
 
+const INITIAL_VISIBLE_SERVICES = 6;
+const LOAD_MORE_STEP = 6;
+
 export function ServiceHistory() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
+  const subColor = isDark ? 'rgba(255,255,255,0.6)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
   const { user } = useAuth();
   const [filter, setFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_SERVICES);
 
   useEffect(() => {
     if (!user) {
@@ -100,26 +111,37 @@ export function ServiceHistory() {
     filter === 'all' ? true : s.status === filter
   );
 
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_SERVICES);
+  }, [filter, services.length]);
+
+  const visibleServices = filteredServices.slice(0, visibleCount);
+  const hasMoreServices = filteredServices.length > visibleCount;
+
   const totalSpent = services
     .filter(s => s.status === 'completed')
     .reduce((sum, s) => sum + s.amount + s.tip, 0);
 
+  const formatWholeAmount = (value: number) => Math.round(value).toLocaleString('en-US');
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
+    <div className="min-h-screen pb-24"
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
-      <div className="glass-light border-b border-white/10 sticky top-0 z-10">
+      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
         <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-2">
             <motion.button
               whileTap={{ scale: 0.9 }}
               onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
             >
-              <ArrowLeft className="w-5 h-5 text-white" />
+              <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
             </motion.button>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-white">Service History</h1>
-              <p className="text-white/70 text-sm">{services.length} total services</p>
+              <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Service History</h1>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>{services.length} total services</p>
             </div>
           </div>
         </div>
@@ -127,8 +149,8 @@ export function ServiceHistory() {
 
       <div className="max-w-2xl mx-auto p-6 space-y-6">
         {loadError && (
-          <div className="glass rounded-[20px] p-4 border border-red-400/30">
-            <p className="text-red-300 text-sm">{loadError}</p>
+          <div className="rounded-[20px] p-4" style={{ backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : '#FEF2F2', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <p className="text-red-500 text-sm">{loadError}</p>
           </div>
         )}
 
@@ -136,29 +158,30 @@ export function ServiceHistory() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass rounded-[24px] p-6"
+          className="rounded-[24px] p-6"
+          style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
         >
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-2">
                 <Calendar className="w-6 h-6 text-white" />
               </div>
-              <p className="text-white/60 text-xs mb-1">Total</p>
-              <p className="text-white font-bold text-xl">{services.length}</p>
+              <p className="text-xs mb-1" style={{ color: subColor }}>Total</p>
+              <p className="font-bold text-xl" style={{ color: textColor }}>{services.length}</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-2">
                 <DollarSign className="w-6 h-6 text-white" />
               </div>
-              <p className="text-white/60 text-xs mb-1">Spent</p>
-              <p className="text-white font-bold text-xl">${totalSpent}</p>
+              <p className="text-xs mb-1" style={{ color: subColor }}>Spent</p>
+              <p className="font-bold text-xl" style={{ color: textColor }}>${formatWholeAmount(totalSpent)}</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto mb-2">
                 <Star className="w-6 h-6 text-white" />
               </div>
-              <p className="text-white/60 text-xs mb-1">Avg Rating</p>
-              <p className="text-white font-bold text-xl">{services.length > 0 ? (services.reduce((sum, s) => sum + s.rating, 0) / services.filter(s => s.rating > 0).length || 0).toFixed(1) : '-'}</p>
+              <p className="text-xs mb-1" style={{ color: subColor }}>Avg Rating</p>
+              <p className="font-bold text-xl" style={{ color: textColor }}>{services.length > 0 ? (services.reduce((sum, s) => sum + s.rating, 0) / services.filter(s => s.rating > 0).length || 0).toFixed(1) : '-'}</p>
             </div>
           </div>
         </motion.div>
@@ -173,8 +196,9 @@ export function ServiceHistory() {
               className={`flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm transition-all ${
                 filter === f
                   ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
-                  : 'glass text-white/70'
+                  : ''
               }`}
+              style={filter !== f ? { backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: subColor } : undefined}
             >
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </motion.button>
@@ -183,18 +207,19 @@ export function ServiceHistory() {
 
         {/* Service List */}
         <div className="space-y-4">
-          {filteredServices.map((service, index) => (
+          {visibleServices.map((service, index) => (
             <motion.div
               key={service.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="glass rounded-[24px] p-5"
+              className="rounded-[24px] p-5"
+              style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h3 className="text-white font-bold text-lg mb-1">{service.service}</h3>
-                  <p className="text-white/60 text-sm">{service.provider}</p>
+                  <h3 className="font-bold text-lg mb-1" style={{ color: textColor }}>{service.service}</h3>
+                  <p className="text-sm" style={{ color: subColor }}>{service.provider}</p>
                 </div>
                 <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
                   service.status === 'completed'
@@ -206,11 +231,11 @@ export function ServiceHistory() {
               </div>
 
               <div className="space-y-2 mb-4">
-                <div className="flex items-center gap-2 text-white/70 text-sm">
+                <div className="flex items-center gap-2 text-sm" style={{ color: subColor }}>
                   <MapPin className="w-4 h-4 text-[#008CE5]" />
                   {service.location}
                 </div>
-                <div className="flex items-center gap-2 text-white/70 text-sm">
+                <div className="flex items-center gap-2 text-sm" style={{ color: subColor }}>
                   <Clock className="w-4 h-4 text-[#0070B8]" />
                   {service.date}
                 </div>
@@ -218,22 +243,22 @@ export function ServiceHistory() {
 
               {service.status === 'completed' && (
                 <>
-                  <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
-                    <span className="text-white/60 text-sm">Service</span>
-                    <span className="text-white font-semibold">${service.amount}</span>
+                  <div className="flex items-center justify-between mb-3 pb-3" style={{ borderBottom: `1px solid ${cardBorder}` }}>
+                    <span className="text-sm" style={{ color: subColor }}>Service</span>
+                    <span className="font-semibold" style={{ color: textColor }}>${formatWholeAmount(service.amount)}</span>
                   </div>
-                  <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
-                    <span className="text-white/60 text-sm">Tip</span>
-                    <span className="text-[#008CE5] font-semibold">${service.tip}</span>
+                  <div className="flex items-center justify-between mb-3 pb-3" style={{ borderBottom: `1px solid ${cardBorder}` }}>
+                    <span className="text-sm" style={{ color: subColor }}>Tip</span>
+                    <span className="text-[#008CE5] font-semibold">${formatWholeAmount(service.tip)}</span>
                   </div>
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-white/60 text-sm">Total</span>
-                    <span className="text-white font-bold text-lg">${service.amount + service.tip}</span>
+                    <span className="text-sm" style={{ color: subColor }}>Total</span>
+                    <span className="font-bold text-lg" style={{ color: textColor }}>${formatWholeAmount(service.amount + service.tip)}</span>
                   </div>
 
                   {/* Rating */}
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-white/60 text-sm">Your Rating:</span>
+                    <span className="text-sm" style={{ color: subColor }}>Your Rating:</span>
                     <div className="flex gap-1">
                       {[1, 2, 3, 4, 5].map((star) => (
                         <Star
@@ -241,8 +266,9 @@ export function ServiceHistory() {
                           className={`w-4 h-4 ${
                             star <= service.rating
                               ? 'fill-[#008CE5] text-[#008CE5]'
-                              : 'text-white/20'
+                              : ''
                           }`}
+                          style={star > service.rating ? { color: isDark ? 'rgba(255,255,255,0.2)' : '#D3E0F2' } : undefined}
                         />
                       ))}
                     </div>
@@ -253,7 +279,8 @@ export function ServiceHistory() {
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      className="flex-1 px-4 py-3 rounded-[16px] bg-white/10 text-white font-semibold text-sm flex items-center justify-center gap-2"
+                      className="flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm flex items-center justify-center gap-2"
+                      style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: textColor }}
                     >
                       <Download className="w-4 h-4" />
                       Receipt
@@ -272,17 +299,29 @@ export function ServiceHistory() {
           ))}
         </div>
 
+        {hasMoreServices && (
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setVisibleCount((count) => count + LOAD_MORE_STEP)}
+            className="w-full px-4 py-3 rounded-[16px] font-semibold text-sm"
+            style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: textColor }}
+          >
+            Load more ({Math.min(visibleCount, filteredServices.length)} of {filteredServices.length})
+          </motion.button>
+        )}
+
         {filteredServices.length === 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="text-center py-12"
           >
-            <Calendar className="w-16 h-16 text-white/20 mx-auto mb-4" />
-            <p className="text-white/60">No {filter} services found</p>
+            <Calendar className="w-16 h-16 mx-auto mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.2)' : '#D3E0F2' }} />
+            <p style={{ color: subColor }}>No {filter} services found</p>
           </motion.div>
         )}
       </div>
+      <CustomerBottomNav />
     </div>
   );
 }

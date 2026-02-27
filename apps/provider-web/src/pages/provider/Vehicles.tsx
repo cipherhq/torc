@@ -38,10 +38,16 @@ export function ProviderVehicles() {
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [form, setForm] = useState<VehicleForm>(emptyForm);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const inputStyle = {
+    border: `1px solid ${cardBorder}`,
+    color: textColor,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F5F9FF',
+  };
+  const hasRequiredFields = !!form.make.trim() && !!form.model.trim();
 
   useEffect(() => {
     if (!user) {
@@ -161,7 +167,7 @@ export function ProviderVehicles() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Back to profile">
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
@@ -174,21 +180,109 @@ export function ProviderVehicles() {
 
       <div className="px-6 pb-8">
         {showForm && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-            <h3 className="font-semibold mb-4" style={{ color: textColor }}>{editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}</h3>
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="rounded-3xl p-5 mb-6"
+            style={{
+              backgroundColor: cardBg,
+              border: `1px solid ${cardBorder}`,
+              boxShadow: isDark ? 'none' : '0 8px 24px rgba(0,0,0,0.05)',
+            }}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.12)' }}>
+                <Car className="w-5 h-5" style={{ color: '#008CE5' }} />
+              </div>
+              <div>
+                <h3 className="font-semibold" style={{ color: textColor }}>{editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}</h3>
+                <p className="text-xs" style={{ color: subColor }}>Make and model are required.</p>
+              </div>
+            </div>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                <input type="text" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="Make (e.g. Toyota)" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
-                <input type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="Model (e.g. Camry)" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
+                <div>
+                  <p className="text-xs font-medium mb-1" style={{ color: subColor }}>Make</p>
+                  <input
+                    type="text"
+                    value={form.make}
+                    onChange={(e) => setForm({ ...form, make: e.target.value })}
+                    placeholder="e.g. Toyota"
+                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-medium mb-1" style={{ color: subColor }}>Model</p>
+                  <input
+                    type="text"
+                    value={form.model}
+                    onChange={(e) => setForm({ ...form, model: e.target.value })}
+                    placeholder="e.g. Camry"
+                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    style={inputStyle}
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <input type="text" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} placeholder="Year" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
-                <input type="text" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} placeholder="Color" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
-                <input type="text" value={form.plate} onChange={(e) => setForm({ ...form, plate: e.target.value })} placeholder="Plate" className="rounded-xl px-3 py-2 text-sm bg-transparent outline-none" style={{ border: `1px solid ${cardBorder}`, color: textColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FDFBF8' }} />
+                <div>
+                  <p className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: subColor }}>
+                    <Calendar className="w-3.5 h-3.5" />
+                    Year
+                  </p>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={form.year}
+                    onChange={(e) => setForm({ ...form, year: e.target.value.slice(0, 4) })}
+                    placeholder="2025"
+                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: subColor }}>
+                    <Palette className="w-3.5 h-3.5" />
+                    Color
+                  </p>
+                  <input
+                    type="text"
+                    value={form.color}
+                    onChange={(e) => setForm({ ...form, color: e.target.value })}
+                    placeholder="Black"
+                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: subColor }}>
+                    <Hash className="w-3.5 h-3.5" />
+                    Plate
+                  </p>
+                  <input
+                    type="text"
+                    value={form.plate}
+                    onChange={(e) => setForm({ ...form, plate: e.target.value.toUpperCase() })}
+                    placeholder="ABC1234"
+                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    style={inputStyle}
+                  />
+                </div>
               </div>
               <div className="flex gap-3">
-                <button onClick={() => { setShowForm(false); setEditingVehicleId(null); setForm(emptyForm); }} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F2ED', color: subColor }}>Cancel</button>
-                <button onClick={saveVehicle} disabled={!form.make.trim() || !form.model.trim() || saving} className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl py-3 font-bold text-sm text-white disabled:opacity-50">
+                <button onClick={() => { setShowForm(false); setEditingVehicleId(null); setForm(emptyForm); }} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E8F0FB', color: subColor }}>Cancel</button>
+                <button
+                  onClick={saveVehicle}
+                  disabled={saving}
+                  className="flex-1 rounded-xl py-3 font-bold text-sm text-white"
+                  style={{
+                    background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                    boxShadow: '0 8px 18px rgba(0,140,229,0.30)',
+                    opacity: hasRequiredFields ? 1 : 0.6,
+                    cursor: hasRequiredFields ? 'pointer' : 'not-allowed',
+                    border: '1px solid rgba(0,140,229,0.45)',
+                  }}
+                >
                   {saving ? 'Saving...' : editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}
                 </button>
               </div>
@@ -223,11 +317,11 @@ export function ProviderVehicles() {
                 </div>
                 {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>Default</span>}
                 {!v.is_default && (
-                  <button onClick={() => setDefaultVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }} title="Set as default">
+                  <button onClick={() => setDefaultVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }} title="Set as default">
                     <Star className="w-4 h-4" style={{ color: subColor }} />
                   </button>
                 )}
-                <button onClick={() => beginEdit(v)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }} title="Edit vehicle">
+                <button onClick={() => beginEdit(v)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }} title="Edit vehicle">
                   <Pencil className="w-4 h-4" style={{ color: subColor }} />
                 </button>
                 <button onClick={() => deleteVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.08)' }} title="Delete vehicle">

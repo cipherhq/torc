@@ -88,22 +88,29 @@ export function ProviderBankAccounts() {
     }
   };
 
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
+  const subColor = isDark ? 'rgba(255,255,255,0.6)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0F1419] via-[#1A1F2E] to-[#252B3D] pb-24">
+    <div className="min-h-screen pb-24"
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
-      <div className="glass-light border-b border-white/10 sticky top-0 z-10">
+      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${cardBorder}` }}>
         <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-2">
             <motion.button
               whileTap={{ scale: 0.9 }}
               onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
             >
-              <ArrowLeft className="w-5 h-5 text-white" />
+              <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
             </motion.button>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-white">Bank Accounts</h1>
-              <p className="text-white/60 text-sm">Manage payout destinations</p>
+              <h1 className="text-2xl font-bold" style={{ color: textColor }}>Bank Accounts</h1>
+              <p className="text-sm" style={{ color: subColor }}>Manage payout destinations</p>
             </div>
           </div>
         </div>
@@ -114,13 +121,14 @@ export function ProviderBankAccounts() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass rounded-[24px] p-5 border border-[#0070B8]/30"
+          className="rounded-[24px] p-5"
+          style={{ backgroundColor: isDark ? 'rgba(0,112,184,0.08)' : 'rgba(0,112,184,0.05)', border: `1px solid ${isDark ? 'rgba(0,112,184,0.3)' : 'rgba(0,112,184,0.15)'}` }}
         >
           <div className="flex gap-3">
             <Shield className="w-5 h-5 text-[#0070B8] flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-white font-semibold mb-1">Secure & Encrypted</h3>
-              <p className="text-white/70 text-sm">
+              <h3 className="font-semibold mb-1" style={{ color: textColor }}>Secure & Encrypted</h3>
+              <p className="text-sm" style={{ color: subColor }}>
                 Your banking information is encrypted and securely stored. We never share your financial data.
               </p>
             </div>
@@ -135,13 +143,14 @@ export function ProviderBankAccounts() {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => setShowAddModal(true)}
-          className="w-full glass-light rounded-[24px] p-6 border-2 border-dashed border-white/20 hover:border-[#008CE5]/50 transition-all"
+          className="w-full rounded-[24px] p-6 border-2 border-dashed transition-all hover:border-[#008CE5]/50"
+          style={{ backgroundColor: cardBg, borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D3E0F2' }}
         >
           <div className="flex items-center justify-center gap-3">
             <div className="w-12 h-12 rounded-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] flex items-center justify-center">
               <Plus className="w-6 h-6 text-white" />
             </div>
-            <span className="text-white font-semibold text-lg">Add Bank Account</span>
+            <span className="font-semibold text-lg" style={{ color: textColor }}>Add Bank Account</span>
           </div>
         </motion.button>
 
@@ -154,9 +163,8 @@ export function ProviderBankAccounts() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 + index * 0.1 }}
-                className={`glass-light rounded-[24px] p-6 border-2 ${
-                  account.isDefault ? 'border-[#008CE5]/50' : 'border-white/10'
-                }`}
+                className="rounded-[24px] p-6"
+                style={{ backgroundColor: cardBg, border: `2px solid ${account.isDefault ? 'rgba(0,140,229,0.5)' : cardBorder}` }}
               >
                 <div className="flex items-start gap-4">
                   <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center flex-shrink-0">
@@ -166,8 +174,8 @@ export function ProviderBankAccounts() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <h3 className="text-white font-bold text-lg">{account.bankName}</h3>
-                        <p className="text-white/60 text-sm">
+                        <h3 className="font-bold text-lg" style={{ color: textColor }}>{account.bankName}</h3>
+                        <p className="text-sm" style={{ color: subColor }}>
                           {account.accountType.charAt(0).toUpperCase() + account.accountType.slice(1)} •••• {account.last4}
                         </p>
                       </div>
@@ -184,7 +192,7 @@ export function ProviderBankAccounts() {
                       </div>
                     </div>
 
-                    <p className="text-white/50 text-sm mb-4">Added {account.addedDate}</p>
+                    <p className="text-sm mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#9CA3AF' }}>Added {account.addedDate}</p>
 
                     <div className="flex gap-2">
                       {!account.isDefault && (
@@ -220,8 +228,8 @@ export function ProviderBankAccounts() {
             animate={{ opacity: 1 }}
             className="text-center py-12"
           >
-            <CreditCard className="w-16 h-16 text-white/20 mx-auto mb-4" />
-            <p className="text-white/60">No bank accounts added yet</p>
+            <CreditCard className="w-16 h-16 mx-auto mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }} />
+            <p style={{ color: subColor }}>No bank accounts added yet</p>
           </motion.div>
         )}
 
@@ -230,9 +238,10 @@ export function ProviderBankAccounts() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-[24px] p-5"
+            className="rounded-[24px] p-5"
+            style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
           >
-            <p className="text-white/70 text-sm">
+            <p className="text-sm" style={{ color: subColor }}>
               💰 Your earnings will be automatically deposited to your default account within 2-3 business days after each payout period.
             </p>
           </motion.div>
@@ -247,13 +256,13 @@ export function ProviderBankAccounts() {
             animate={{ opacity: 1, y: 0 }}
             className="rounded-t-[32px] md:rounded-[32px] p-6 w-full md:max-w-lg max-h-[90vh] overflow-y-auto"
             style={{
-              backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF',
-              border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+              backgroundColor: isDark ? '#14263D' : '#FFFFFF',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
             }}
           >
             <div className="flex items-center justify-between mb-6">
-              <h2 className="font-bold text-2xl" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Add Bank Account</h2>
-              <button onClick={() => setShowAddModal(false)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED' }}>
+              <h2 className="font-bold text-2xl" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Add Bank Account</h2>
+              <button onClick={() => setShowAddModal(false)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB' }}>
                 <X className="w-4 h-4" style={{ color: isDark ? '#FFFFFF' : '#6B7280' }} />
               </button>
             </div>
@@ -261,7 +270,7 @@ export function ProviderBankAccounts() {
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium mb-1.5 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Account Holder Name</label>
-                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}` }}>
+                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}>
                   <IconBadge><User className="w-4 h-4" style={{ color: '#008CE5' }} /></IconBadge>
                   <input type="text" value={formData.accountHolderName} onChange={(e) => setFormData({ ...formData, accountHolderName: e.target.value })} placeholder="John Doe" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
@@ -269,7 +278,7 @@ export function ProviderBankAccounts() {
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Bank Name</label>
-                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}` }}>
+                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}>
                   <IconBadge color="#0070B8"><Landmark className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
                   <input type="text" value={formData.bankName} onChange={(e) => setFormData({ ...formData, bankName: e.target.value })} placeholder="Chase Bank" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
@@ -277,7 +286,7 @@ export function ProviderBankAccounts() {
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Routing Number</label>
-                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}` }}>
+                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}>
                   <IconBadge color="#F59E0B"><KeyRound className="w-4 h-4" style={{ color: '#F59E0B' }} /></IconBadge>
                   <input type="text" value={formData.routingNumber} onChange={(e) => setFormData({ ...formData, routingNumber: e.target.value })} placeholder="123456789" maxLength={9} className="flex-1 bg-transparent border-none outline-none text-sm font-mono" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
@@ -286,7 +295,7 @@ export function ProviderBankAccounts() {
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Account Number</label>
-                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}` }}>
+                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}>
                   <IconBadge color="#0070B8"><Hash className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
                   <input type="text" value={formData.accountNumber} onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })} placeholder="000123456789" className="flex-1 bg-transparent border-none outline-none text-sm font-mono" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
@@ -294,7 +303,7 @@ export function ProviderBankAccounts() {
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>Confirm Account Number</label>
-                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}` }}>
+                <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-[#008CE5]/50" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}>
                   <IconBadge color="#0070B8"><Hash className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
                   <input type="text" value={formData.confirmAccountNumber} onChange={(e) => setFormData({ ...formData, confirmAccountNumber: e.target.value })} placeholder="000123456789" className="flex-1 bg-transparent border-none outline-none text-sm font-mono" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
                 </div>
@@ -312,15 +321,15 @@ export function ProviderBankAccounts() {
                       style={{
                         backgroundColor: formData.accountType === type
                           ? (isDark ? 'rgba(0,140,229,0.1)' : 'rgba(0,140,229,0.08)')
-                          : (isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8'),
-                        border: `2px solid ${formData.accountType === type ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE')}`,
+                          : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF'),
+                        border: `2px solid ${formData.accountType === type ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2')}`,
                       }}
                     >
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                        style={{ backgroundColor: formData.accountType === type ? 'rgba(0,140,229,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED') }}>
+                        style={{ backgroundColor: formData.accountType === type ? 'rgba(0,140,229,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB') }}>
                         <Icon className="w-5 h-5" style={{ color: formData.accountType === type ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.5)' : '#6B7280') }} />
                       </div>
-                      <p className="text-sm font-semibold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{label}</p>
+                      <p className="text-sm font-semibold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>{label}</p>
                     </button>
                   ))}
                 </div>
@@ -340,7 +349,7 @@ export function ProviderBankAccounts() {
             <div className="flex gap-3 mt-6">
               <motion.button whileTap={{ scale: 0.98 }} onClick={() => setShowAddModal(false)}
                 className="flex-1 px-6 py-3.5 rounded-2xl font-semibold text-sm"
-                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: isDark ? 'rgba(255,255,255,0.7)' : '#6B7280' }}>
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: isDark ? 'rgba(255,255,255,0.7)' : '#6B7280' }}>
                 Cancel
               </motion.button>
               <motion.button whileTap={{ scale: 0.98 }} onClick={handleAddAccount}

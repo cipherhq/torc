@@ -47,8 +47,8 @@ export function Signup() {
   const textColor = isDark ? '#FFFFFF' : '#1F2937';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const labelColor = isDark ? 'rgba(255,255,255,0.7)' : '#374151';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2';
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,7 +124,7 @@ export function Signup() {
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden"
-      style={{ background: isDark ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)' }}
+      style={{ background: isDark ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)' }}
     >
       {/* Ambient glow */}
       <div className="absolute inset-0 pointer-events-none">
@@ -273,7 +273,7 @@ export function Signup() {
             disabled={loading || !formData.email || !formData.password || !acceptedTerms}
             className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {loading ? (<><div className="w-5 h-5 border-2 border-[#0F1419] border-t-transparent rounded-full animate-spin" />Creating Account...</>) : 'Create Account'}
+            {loading ? (<><div className="w-5 h-5 border-2 border-[#0A1626] border-t-transparent rounded-full animate-spin" />Creating Account...</>) : 'Create Account'}
           </motion.button>
 
           {/* Sign in link */}

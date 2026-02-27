@@ -15,10 +15,10 @@ export function Activity() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   useEffect(() => {
     if (!user) {
@@ -53,7 +53,7 @@ export function Activity() {
   const displayJobs = activeTab === 'upcoming' ? upcomingJobs : pastJobs;
 
   return (
-    <div className="min-h-screen pb-24 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen pb-24 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -73,7 +73,7 @@ export function Activity() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 py-3 rounded-[18px] font-semibold transition-all relative`}
-              style={{ color: activeTab === tab.id ? '#0A0F1E' : subColor }}
+              style={{ color: activeTab === tab.id ? '#081427' : subColor }}
             >
               {activeTab === tab.id && (
                 <motion.div
@@ -166,7 +166,7 @@ export function Activity() {
                     }`}
                   >
                     {job.status === 'completed' ? (
-                      <CheckCircle className="w-7 h-7 text-[#0A0F1E]" />
+                      <CheckCircle className="w-7 h-7 text-[#081427]" />
                     ) : (
                       <Clock className="w-7 h-7 text-[#008CE5]" />
                     )}

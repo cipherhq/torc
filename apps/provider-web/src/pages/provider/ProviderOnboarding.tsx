@@ -18,8 +18,8 @@ export function ProviderOnboarding() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
@@ -40,7 +40,7 @@ export function ProviderOnboarding() {
           <div className="inline-block px-3 py-1 rounded-full mb-3" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
             <span className="text-xs font-bold" style={{ color: '#008CE5' }}>PROVIDER ONBOARDING</span>
           </div>
-          <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>
+          <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
             Become a Provider
           </h1>
           <p className="mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
@@ -64,7 +64,7 @@ export function ProviderOnboarding() {
                 className="w-full flex items-center gap-4 rounded-2xl p-5 transition-all group"
                 style={{
                   backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE'}`,
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`,
                   boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
                 }}
               >
@@ -77,7 +77,7 @@ export function ProviderOnboarding() {
                       Step {step.id}
                     </span>
                   </div>
-                  <h3 className="font-semibold mt-1" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>{step.title}</h3>
+                  <h3 className="font-semibold mt-1" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>{step.title}</h3>
                   <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>{step.description}</p>
                 </div>
                 <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" style={{ color: '#008CE5' }} />
@@ -93,11 +93,11 @@ export function ProviderOnboarding() {
           transition={{ delay: 0.5 }}
           className="max-w-md mx-auto rounded-2xl p-6"
           style={{
-            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8',
-            border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E8E4DE'}`,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#D3E0F2'}`,
           }}
         >
-          <h3 className="font-semibold mb-3" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>What you'll need:</h3>
+          <h3 className="font-semibold mb-3" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>What you'll need:</h3>
           <ul className="space-y-2">
             {[
               "Valid driver's license",

@@ -40,6 +40,18 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
 
   const channelName = `call-signal-${jobId}`;
   const myId = user?.id || 'unknown';
+  const isNativeWebView = typeof window !== 'undefined' && Boolean((window as any).ReactNativeWebView?.postMessage);
+
+  const postNativeBridgeMessage = useCallback((type: 'REQUEST_MIC_PERMISSION' | 'OPEN_APP_SETTINGS') => {
+    const bridge = (window as any).ReactNativeWebView;
+    if (!bridge?.postMessage) return false;
+    try {
+      bridge.postMessage(JSON.stringify({ type }));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const requestMicrophoneStream = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -55,7 +67,7 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
       return stream;
     } catch (e: any) {
       if (e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError') {
-        setPermissionError('Microphone permission is blocked. Enable microphone access for this app, then try again.');
+        setPermissionError('Microphone permission is blocked. Tap Allow Audio again, or open App Settings to enable microphone.');
       } else if (e?.name === 'NotFoundError') {
         setPermissionError('No microphone was found on this device.');
       } else {
@@ -264,7 +276,7 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
   return createPortal(
     <div style={{
       position: 'fixed', inset: 0, zIndex: 99999,
-      background: 'linear-gradient(180deg, #0F1419 0%, #1A2332 50%, #0F1419 100%)',
+      background: 'linear-gradient(180deg, #0A1626 0%, #1A2332 50%, #0A1626 100%)',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     }}>
       {/* Hidden audio element for remote stream */}
@@ -338,11 +350,15 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <AlertCircle style={{ width: 18, height: 18, color: '#EF4444', flexShrink: 0 }} />
-            <p style={{ color: '#1A1F2E', fontSize: 14, fontWeight: 700, margin: 0 }}>Enable Microphone</p>
+            <p style={{ color: '#14263D', fontSize: 14, fontWeight: 700, margin: 0 }}>Enable Microphone</p>
           </div>
           <p style={{ color: '#4B5563', fontSize: 13, margin: '0 0 10px 0' }}>{permissionError}</p>
           <button
             onClick={async () => {
+              if (isNativeWebView) {
+                postNativeBridgeMessage('REQUEST_MIC_PERMISSION');
+                await new Promise((resolve) => setTimeout(resolve, 350));
+              }
               const stream = await requestMicrophoneStream();
               if (stream) {
                 setPermissionError(null);
@@ -365,6 +381,26 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
           >
             Allow Audio
           </button>
+          {isNativeWebView && (
+            <button
+              onClick={() => postNativeBridgeMessage('OPEN_APP_SETTINGS')}
+              style={{
+                border: '1px solid #D1D5DB',
+                borderRadius: 12,
+                padding: '9px 14px',
+                width: '100%',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                background: '#FFFFFF',
+                color: '#14263D',
+                marginTop: 8,
+                touchAction: 'manipulation',
+              }}
+            >
+              Open App Settings
+            </button>
+          )}
         </div>
       )}
 

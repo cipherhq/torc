@@ -23,7 +23,7 @@ export function RoleSelection() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#14263D] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -65,7 +65,7 @@ export function RoleSelection() {
                     boxShadow: '0 8px 24px rgba(46, 255, 175, 0.3)',
                   }}
                 >
-                  <Icon className="w-10 h-10 text-[#0A0F1E]" />
+                  <Icon className="w-10 h-10 text-[#081427]" />
                 </div>
 
                 {/* Content */}

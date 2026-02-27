@@ -4,6 +4,8 @@ import { ArrowLeft, Bell, Check, Trash2, Settings, MapPin, DollarSign, Star, Gif
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
 interface Notification {
   id: string;
@@ -28,6 +30,11 @@ function timeAgo(date: string): string {
 
 export function Notifications() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
+  const subColor = isDark ? 'rgba(255,255,255,0.6)' : '#6B7280';
+  const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
   const { user } = useAuth();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [loading, setLoading] = useState(true);
@@ -113,30 +120,33 @@ export function Notifications() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1E2433] via-[#252B3D] to-[#2F3548] pb-24">
+    <div className="min-h-screen pb-24"
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
-      <div className="glass-light border-b border-white/10 sticky top-0 z-10">
+      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
         <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
           <div className="flex items-center gap-4 mb-2">
             <motion.button
               whileTap={{ scale: 0.9 }}
               onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
             >
-              <ArrowLeft className="w-5 h-5 text-white" />
+              <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
             </motion.button>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-white">Notifications</h1>
-              <p className="text-white/70 text-sm">
+              <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Notifications</h1>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>
                 {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up!'}
               </p>
             </div>
             <motion.button
               whileTap={{ scale: 0.9 }}
-              onClick={() => navigate('/notification-settings')}
-              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center"
+              onClick={() => navigate('/customer/notification-settings')}
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
             >
-              <Settings className="w-5 h-5 text-white" />
+              <Settings className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
             </motion.button>
           </div>
         </div>
@@ -151,8 +161,9 @@ export function Notifications() {
             className={`flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm transition-all ${
               filter === 'all'
                 ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
-                : 'glass text-white/70'
+                : ''
             }`}
+            style={filter !== 'all' ? { backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: subColor } : undefined}
           >
             All ({notifications.length})
           </motion.button>
@@ -162,8 +173,9 @@ export function Notifications() {
             className={`flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm transition-all ${
               filter === 'unread'
                 ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white'
-                : 'glass text-white/70'
+                : ''
             }`}
+            style={filter !== 'unread' ? { backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: subColor } : undefined}
           >
             Unread ({unreadCount})
           </motion.button>
@@ -171,7 +183,8 @@ export function Notifications() {
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={markAllAsRead}
-              className="px-4 py-3 rounded-[16px] glass text-white/70 font-semibold text-sm flex items-center gap-2"
+              className="px-4 py-3 rounded-[16px] font-semibold text-sm flex items-center gap-2"
+              style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: subColor }}
             >
               <Check className="w-4 h-4" />
               Mark All
@@ -192,9 +205,8 @@ export function Notifications() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`glass-light rounded-[24px] p-5 relative ${
-                    !notification.read ? 'border-2 border-[#008CE5]/30' : ''
-                  }`}
+                  className="rounded-[24px] p-5 relative"
+                  style={{ backgroundColor: cardBg, border: !notification.read ? '2px solid rgba(0,140,229,0.3)' : `1px solid ${cardBorder}` }}
                 >
                   <div className="flex gap-4">
                     <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${iconColor} flex items-center justify-center flex-shrink-0`}>
@@ -203,13 +215,13 @@ export function Notifications() {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between mb-1">
-                        <h3 className="text-white font-bold text-base">{notification.title}</h3>
+                        <h3 className="font-bold text-base" style={{ color: textColor }}>{notification.title}</h3>
                         {!notification.read && (
                           <div className="w-2 h-2 rounded-full bg-[#008CE5] flex-shrink-0" />
                         )}
                       </div>
-                      <p className="text-white/70 text-sm mb-2 leading-relaxed">{notification.message}</p>
-                      <p className="text-white/50 text-xs">{notification.timestamp}</p>
+                      <p className="text-sm mb-2 leading-relaxed" style={{ color: subColor }}>{notification.message}</p>
+                      <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>{notification.timestamp}</p>
 
                       <div className="flex gap-2 mt-3">
                         {notification.actionUrl && (
@@ -227,7 +239,8 @@ export function Notifications() {
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => markAsRead(notification.id)}
-                            className="px-4 py-2 rounded-[12px] bg-white/10 text-white font-semibold text-xs flex items-center gap-1"
+                            className="px-4 py-2 rounded-[12px] font-semibold text-xs flex items-center gap-1"
+                            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: textColor }}
                           >
                             <Check className="w-3 h-3" />
                             Mark Read
@@ -255,12 +268,13 @@ export function Notifications() {
             animate={{ opacity: 1 }}
             className="text-center py-12"
           >
-            <Bell className="w-16 h-16 text-white/20 mx-auto mb-4" />
-            <p className="text-white/60 mb-2">No {filter} notifications</p>
-            <p className="text-white/40 text-sm">You're all caught up!</p>
+            <Bell className="w-16 h-16 mx-auto mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.2)' : '#D3E0F2' }} />
+            <p className="mb-2" style={{ color: subColor }}>No {filter} notifications</p>
+            <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>You're all caught up!</p>
           </motion.div>
         )}
       </div>
+      <CustomerBottomNav />
     </div>
   );
 }

@@ -17,16 +17,16 @@ const mapContainerStyle = {
 };
 
 const darkMapStyles = [
-  { elementType: 'geometry', stylers: [{ color: '#1A1F2E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { elementType: 'geometry', stylers: [{ color: '#14263D' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#14263D' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6B7280' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A3441' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#14263D' }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#323B4C' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#252B3D' }] },
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#1B2F4A' }] },
   { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1A2E20' }] },
-  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#252B3D' }] },
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#1B2F4A' }] },
 ];
 
 const lightMapStyles = [
@@ -107,13 +107,13 @@ export function HomeMap() {
     return `${months[d.getMonth()]} ${d.getFullYear()}`;
   })();
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingTop: 'var(--safe-top)' }}>
+    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
       {/* Location permission banner */}
       {permissionStatus !== 'granted' && !locationLoading && (
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="relative z-30 mx-4 mt-2 rounded-2xl p-4 flex items-center gap-3"
@@ -131,7 +131,7 @@ export function HomeMap() {
       )}
 
       {/* Top bar */}
-      <div className="relative z-20 p-4 pt-6 flex items-center justify-between">
+      <div className="relative z-20 p-4 flex items-center justify-between">
         <div className="w-10 h-10" />
 
         <img src="/logo.svg" alt="TORC" className="h-8 object-contain" />

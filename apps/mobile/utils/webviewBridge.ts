@@ -9,6 +9,9 @@ const SUPABASE_STORAGE_KEY = 'sb-apojatplmfsbimgcyjoo-auth-token';
 export type WebToNativeMessage =
   | { type: 'SIGN_OUT' }
   | { type: 'NAVIGATE_NATIVE'; screen: string; params?: Record<string, any> }
+  | { type: 'SHARE'; payload: { title?: string; text?: string; url?: string } }
+  | { type: 'REQUEST_MIC_PERMISSION' }
+  | { type: 'OPEN_APP_SETTINGS' }
   | { type: 'READY' };
 
 // Messages sent FROM native → web (via injectJavaScript)

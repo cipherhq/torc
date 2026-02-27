@@ -37,8 +37,8 @@ export function ProviderLogin() {
   };
 
   const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE'}`,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
     color: isDark ? '#FFFFFF' : '#1F2937',
   };
 
@@ -47,8 +47,8 @@ export function ProviderLogin() {
       className="min-h-screen flex flex-col relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
-          : 'linear-gradient(180deg, #FFFFFF 0%, #F0F4F8 100%)',
+          ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
+          : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)',
       }}
     >
       <div className="absolute inset-0 pointer-events-none">
@@ -64,7 +64,7 @@ export function ProviderLogin() {
           <div className="inline-block px-4 py-1 rounded-full mb-4" style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}>
             <span className="text-sm font-bold" style={{ color: '#008CE5' }}>PROVIDER</span>
           </div>
-          <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#1A1F2E' }}>Welcome Back</h1>
+          <h1 className="text-3xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Welcome Back</h1>
           <p className="mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>Sign in to start earning</p>
         </motion.div>
 

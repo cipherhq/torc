@@ -139,7 +139,7 @@ export function WebsiteHome() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-[#1A1F2E] text-white py-12">
+      <footer className="bg-[#14263D] text-white py-12">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid md:grid-cols-4 gap-8">
             <div>

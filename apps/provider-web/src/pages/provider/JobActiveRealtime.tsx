@@ -56,11 +56,11 @@ function getPickupPosition(job: any): { lat: number; lng: number } | null {
 const mapContainerStyle = { width: '100%', height: '100%' };
 
 const darkMapStyles = [
-  { elementType: 'geometry', stylers: [{ color: '#1A1F2E' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { elementType: 'geometry', stylers: [{ color: '#14263D' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#14263D' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6B7280' }] },
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A3441' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1A1F2E' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#14263D' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
 ];
 
@@ -387,13 +387,13 @@ export function JobActiveRealtime() {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.55)' : '#6B7280';
   const cardBg = isDark ? 'rgba(26,31,46,0.95)' : 'rgba(255,255,255,0.95)';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   return (
-    <div className="min-h-screen relative overflow-hidden pb-28" style={{ background: isDark ? '#0F1419' : '#E8EAED' }}>
+    <div className="min-h-screen relative overflow-hidden pb-28" style={{ background: isDark ? '#0A1626' : '#E8EAED' }}>
       <div className="absolute inset-0">
         {isLoaded ? (
           <GoogleMap
@@ -449,7 +449,7 @@ export function JobActiveRealtime() {
             )}
           </GoogleMap>
         ) : (
-          <div className="h-full flex items-center justify-center" style={{ background: isDark ? '#0F1419' : '#E8EAED' }}>
+          <div className="h-full flex items-center justify-center" style={{ background: isDark ? '#0A1626' : '#E8EAED' }}>
             <div className="w-10 h-10 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
@@ -502,7 +502,7 @@ export function JobActiveRealtime() {
           </div>
 
           {job.notes && (
-            <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED' }}>
+            <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }}>
               <p className="text-xs" style={{ color: subColor }}>{job.notes}</p>
             </div>
           )}
@@ -760,7 +760,7 @@ export function JobActiveRealtime() {
                 whileTap={{ scale: 0.98 }}
                 onClick={takePhoto}
                 className="w-full rounded-2xl py-4 font-semibold text-sm mb-2 flex items-center justify-center gap-2"
-                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: textColor }}
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
               >
                 {photos.length > 0 ? <ImagePlus className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
                 {photos.length > 0 ? `Add another photo (${photos.length} added)` : 'Take a photo'}
@@ -803,7 +803,7 @@ export function JobActiveRealtime() {
                 navigate('/home');
               }}
               className="w-full rounded-2xl py-3 font-semibold text-sm"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: textColor }}
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
             >
               Cancel Job
             </button>

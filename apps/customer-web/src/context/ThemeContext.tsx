@@ -22,8 +22,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    const cover = document.getElementById('status-bar-cover');
-
     const parsePx = (value: string) => {
       const parsed = Number.parseFloat(value || '0');
       return Number.isFinite(parsed) ? parsed : 0;
@@ -50,9 +48,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       root.style.setProperty('--safe-top', `${Math.round(safeTop)}px`);
       root.style.setProperty('--safe-bottom', `${Math.round(safeBottom)}px`);
 
-      if (cover) {
-        cover.style.display = safeTop > 0 ? 'block' : 'none';
-      }
     };
 
     updateViewportMetrics();
@@ -80,14 +75,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     localStorage.setItem('torc-theme', theme);
 
-    // Update status bar cover to match theme
-    const cover = document.getElementById('status-bar-cover');
-    if (cover) {
-      cover.style.backgroundColor = theme === 'dark' ? '#0F1419' : '#FAF8F5';
-      cover.style.borderBottom = theme === 'dark'
-        ? '1px solid rgba(255,255,255,0.08)'
-        : '1px solid #E8E4DE';
-    }
   }, [theme]);
 
   const toggleTheme = () => {

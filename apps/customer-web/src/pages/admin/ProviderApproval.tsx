@@ -178,12 +178,12 @@ export function ProviderApproval() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0F1419] flex">
+    <div className="min-h-screen bg-[#0A1626] flex">
       <AdminNav />
 
       <div className="flex-1 ml-64">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[#252B3D] to-[#2F3548] p-8">
+        <div className="bg-gradient-to-r from-[#1B2F4A] to-[#2F3548] p-8">
           <h1 className="text-3xl font-bold text-white mb-2">Provider Approval</h1>
           <p className="text-white/60">Review and approve provider applications</p>
         </div>

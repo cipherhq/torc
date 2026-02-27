@@ -20,9 +20,6 @@ const PUBLIC_PATHS = new Set([
 
 const HIDE_NAV_PATHS = new Set([
   ...PUBLIC_PATHS,
-  '/services',
-  '/documents',
-  '/payout',
 ]);
 
 function shouldHideNav(pathname: string) {
@@ -115,7 +112,7 @@ function useGlobalMessageNotifications(userId: string | undefined) {
 
 export function AppShell() {
   const location = useLocation();
-  const { isAuthenticated, loading, profile, user, isVerified, providerProfile } = useAuth() as any;
+  const { isAuthenticated, loading, profile, user } = useAuth() as any;
   const showBottomNav = !shouldHideNav(location.pathname);
   const isPublicPath = PUBLIC_PATHS.has(location.pathname);
 
@@ -128,7 +125,7 @@ export function AppShell() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center">
+      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-white/60">Loading...</p>
@@ -141,24 +138,7 @@ export function AppShell() {
     return <Navigate to="/login" replace />;
   }
 
-  // Verification gate — redirect unverified providers to /verification-pending
-  const UNVERIFIED_ALLOWED = new Set([
-    '/verification-pending',
-    '/documents',
-    '/provider/documents',
-    '/payout',
-    '/provider/payout',
-    '/onboarding',
-    '/services',
-    '/profile',
-    '/provider/notifications',
-    '/provider/personal-information',
-    '/provider/help-support',
-  ]);
-
-  if (providerProfile !== null && !isVerified && !UNVERIFIED_ALLOWED.has(location.pathname)) {
-    return <Navigate to="/verification-pending" replace />;
-  }
+  // Verification is handled as an in-app warning banner; do not hard-block routes.
 
   return (
     <>

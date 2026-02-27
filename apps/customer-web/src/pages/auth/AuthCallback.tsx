@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../context/ThemeContext';
 
 export function AuthCallback() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Processing...');
 
@@ -67,7 +69,8 @@ export function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden"
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <motion.div
@@ -87,13 +90,14 @@ export function AuthCallback() {
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="relative z-10 glass rounded-[32px] p-8 max-w-md w-full text-center"
+        className="relative z-10 rounded-[32px] p-8 max-w-md w-full text-center"
+        style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}
       >
         {status === 'loading' && (
           <>
             <Loader2 className="w-16 h-16 text-[#008CE5] animate-spin mx-auto mb-6" />
-            <h2 className="text-2xl font-bold text-white mb-3">{message}</h2>
-            <p className="text-white/60">Please wait...</p>
+            <h2 className="text-2xl font-bold mb-3" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>{message}</h2>
+            <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>Please wait...</p>
           </>
         )}
 
@@ -106,9 +110,9 @@ export function AuthCallback() {
             <div className="w-20 h-20 rounded-full bg-[#008CE5]/20 flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-12 h-12 text-[#008CE5]" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-3">Email Verified!</h2>
-            <p className="text-white/60 mb-4">{message}</p>
-            <p className="text-white/40 text-sm">Redirecting to your dashboard...</p>
+            <h2 className="text-2xl font-bold mb-3" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Email Verified!</h2>
+            <p className="mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>{message}</p>
+            <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>Redirecting to your dashboard...</p>
           </motion.div>
         )}
 
@@ -121,9 +125,9 @@ export function AuthCallback() {
             <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6">
               <XCircle className="w-12 h-12 text-red-400" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-3">Verification Failed</h2>
-            <p className="text-white/60 mb-4">{message}</p>
-            <p className="text-white/40 text-sm">Redirecting to login...</p>
+            <h2 className="text-2xl font-bold mb-3" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Verification Failed</h2>
+            <p className="mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>{message}</p>
+            <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>Redirecting to login...</p>
           </motion.div>
         )}
       </motion.div>

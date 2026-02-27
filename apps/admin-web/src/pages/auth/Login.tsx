@@ -19,7 +19,7 @@ export function Login() {
       .catch(() => {});
   }, [navigate]);
 
-  const redirectTarget = `${window.location.origin}/admin/auth/callback`;
+  const redirectTarget = `${window.location.origin}/auth/callback`;
 
   const handlePasswordLogin = async (e: FormEvent) => {
     e.preventDefault();

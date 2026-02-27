@@ -4,6 +4,17 @@ import { User, Truck, Shield, Globe } from 'lucide-react';
 
 export function AppSelector() {
   const navigate = useNavigate();
+  const providerAppUrl = (() => {
+    const envUrl = import.meta.env.VITE_PROVIDER_APP_URL as string | undefined;
+    if (envUrl && envUrl.trim()) return envUrl.trim();
+    if (typeof window !== 'undefined') {
+      const { protocol, hostname } = window.location;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return `${protocol}//${hostname}:7001`;
+      }
+    }
+    return 'https://provider.torcservices.com';
+  })();
 
   const apps = [
     {
@@ -19,8 +30,9 @@ export function AppSelector() {
       title: 'Provider App',
       description: 'Driver dispatch & earnings',
       icon: Truck,
-      path: '/provider/home',
+      path: providerAppUrl,
       gradient: 'from-[#0070B8] to-[#008CE5]',
+      external: true,
     },
     {
       id: 'admin',
@@ -41,7 +53,7 @@ export function AppSelector() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#1A1F2E] flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#14263D] flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -70,7 +82,13 @@ export function AppSelector() {
                 transition={{ delay: 0.1 + index * 0.1 }}
                 whileHover={{ scale: 1.02, y: -4 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => navigate(app.path)}
+                onClick={() => {
+                  if ((app as any).external) {
+                    window.location.assign(app.path);
+                    return;
+                  }
+                  navigate(app.path);
+                }}
                 className="glass rounded-[32px] p-8 text-left group relative overflow-hidden"
               >
                 {/* Hover gradient */}

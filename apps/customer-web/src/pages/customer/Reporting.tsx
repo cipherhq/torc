@@ -173,11 +173,11 @@ export function CustomerReporting() {
     ]);
   }
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.6)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const pageBg = isDark ? '#0F1419' : '#FAF8F5';
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const pageBg = isDark ? '#0A1626' : '#EEF4FF';
 
   return (
     <div className="min-h-screen pb-28" style={{ background: pageBg }}>

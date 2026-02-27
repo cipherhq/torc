@@ -20,7 +20,7 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0F1E] flex flex-col p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#081427] flex flex-col p-6 relative overflow-hidden">
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -51,7 +51,7 @@ export function Login() {
                 onClick={() => setMethod('phone')}
                 className={`flex-1 py-3 rounded-[24px] font-semibold transition-all ${
                   method === 'phone'
-                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-[#0A0F1E]'
+                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-[#081427]'
                     : 'text-white/60'
                 }`}
               >
@@ -61,7 +61,7 @@ export function Login() {
                 onClick={() => setMethod('email')}
                 className={`flex-1 py-3 rounded-[24px] font-semibold transition-all ${
                   method === 'email'
-                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-[#0A0F1E]'
+                    ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-[#081427]'
                     : 'text-white/60'
                 }`}
               >
@@ -110,7 +110,7 @@ export function Login() {
               whileTap={{ scale: 0.98 }}
               onClick={handleSendCode}
               disabled={method === 'phone' ? !phone : !email}
-              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
             >
               Send Code
             </motion.button>
@@ -148,7 +148,7 @@ export function Login() {
               whileTap={{ scale: 0.98 }}
               onClick={handleVerify}
               disabled={code.length !== 6}
-              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
             >
               Verify & Continue
             </motion.button>

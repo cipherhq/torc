@@ -30,7 +30,7 @@ export function Splash() {
       className="min-h-screen flex items-center justify-center relative overflow-hidden"
       style={{
         background: isDark
-          ? 'linear-gradient(135deg, #1A1F2E 0%, #0F1419 100%)'
+          ? 'linear-gradient(135deg, #14263D 0%, #0A1626 100%)'
           : 'linear-gradient(135deg, #F8FAFB 0%, #FFFFFF 100%)',
       }}
     >

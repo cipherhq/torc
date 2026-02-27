@@ -10,10 +10,10 @@ export function Permissions() {
   const [location, setLocation] = useState(false);
   const [notifications, setNotifications] = useState(false);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
   const mutedColor = isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF';
 
   const permissions = [
@@ -44,7 +44,7 @@ export function Permissions() {
   const allGranted = location && notifications;
 
   return (
-    <div className="min-h-screen flex flex-col p-6 relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingTop: 'var(--safe-top)' }}>
+    <div className="min-h-screen flex flex-col p-6 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
       {/* Background */}
       {isDark && (
         <div className="absolute inset-0">
@@ -64,7 +64,7 @@ export function Permissions() {
               boxShadow: '0 20px 40px rgba(46, 255, 175, 0.3)',
             }}
           >
-            <MapPin className="w-12 h-12 text-[#0A0F1E]" />
+            <MapPin className="w-12 h-12 text-[#081427]" />
           </div>
           <h1 className="text-3xl font-bold mb-3" style={{ color: textColor }}>
             Enable Permissions
@@ -96,7 +96,7 @@ export function Permissions() {
                     }`}
                     style={!permission.granted ? { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } : undefined}
                   >
-                    <Icon className="w-7 h-7" style={{ color: permission.granted ? '#0A0F1E' : mutedColor }} />
+                    <Icon className="w-7 h-7" style={{ color: permission.granted ? '#081427' : mutedColor }} />
                   </div>
 
                   <div className="flex-1">
@@ -113,7 +113,7 @@ export function Permissions() {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.96 }}
                         onClick={permission.onGrant}
-                        className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl px-6 py-2 text-sm font-semibold text-[#0A0F1E]"
+                        className="bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl px-6 py-2 text-sm font-semibold text-[#081427]"
                         style={{ boxShadow: '0 8px 24px rgba(78,205,196,0.4)' }}
                       >
                         Grant Access
@@ -136,7 +136,7 @@ export function Permissions() {
           whileTap={{ scale: allGranted ? 0.96 : 1 }}
           onClick={handleContinue}
           disabled={!allGranted}
-          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#0A0F1E] text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ boxShadow: '0 8px 24px rgba(78,205,196,0.4)' }}
         >
           {allGranted ? 'Continue to App' : 'Grant All Permissions to Continue'}

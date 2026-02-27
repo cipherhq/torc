@@ -14,16 +14,21 @@ import { supabase } from '../../lib/supabase';
 interface Job {
   id: string;
   status: string;
-  base_price: number;
-  service_fee: number;
-  tax: number;
-  tip: number;
-  total_amount: number;
-  payment_status: string;
+  base_price: number | null;
+  service_fee: number | null;
+  tax: number | null;
+  tip: number | null;
+  total_amount: number | null;
+  payment_status: string | null;
   completed_at: string | null;
   created_at: string;
   service: { name: string } | null;
   customer: { first_name: string; last_name: string } | null;
+}
+
+interface ProviderPayout {
+  status: string;
+  net_payout: number | null;
 }
 
 const FALLBACK_COMMISSION_PCT = 15;
@@ -39,6 +44,7 @@ export function ProviderEarnings() {
   const [activeTab, setActiveTab] = useState<'week' | 'month' | 'all'>('week');
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [payoutMethods, setPayoutMethods] = useState<any[]>([]);
+  const [payouts, setPayouts] = useState<ProviderPayout[]>([]);
 
   // ── Fetch data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -49,8 +55,8 @@ export function ProviderEarnings() {
         setLoadError(null);
         setLoading(true);
 
-        // Fetch in parallel: jobs, platform settings, payout methods
-        const [jobsRes, settingsRes, payoutRes] = await Promise.all([
+        // Fetch in parallel: jobs, platform settings, payout methods, payout history
+        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes] = await Promise.all([
           supabase
             .from('jobs')
             .select('*, service:services(name), customer:profiles!jobs_customer_id_fkey(first_name, last_name)')
@@ -65,12 +71,29 @@ export function ProviderEarnings() {
             .from('provider_payout_methods')
             .select('*')
             .eq('provider_id', user!.id)
-            .eq('status', 'active'),
+            .eq('status', 'active')
+            .then(r => r, () => ({ data: null, error: null })),
+          supabase
+            .from('provider_payouts')
+            .select('status, net_payout')
+            .eq('provider_id', user!.id)
+            .then(r => r, () => ({ data: null, error: null })),
         ]);
 
-        if (jobsRes.data) setJobs(jobsRes.data);
+        if (jobsRes.data) {
+          setJobs(jobsRes.data);
+        } else {
+          // Fallback: fetch jobs without joins if the relationship query fails
+          const fallback = await supabase
+            .from('jobs')
+            .select('*')
+            .eq('provider_id', user!.id)
+            .order('created_at', { ascending: false });
+          if (fallback.data) setJobs(fallback.data as any);
+        }
         if (settingsRes.data?.value) setCommissionPct(Number(settingsRes.data.value) || FALLBACK_COMMISSION_PCT);
-        if (payoutRes.data) setPayoutMethods(payoutRes.data);
+        if (payoutMethodsRes.data) setPayoutMethods(payoutMethodsRes.data);
+        if (payoutsRes.data) setPayouts(payoutsRes.data);
       } catch (e) {
         console.warn('Failed to load earnings:', e);
         setLoadError('Could not load earnings right now.');
@@ -94,7 +117,7 @@ export function ProviderEarnings() {
     let totalCommission = 0;
 
     jobList.forEach(j => {
-      const base = Number(j.base_price) || 0;
+      const base = deriveBasePrice(j);
       const tip = Number(j.tip) || 0;
       grossBase += base;
       totalTips += tip;
@@ -130,6 +153,16 @@ export function ProviderEarnings() {
   const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, commissionPct]);
   const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, commissionPct]);
   const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, commissionPct]);
+  const paidOutTotal = useMemo(
+    () => payouts
+      .filter((p) => p.status === 'paid')
+      .reduce((sum, p) => sum + (Number(p.net_payout) || 0), 0),
+    [payouts]
+  );
+  const availableBalance = useMemo(
+    () => Math.max(allTimeStats.netEarnings - paidOutTotal, 0),
+    [allTimeStats.netEarnings, paidOutTotal]
+  );
 
   const activeStats = activeTab === 'week' ? weekStats : activeTab === 'month' ? monthStats : allTimeStats;
 
@@ -144,7 +177,7 @@ export function ProviderEarnings() {
       const jsDay = new Date(j.completed_at || j.created_at).getDay();
       const idx = dayMap.indexOf(jsDay);
       if (idx >= 0) {
-        const base = Number(j.base_price) || 0;
+        const base = deriveBasePrice(j);
         const tip = Number(j.tip) || 0;
         totals[days[idx]] += base * (1 - commissionPct / 100) + tip;
       }
@@ -156,7 +189,7 @@ export function ProviderEarnings() {
   // Per-job breakdown for recent jobs
   const recentJobsDetailed = useMemo(() => {
     return jobs.slice(0, 20).map(j => {
-      const base = Number(j.base_price) || 0;
+      const base = deriveBasePrice(j);
       const tip = Number(j.tip) || 0;
       const commission = base * (commissionPct / 100);
       const net = base - commission + tip;
@@ -221,15 +254,18 @@ export function ProviderEarnings() {
 
   const defaultPayout = payoutMethods.find(m => m.is_default) || payoutMethods[0];
 
-  const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n: number) => {
+    const normalized = Math.abs(n) < 0.005 ? 0 : n;
+    return normalized.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
   // ── Styles ────────────────────────────────────────────────────────
   const bg = isDark
-    ? 'linear-gradient(180deg, #1A1F2E 0%, #0F1419 100%)'
+    ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
     : 'linear-gradient(180deg, #F8FAFB 0%, #FFFFFF 100%)';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB';
-  const textPrimary = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textPrimary = isDark ? '#FFFFFF' : '#14263D';
   const textSecondary = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const textTertiary = isDark ? 'rgba(255,255,255,0.35)' : '#9CA3AF';
 
@@ -289,9 +325,9 @@ export function ProviderEarnings() {
               }}
             >
               <div className="absolute top-0 right-0 w-40 h-40 rounded-full" style={{ background: 'rgba(255,255,255,0.08)', filter: 'blur(40px)' }} />
-              <p className="text-white/70 text-sm mb-1">Available Balance</p>
-              <h2 className="text-white font-bold text-4xl mb-1">${fmt(allTimeStats.netEarnings)}</h2>
-              <p className="text-white/50 text-xs mb-5">Net after {commissionPct}% platform fee</p>
+              <p className="text-sm mb-1" style={{ color: 'rgba(255,255,255,0.85)' }}>Available Balance</p>
+              <h2 className="font-bold text-4xl mb-1" style={{ color: '#FFFFFF' }}>${fmt(availableBalance)}</h2>
+              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after {commissionPct}% platform fee</p>
 
               <div className="flex items-center gap-3">
                 <motion.button
@@ -308,17 +344,17 @@ export function ProviderEarnings() {
                   className="py-3 px-4 rounded-2xl"
                   style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
                 >
-                  <Building2 className="w-5 h-5 text-white" />
+                  <Building2 className="w-5 h-5" style={{ color: '#FFFFFF' }} />
                 </motion.button>
               </div>
 
               {pendingStats.netEarnings > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/15 flex items-center justify-between">
+                <div className="mt-4 pt-4 flex items-center justify-between" style={{ borderTop: '1px solid rgba(255,255,255,0.2)' }}>
                   <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-white/50" />
-                    <span className="text-white/60 text-sm">Pending</span>
+                    <Clock className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.8)' }} />
+                    <span className="text-sm" style={{ color: 'rgba(255,255,255,0.85)' }}>Pending</span>
                   </div>
-                  <span className="text-white font-semibold">${fmt(pendingStats.netEarnings)}</span>
+                  <span className="font-semibold" style={{ color: '#FFFFFF' }}>${fmt(pendingStats.netEarnings)}</span>
                 </div>
               )}
             </motion.div>
@@ -740,4 +776,10 @@ function getWeekStart(date: Date): Date {
 function getWeekKey(date: Date): string {
   const ws = getWeekStart(date);
   return ws.toISOString().slice(0, 10);
+}
+
+function deriveBasePrice(job: Pick<Job, 'base_price' | 'total_amount' | 'tip'>): number {
+  const base = Number(job.base_price) || 0;
+  if (base > 0) return base;
+  return Math.max((Number(job.total_amount) || 0) - (Number(job.tip) || 0), 0);
 }

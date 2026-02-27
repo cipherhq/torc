@@ -146,7 +146,7 @@ function AddCardForm({
       </div>
 
       <div className="flex gap-3 mt-5">
-        <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: textColor }}>
+        <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}>
           Cancel
         </button>
         <button
@@ -175,12 +175,12 @@ export function PricingPayment() {
   const [saving, setSaving] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2';
 
   useEffect(() => {
     if (!user) return;
@@ -313,7 +313,7 @@ export function PricingPayment() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
       <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
@@ -367,7 +367,7 @@ export function PricingPayment() {
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FDFBF8' }}>
+          <div className="mt-4 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF' }}>
             <p className="text-xs" style={{ color: subColor }}>Final price may vary based on actual time and distance</p>
           </div>
         </motion.div>
@@ -398,7 +398,7 @@ export function PricingPayment() {
                       boxShadow: isSelected ? '0 4px 16px rgba(78,205,196,0.25)' : 'none',
                     }}
                   >
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: isSelected ? 'rgba(78,205,196,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : '#F5F2ED') }}>
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: isSelected ? 'rgba(78,205,196,0.2)' : (isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB') }}>
                       <CreditCard className="w-5 h-5" style={{ color: isSelected ? '#008CE5' : subColor }} />
                     </div>
                     <div className="flex-1 text-left">
@@ -436,7 +436,7 @@ export function PricingPayment() {
       </div>
 
       {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
         {errors.length > 0 && (
           <div className="mb-3 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
             {errors.map((err, i) => (
@@ -465,7 +465,7 @@ export function PricingPayment() {
           <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }}
             onClick={(e) => e.stopPropagation()}
             className="rounded-t-3xl md:rounded-3xl p-6 w-full md:max-w-md max-h-[90vh] overflow-y-auto"
-            style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF' }}
+            style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF' }}
           >
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-bold text-lg" style={{ color: textColor }}>Add Credit Card</h2>

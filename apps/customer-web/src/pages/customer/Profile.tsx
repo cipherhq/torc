@@ -111,12 +111,12 @@ export function Profile() {
   ];
 
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen pb-24" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
       <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
         <h1 className="text-3xl font-bold mb-1" style={{ color: textColor }}>Profile</h1>
@@ -130,7 +130,7 @@ export function Profile() {
           style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)' }}
         >
           <div className="flex items-center gap-4 mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-2xl font-bold text-[#0A0F1E]">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-2xl font-bold text-[#081427]">
               {getInitials()}
             </div>
             <div className="flex-1">
@@ -180,7 +180,7 @@ export function Profile() {
                     </div>
                     <p className="flex-1 text-left font-medium" style={{ color: textColor }}>{item.label}</p>
                     {item.count !== null && (
-                      <span className="text-sm font-semibold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F2ED', color: subColor }}>{item.count}</span>
+                      <span className="text-sm font-semibold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: subColor }}>{item.count}</span>
                     )}
                     <ChevronRight className="w-4 h-4" style={{ color: subColor }} />
                   </motion.button>

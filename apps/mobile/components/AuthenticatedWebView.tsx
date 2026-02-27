@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet, BackHandler, Platform, Text } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, BackHandler, Platform, Text, Share as NativeShare, PermissionsAndroid, Linking } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -96,6 +96,35 @@ export default function AuthenticatedWebView({ initialPath }: Props) {
           }
           break;
 
+        case 'SHARE': {
+          const title = message.payload?.title || 'Share';
+          const text = message.payload?.text || '';
+          const url = message.payload?.url || '';
+          const body = [text, url].filter(Boolean).join('\n');
+          NativeShare.share({
+            title,
+            subject: title,
+            message: body,
+            url: url || undefined,
+          }).catch(() => {});
+          break;
+        }
+
+        case 'REQUEST_MIC_PERMISSION':
+          if (Platform.OS === 'android') {
+            PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
+              title: 'Microphone Access',
+              message: 'Torc needs microphone access for in-app calls.',
+              buttonPositive: 'Allow',
+              buttonNegative: 'Not now',
+            }).catch(() => {});
+          }
+          break;
+
+        case 'OPEN_APP_SETTINGS':
+          Linking.openSettings().catch(() => {});
+          break;
+
         case 'READY':
           // Web app is mounted and ready — sync any pending state
           if (session) {
@@ -177,6 +206,7 @@ export default function AuthenticatedWebView({ initialPath }: Props) {
         cacheEnabled={false}
         mediaPlaybackRequiresUserAction={false}
         allowsInlineMediaPlayback
+        mediaCapturePermissionGrantType="grant"
         allowsBackForwardNavigationGestures
         sharedCookiesEnabled
         style={styles.webview}

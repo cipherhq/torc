@@ -37,22 +37,9 @@
         outline: none !important;
         box-shadow: none !important;
       }
-      /* Fixed status bar cover - prevents content from showing behind time/battery */
-      #status-bar-cover {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: var(--safe-top);
-        z-index: 9999;
-        background-color: #0F1419;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-        pointer-events: none;
-      }
     </style>
   </head>
   <body>
-    <div id="status-bar-cover"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.torc.provider',
-  appName: 'TORC Provider',
+  appName: 'TORC Pro',
   webDir: 'dist',
   server: {
     // Enable this during development to load from your dev server

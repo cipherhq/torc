@@ -70,12 +70,12 @@ export function ProviderProfile() {
   const pJobs = providerData?.total_jobs || 0;
   const pAccept = providerData?.acceptance_rate || 0;
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
   const sectionLabelColor = isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF';
-  const dividerColor = isDark ? 'rgba(255,255,255,0.06)' : '#F5F2ED';
+  const dividerColor = isDark ? 'rgba(255,255,255,0.06)' : '#E8F0FB';
 
   const profileSections = [
     {
@@ -108,7 +108,7 @@ export function ProviderProfile() {
   ];
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5', paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
+    <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
       {/* Header */}
       <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'max(calc(24px + env(safe-area-inset-top, 0px)), 60px)' }}>
         <button
@@ -140,28 +140,38 @@ export function ProviderProfile() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="relative w-24 h-24 rounded-2xl mx-auto mb-4 overflow-hidden group"
-            style={{ boxShadow: '0 8px 24px rgba(78, 205, 196, 0.25)' }}
+            className="relative w-28 h-28 rounded-full mx-auto mb-3"
           >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
-                <span className="text-white font-bold text-2xl">{initials}</span>
-              </div>
-            )}
-            <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{ opacity: uploading ? 1 : undefined }}
+            {/* Blue circle background */}
+            <div
+              className="w-full h-full rounded-full overflow-hidden"
+              style={{
+                background: avatarUrl ? 'none' : 'linear-gradient(135deg, #008CE5 0%, #0070B8 100%)',
+                boxShadow: '0 8px 24px rgba(0,140,229,0.25)',
+              }}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                  <User className="w-10 h-10 text-white/80" />
+                  <span className="text-white/90 text-[10px] font-semibold">Add Photo</span>
+                </div>
+              )}
+            </div>
+            {/* Camera badge */}
+            <div
+              className="absolute bottom-0 right-0 w-9 h-9 rounded-full flex items-center justify-center border-[3px]"
+              style={{
+                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                borderColor: isDark ? '#0B1F35' : '#FFFFFF',
+                boxShadow: '0 2px 8px rgba(0,140,229,0.4)',
+              }}
             >
               {uploading ? (
-                <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
-                <>
-                  <Camera className="w-5 h-5 text-white mb-1" />
-                  <span className="text-white text-[10px] font-medium">
-                    {avatarUrl ? 'Change' : 'Upload'}
-                  </span>
-                </>
+                <Camera className="w-4 h-4 text-white" />
               )}
             </div>
           </button>
@@ -174,7 +184,7 @@ export function ProviderProfile() {
               { label: 'Jobs', value: pJobs },
               { label: 'Accept', value: pAccept > 0 ? `${Math.round(pAccept)}%` : '-' },
             ].map((s) => (
-              <div key={s.label} className="rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E8E4DE'}` }}>
+              <div key={s.label} className="rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#D3E0F2'}` }}>
                 <p className="font-bold text-lg" style={{ color: '#008CE5' }}>{s.value}</p>
                 <p className="text-xs" style={{ color: subColor }}>{s.label}</p>
               </div>

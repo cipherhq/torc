@@ -31,12 +31,12 @@ export function ServiceDetails() {
   const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#FDFBF8';
-  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#E8E4DE';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2';
 
   useEffect(() => {
     async function loadService() {
@@ -135,7 +135,7 @@ export function ServiceDetails() {
 
   if (serviceLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
         <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#008CE5' }} />
       </div>
     );
@@ -175,7 +175,7 @@ export function ServiceDetails() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? '#0F1419' : '#FAF8F5' }}>
+    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Header */}
       <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button onClick={() => navigate('/service-selection')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
@@ -301,7 +301,7 @@ export function ServiceDetails() {
             />
             {/* Autocomplete suggestions */}
             {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-xl overflow-hidden shadow-lg" style={{ backgroundColor: isDark ? '#1A1F2E' : '#FFFFFF', border: `1px solid ${cardBorder}` }}>
+              <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-xl overflow-hidden shadow-lg" style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', border: `1px solid ${cardBorder}` }}>
                 {suggestions.map(s => (
                   <button key={s.place_id} onClick={() => selectSuggestion(s)}
                     className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-[#008CE5]/10 transition-colors"
@@ -360,7 +360,7 @@ export function ServiceDetails() {
       </div>
 
       {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0F1419' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
         {errors.length > 0 && (
           <div className="mb-3 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
             {errors.map((err, i) => (

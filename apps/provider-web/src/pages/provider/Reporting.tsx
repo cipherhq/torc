@@ -26,6 +26,8 @@ interface ProviderJobRow {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  service_id: string | null;
+  customer_id: string | null;
   service: { name: string | null } | null;
   customer: { first_name: string | null; last_name: string | null; email: string | null } | null;
 }
@@ -35,7 +37,7 @@ interface ProviderPayoutRow {
   period_start: string;
   period_end: string;
   net_payout: number | null;
-  status: 'pending' | 'processing' | 'paid' | 'failed';
+  status: string | null;
   created_at: string;
   paid_at: string | null;
 }
@@ -49,6 +51,21 @@ function toCurrency(value: number) {
 function toDurationMinutes(startedAt: string | null, completedAt: string | null) {
   if (!startedAt || !completedAt) return null;
   return Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000));
+}
+
+function toSafeDateLabel(value: string | null | undefined) {
+  if (!value) return '-';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '-';
+  return dt.toLocaleDateString();
+}
+
+function normalizePayoutStatus(status: string | null | undefined) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'paid' || normalized === 'pending' || normalized === 'processing' || normalized === 'failed') {
+    return normalized;
+  }
+  return 'pending';
 }
 
 function saveCsv(filename: string, rows: Array<Array<string | number>>) {
@@ -87,19 +104,7 @@ export function ProviderReporting() {
         const [jobsRes, payoutsRes, settings] = await Promise.all([
           supabase
             .from('jobs')
-            .select(`
-              id,
-              status,
-              payment_status,
-              base_price,
-              total_amount,
-              tip,
-              created_at,
-              started_at,
-              completed_at,
-              service:services(name),
-              customer:profiles!jobs_customer_id_fkey(first_name, last_name, email)
-            `)
+            .select('id, status, payment_status, base_price, total_amount, tip, created_at, started_at, completed_at, service_id, customer_id')
             .eq('provider_id', user.id)
             .order('created_at', { ascending: false })
             .limit(500),
@@ -117,7 +122,46 @@ export function ProviderReporting() {
           throw payoutsRes.error;
         }
 
-        setJobs((jobsRes.data || []) as ProviderJobRow[]);
+        const rawJobs = (jobsRes.data || []) as Array<ProviderJobRow>;
+        const serviceIds = Array.from(new Set(rawJobs.map((row) => row.service_id).filter(Boolean))) as string[];
+        const customerIds = Array.from(new Set(rawJobs.map((row) => row.customer_id).filter(Boolean))) as string[];
+
+        const [servicesRes, customersRes] = await Promise.all([
+          serviceIds.length > 0
+            ? supabase.from('services').select('id, name').in('id', serviceIds)
+            : Promise.resolve({ data: [], error: null }),
+          customerIds.length > 0
+            ? supabase.from('profiles').select('id, first_name, last_name, email').in('id', customerIds)
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (servicesRes.error) {
+          console.warn('Failed to load service names for reporting:', servicesRes.error);
+        }
+        if (customersRes.error) {
+          console.warn('Failed to load customer names for reporting:', customersRes.error);
+        }
+
+        const serviceMap: Record<string, { name: string | null }> = {};
+        for (const row of ((servicesRes.data || []) as Array<{ id: string; name: string | null }>)) {
+          serviceMap[row.id] = { name: row.name ?? null };
+        }
+        const customerMap: Record<string, { first_name: string | null; last_name: string | null; email: string | null }> = {};
+        for (const row of ((customersRes.data || []) as Array<{ id: string; first_name: string | null; last_name: string | null; email: string | null }>)) {
+          customerMap[row.id] = {
+            first_name: row.first_name ?? null,
+            last_name: row.last_name ?? null,
+            email: row.email ?? null,
+          };
+        }
+
+        const hydratedJobs = rawJobs.map((row) => ({
+          ...row,
+          service: row.service_id ? serviceMap[row.service_id] || null : null,
+          customer: row.customer_id ? customerMap[row.customer_id] || null : null,
+        }));
+
+        setJobs(hydratedJobs);
         setPayouts((payoutsRes.data || []) as ProviderPayoutRow[]);
         setPlatformFeePercent(settings.platformFee);
       } catch (error: any) {
@@ -144,9 +188,12 @@ export function ProviderReporting() {
     const tips = completed.reduce((sum, row) => sum + Number(row.tip || 0), 0);
     const estimatedFee = earningsBase * (platformFeePercent / 100);
     const estimatedNet = earningsBase - estimatedFee + tips;
-    const paidPayouts = payouts.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.net_payout || 0), 0);
+    const paidPayouts = payouts.filter((p) => normalizePayoutStatus(p.status) === 'paid').reduce((sum, p) => sum + Number(p.net_payout || 0), 0);
     const queuedPayouts = payouts
-      .filter((p) => p.status === 'pending' || p.status === 'processing')
+      .filter((p) => {
+        const status = normalizePayoutStatus(p.status);
+        return status === 'pending' || status === 'processing';
+      })
       .reduce((sum, p) => sum + Number(p.net_payout || 0), 0);
     const avgStartDelay = startedRows.length > 0
       ? startedRows.reduce((sum, row) => sum + ((new Date(row.started_at!).getTime() - new Date(row.created_at).getTime()) / 60000), 0) / startedRows.length
@@ -196,11 +243,11 @@ export function ProviderReporting() {
     ]);
   }
 
-  const textColor = isDark ? '#FFFFFF' : '#1A1F2E';
+  const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.58)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
-  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : '#E8E4DE';
-  const pageBg = isDark ? '#0F1419' : '#FAF8F5';
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+  const pageBg = isDark ? '#0A1626' : '#EEF4FF';
 
   return (
     <div className="min-h-screen pb-28" style={{ background: pageBg }}>
@@ -285,13 +332,13 @@ export function ProviderReporting() {
                   <div key={payout.id} className="rounded-xl p-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC' }}>
                     <div className="flex items-center justify-between mb-1">
                       <p className="font-semibold" style={{ color: textColor }}>
-                        {new Date(payout.period_start).toLocaleDateString()} - {new Date(payout.period_end).toLocaleDateString()}
+                        {toSafeDateLabel(payout.period_start)} - {toSafeDateLabel(payout.period_end)}
                       </p>
                       <p className="font-semibold" style={{ color: textColor }}>${toCurrency(Number(payout.net_payout || 0))}</p>
                     </div>
                     <div className="flex items-center justify-between text-xs" style={{ color: subColor }}>
-                      <p>{payout.status.toUpperCase()}</p>
-                      <p>{new Date(payout.created_at).toLocaleDateString()}</p>
+                      <p>{normalizePayoutStatus(payout.status).toUpperCase()}</p>
+                      <p>{toSafeDateLabel(payout.created_at)}</p>
                     </div>
                   </div>
                 ))}
@@ -329,10 +376,10 @@ export function ProviderReporting() {
                       </div>
                       <div className="flex items-center justify-between text-xs" style={{ color: subColor }}>
                         <p>{customerName}</p>
-                        <p>{new Date(row.completed_at || row.created_at).toLocaleDateString()}</p>
+                        <p>{toSafeDateLabel(row.completed_at || row.created_at)}</p>
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-xs" style={{ color: subColor }}>
-                        <span className="inline-flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Job {row.id.slice(0, 8).toUpperCase()}</span>
+                        <span className="inline-flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Job {String(row.id || '').slice(0, 8).toUpperCase() || '-'}</span>
                         <span className="inline-flex items-center gap-1"><Clock3 className="w-3 h-3" /> {duration != null ? `${duration} min` : '-'}</span>
                         <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> {row.payment_status || 'paid'}</span>
                       </div>
@@ -350,4 +397,3 @@ export function ProviderReporting() {
     </div>
   );
 }
-
