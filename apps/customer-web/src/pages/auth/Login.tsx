@@ -1,9 +1,11 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useState, useEffect } from 'react';
-import { Mail, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { supabase } from '../../lib/supabase';
+import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
 export function Login() {
   const navigate = useNavigate();
@@ -21,18 +23,62 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [verificationResent, setVerificationResent] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setEmailNotVerified(false);
     setLoading(true);
     try {
       await signIn(email, password);
       navigate('/home');
     } catch (err: any) {
-      setError(err.message || 'Failed to sign in. Please check your credentials.');
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('email not confirmed')) {
+        setEmailNotVerified(true);
+      } else {
+        setError(msg || 'Failed to sign in. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email) return;
+    setResendingVerification(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: { emailRedirectTo: getAuthCallbackUrl() },
+      });
+      if (error) throw error;
+      setVerificationResent(true);
+      setTimeout(() => setVerificationResent(false), 4000);
+    } catch (err: any) {
+      const msg = (err.message || '').toLowerCase();
+      if (msg.includes('already confirmed') || msg.includes('already registered')) {
+        setEmailNotVerified(false);
+        setError('');
+        // Email is already verified — try logging in again
+        setLoading(true);
+        try {
+          await signIn(email, password);
+          navigate('/home');
+        } catch (loginErr: any) {
+          setError(loginErr.message || 'Failed to sign in.');
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setError('Failed to resend verification email. Please try again.');
+      }
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -89,6 +135,35 @@ export function Login() {
             >
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
               <p className="text-red-500 text-sm">{error}</p>
+            </motion.div>
+          )}
+
+          {emailNotVerified && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl p-4 mb-5"
+              style={{ backgroundColor: isDark ? 'rgba(245,158,11,0.1)' : '#FFFBEB', border: '1px solid rgba(245,158,11,0.3)' }}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <Mail className="w-5 h-5 flex-shrink-0" style={{ color: '#D97706' }} />
+                <p className="text-sm font-semibold" style={{ color: isDark ? '#FBBF24' : '#92400E' }}>
+                  Email not verified
+                </p>
+              </div>
+              <p className="text-sm mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#78716C' }}>
+                Please check your inbox and click the verification link. If you can't find it, resend below.
+              </p>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resendingVerification || verificationResent}
+                className="w-full rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+                style={{ backgroundColor: isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.1)', color: '#D97706' }}
+              >
+                <RefreshCw className={`w-4 h-4 ${resendingVerification ? 'animate-spin' : ''}`} />
+                {verificationResent ? 'Verification email sent!' : resendingVerification ? 'Sending...' : 'Resend Verification Email'}
+              </button>
             </motion.div>
           )}
 

@@ -81,7 +81,7 @@ export function ProviderServices() {
 
   return (
     <div
-      className="min-h-screen relative overflow-hidden pb-24"
+      className="min-h-screen relative overflow-hidden pb-36"
       style={{
         background: isDark
           ? 'linear-gradient(180deg, #091524 0%, #11263D 55%, #0E1D30 100%)'
@@ -307,8 +307,8 @@ export function ProviderServices() {
         </motion.button>
       </div>
 
-      {/* Save button */}
-      <div className="relative z-10 px-6 mt-6 pb-6">
+      {/* Fixed bottom save button */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 px-6 pt-4" style={{ backgroundColor: isDark ? '#091524' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D7E5F5'}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}

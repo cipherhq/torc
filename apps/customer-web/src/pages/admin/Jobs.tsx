@@ -46,9 +46,9 @@ export function AdminJobs() {
             created_at,
             started_at,
             completed_at,
-            service:services(name),
-            customer:profiles!jobs_customer_id_fkey(first_name, last_name, email),
-            provider:profiles!jobs_provider_id_fkey(first_name, last_name, email)
+            customer_id,
+            provider_id,
+            service:services(name)
           `)
           .order('created_at', { ascending: false });
 
@@ -65,10 +65,19 @@ export function AdminJobs() {
 
         if (error) throw error;
 
+        // Batch-fetch profile names
+        const allIds = [...new Set((data || []).flatMap((j: any) => [j.customer_id, j.provider_id]).filter(Boolean))] as string[];
+        const profileMap = new Map<string, { first_name: string | null; last_name: string | null; email: string | null }>();
+        if (allIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name, email').in('id', allIds);
+          (profiles || []).forEach((p: any) => profileMap.set(p.id, p));
+        }
+
         const formattedJobs: Job[] = (data || []).map((job: any) => {
-          const customerName = `${job.customer?.first_name || ''} ${job.customer?.last_name || ''}`.trim() || job.customer?.email || 'Unknown';
-          const providerNameBase = `${job.provider?.first_name || ''} ${job.provider?.last_name || ''}`.trim();
-          const providerName = providerNameBase || job.provider?.email || null;
+          const cp = job.customer_id ? profileMap.get(job.customer_id) : null;
+          const pp = job.provider_id ? profileMap.get(job.provider_id) : null;
+          const customerName = cp ? (`${cp.first_name || ''} ${cp.last_name || ''}`.trim() || cp.email || 'Unknown') : 'Unknown';
+          const providerName = pp ? (`${pp.first_name || ''} ${pp.last_name || ''}`.trim() || pp.email || null) : null;
           const serviceName = job.service?.name || 'Unknown Service';
           const amount = job.total_amount ? `$${Number(job.total_amount).toFixed(2)}` : '-';
           const createdAt = job.created_at;

@@ -93,6 +93,7 @@ export function ShopDetail() {
           initial={{ y: 100 }}
           animate={{ y: 0 }}
           className="glass rounded-t-[32px] p-6 border-t border-white/10 max-h-[70vh] overflow-y-auto"
+          style={{ paddingBottom: 'calc(24px + var(--safe-bottom, 0px))' }}
         >
           {/* Shop info */}
           <div className="mb-6">

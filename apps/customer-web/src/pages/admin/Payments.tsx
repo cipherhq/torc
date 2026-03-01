@@ -63,9 +63,7 @@ export function AdminPayments() {
             total_amount,
             status,
             created_at,
-            completed_at,
-            customer:profiles!jobs_customer_id_fkey(first_name,last_name,email),
-            provider:profiles!jobs_provider_id_fkey(first_name,last_name,email)
+            completed_at
           `)
           .not('total_amount', 'is', null)
           .order('created_at', { ascending: false })
@@ -81,7 +79,21 @@ export function AdminPayments() {
         throw refundsError;
       }
 
-      setJobs((jobsData || []) as JobPayment[]);
+      // Batch-fetch profile names
+      const allIds = [...new Set((jobsData || []).flatMap((j: any) => [j.customer_id, j.provider_id]).filter(Boolean))] as string[];
+      const profileMap = new Map<string, { first_name: string | null; last_name: string | null; email: string | null }>();
+      if (allIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name, email').in('id', allIds);
+        (profiles || []).forEach((p: any) => profileMap.set(p.id, p));
+      }
+
+      const enrichedJobs = (jobsData || []).map((j: any) => ({
+        ...j,
+        customer: j.customer_id ? profileMap.get(j.customer_id) || null : null,
+        provider: j.provider_id ? profileMap.get(j.provider_id) || null : null,
+      }));
+
+      setJobs(enrichedJobs as JobPayment[]);
       setRefunds((refundsData || []) as RefundRow[]);
     } catch (error: any) {
       console.warn('Failed to load payments:', error);

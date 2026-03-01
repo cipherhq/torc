@@ -24,8 +24,9 @@ interface CustomerJobRow {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  provider_id: string | null;
   service: { name: string } | null;
-  provider: { first_name: string | null; last_name: string | null; email: string | null } | null;
+  providerName?: string;
 }
 
 function toCurrency(value: number) {
@@ -80,8 +81,8 @@ export function CustomerReporting() {
               created_at,
               started_at,
               completed_at,
-              service:services(name),
-              provider:profiles!jobs_provider_id_fkey(first_name, last_name, email)
+              provider_id,
+              service:services(name)
             `)
             .eq('customer_id', user.id)
             .order('created_at', { ascending: false })
@@ -100,6 +101,19 @@ export function CustomerReporting() {
 
         const loadedJobs = (jobsRes.data || []) as CustomerJobRow[];
         const tickets = ticketsRes.data || [];
+
+        // Batch-fetch provider names separately (no FK join needed)
+        const providerIds = [...new Set(loadedJobs.map((j) => j.provider_id).filter(Boolean))] as string[];
+        if (providerIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name, email')
+            .in('id', providerIds);
+          if (profiles) {
+            const map = new Map(profiles.map((p: any) => [p.id, `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.email || 'Provider']));
+            loadedJobs.forEach((j) => { if (j.provider_id) j.providerName = map.get(j.provider_id) || 'Provider'; });
+          }
+        }
         setJobs(loadedJobs);
         setTicketCounts({
           open: tickets.filter((t: any) => t.status === 'open' || t.status === 'in_progress').length,
@@ -154,9 +168,7 @@ export function CustomerReporting() {
     saveCsv(`customer-report-${new Date().toISOString().slice(0, 10)}.csv`, [
       ['job_id', 'status', 'service', 'provider', 'created_at', 'started_at', 'completed_at', 'duration_minutes', 'total_amount', 'tip'],
       ...jobs.map((row) => {
-        const providerName = row.provider
-          ? `${row.provider.first_name || ''} ${row.provider.last_name || ''}`.trim() || row.provider.email || ''
-          : '';
+        const providerName = row.providerName || '';
         return [
           row.id,
           row.status,
@@ -180,7 +192,7 @@ export function CustomerReporting() {
   const pageBg = isDark ? '#0A1626' : '#EEF4FF';
 
   return (
-    <div className="min-h-screen pb-28" style={{ background: pageBg }}>
+    <div className="min-h-screen" style={{ background: pageBg , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
       <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
         <div className="flex items-center gap-3">
           <button
@@ -283,9 +295,7 @@ export function CustomerReporting() {
               </div>
               <div className="space-y-3">
                 {jobs.filter((j) => j.status === 'completed').slice(0, 8).map((row) => {
-                  const providerName = row.provider
-                    ? `${row.provider.first_name || ''} ${row.provider.last_name || ''}`.trim() || row.provider.email || 'Provider'
-                    : 'Provider';
+                  const providerName = row.providerName || 'Provider';
                   const duration = toDurationMinutes(row.started_at, row.completed_at);
                   return (
                     <div key={row.id} className="rounded-xl p-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC' }}>

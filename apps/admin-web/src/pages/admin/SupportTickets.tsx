@@ -1,10 +1,19 @@
 import { motion } from 'motion/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
-import { MessageSquareWarning, RefreshCw, Save, Download, Clock3, AlertTriangle } from 'lucide-react';
+import { MessageSquareWarning, RefreshCw, Save, Download, Clock3, AlertTriangle, Send } from 'lucide-react';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import { Pagination } from '../../components/Pagination';
+
+interface TicketReply {
+  id: string;
+  ticket_id: string;
+  sender_id: string;
+  sender_role: 'admin' | 'customer' | 'provider';
+  message: string;
+  created_at: string;
+}
 
 type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
@@ -55,6 +64,10 @@ export function AdminSupportTickets() {
   const PAGE_SIZE = 20;
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null as string | null);
+  const [replies, setReplies] = useState<TicketReply[]>([]);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const repliesEndRef = useRef<HTMLDivElement>(null);
   const [slaThresholds, setSlaThresholds] = useState({
     urgentHours: 2,
     standardHours: 24,
@@ -226,6 +239,61 @@ export function AdminSupportTickets() {
       setSaving(false);
     }
   }
+
+  async function loadReplies(ticketId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('ticket_replies')
+        .select('*')
+        .eq('ticket_id', ticketId)
+        .order('created_at', { ascending: true });
+      if (error) {
+        // Table might not exist yet
+        if (error.code === '42P01') { setReplies([]); return; }
+        throw error;
+      }
+      setReplies(data || []);
+      setTimeout(() => repliesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch (e) {
+      console.warn('Failed to load replies:', e);
+      setReplies([]);
+    }
+  }
+
+  async function sendReply() {
+    if (!selectedTicket || !replyText.trim() || !currentUserId) return;
+    try {
+      setSendingReply(true);
+      const { error } = await supabase.from('ticket_replies').insert({
+        ticket_id: selectedTicket.id,
+        sender_id: currentUserId,
+        sender_role: 'admin',
+        message: replyText.trim(),
+      });
+      if (error) throw error;
+      setReplyText('');
+      await loadReplies(selectedTicket.id);
+      // Auto-set status to in_progress if still open
+      if (selectedTicket.status === 'open') {
+        await updateTicket({ status: 'in_progress' });
+      }
+    } catch (e: any) {
+      console.warn('Failed to send reply:', e);
+      setFeedback(e?.message || 'Failed to send reply.');
+    } finally {
+      setSendingReply(false);
+    }
+  }
+
+  // Load replies when selected ticket changes
+  useEffect(() => {
+    if (selectedId) {
+      loadReplies(selectedId);
+    } else {
+      setReplies([]);
+    }
+    setReplyText('');
+  }, [selectedId]);
 
   function exportTicketsCsv() {
     if (filtered.length === 0) return;
@@ -415,6 +483,62 @@ export function AdminSupportTickets() {
 
                 <div className="rounded-2xl bg-gray-50 border border-gray-200 p-4 mb-4">
                   <p className="text-gray-800 whitespace-pre-wrap">{selectedTicket.description}</p>
+                </div>
+
+                {/* Conversation thread */}
+                <div className="mb-4">
+                  <label className="text-gray-600 text-sm block mb-2 font-semibold">Conversation</label>
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 max-h-[300px] overflow-y-auto">
+                    {replies.length === 0 ? (
+                      <p className="text-gray-400 text-sm text-center py-6">No replies yet. Send a response below.</p>
+                    ) : (
+                      <div className="p-3 space-y-3">
+                        {replies.map((r) => {
+                          const isAdmin = r.sender_role === 'admin';
+                          const senderName = isAdmin
+                            ? (profiles[r.sender_id] ? nameFor(profiles[r.sender_id]) : 'Admin')
+                            : (profiles[r.sender_id] ? nameFor(profiles[r.sender_id]) : (r.sender_role === 'customer' ? 'Customer' : 'Provider'));
+                          return (
+                            <div key={r.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${isAdmin ? 'bg-[#008CE5] text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+                                <p className={`text-[11px] font-semibold mb-0.5 ${isAdmin ? 'text-blue-100' : 'text-[#008CE5]'}`}>
+                                  {senderName} ({r.sender_role})
+                                </p>
+                                <p className="text-sm whitespace-pre-wrap">{r.message}</p>
+                                <p className={`text-[10px] mt-1 ${isAdmin ? 'text-blue-200' : 'text-gray-400'}`}>
+                                  {new Date(r.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={repliesEndRef} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reply input */}
+                  <div className="flex items-end gap-2 mt-2">
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      rows={2}
+                      className="flex-1 rounded-xl bg-white border border-gray-200 px-3 py-2 text-gray-900 placeholder-gray-400 text-sm resize-none"
+                      placeholder="Type your reply to the user..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); }
+                      }}
+                    />
+                    <button
+                      disabled={sendingReply || !replyText.trim()}
+                      onClick={sendReply}
+                      className="rounded-xl px-4 py-2.5 disabled:opacity-50 flex items-center gap-1.5 flex-shrink-0"
+                      style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)', color: '#FFFFFF' }}
+                    >
+                      <Send className="w-4 h-4" />
+                      {sendingReply ? 'Sending...' : 'Reply'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mb-4">

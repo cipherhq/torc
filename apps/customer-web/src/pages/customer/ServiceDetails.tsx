@@ -360,7 +360,7 @@ export function ServiceDetails() {
       </div>
 
       {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         {errors.length > 0 && (
           <div className="mb-3 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
             {errors.map((err, i) => (

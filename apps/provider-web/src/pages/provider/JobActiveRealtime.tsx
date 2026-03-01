@@ -16,8 +16,10 @@ import {
   Check,
   Wrench,
   Flag,
+  AlertTriangle,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { GoogleMap, MarkerF, DirectionsRenderer } from '@react-google-maps/api';
 import { ChatModal } from '../../components/ChatModal';
@@ -53,6 +55,19 @@ function getPickupPosition(job: any): { lat: number; lng: number } | null {
   return { lat, lng };
 }
 
+/** Haversine distance in miles between two lat/lng points */
+function distanceMiles(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const h = sinLat * sinLat + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * sinLng * sinLng;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+const ARRIVAL_PROXIMITY_MILES = 0.5; // ~0.5 miles threshold
+
 const mapContainerStyle = { width: '100%', height: '100%' };
 
 const darkMapStyles = [
@@ -78,10 +93,17 @@ export function JobActiveRealtime() {
 
   const [status, setStatusRaw] = useState<UiStatus>('enroute');
   const [photos, setPhotos] = useState<string[]>([]);
+  const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isCallOpen, setIsCallOpen] = useState(false);
   const [isCallOutgoing, setIsCallOutgoing] = useState(true);
   const [shareToast, setShareToast] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelCustomReason, setCancelCustomReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const [showProximityWarning, setShowProximityWarning] = useState(false);
+  const [proximityDistance, setProximityDistance] = useState<number | null>(null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [directionsError, setDirectionsError] = useState(false);
   const [eta, setEta] = useState<number | null>(null);
@@ -91,6 +113,10 @@ export function JobActiveRealtime() {
   const directionsRetryCountRef = useRef(0);
   const directionsRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialFit = useRef(false);
+  const [mapMode, setMapMode] = useState<'follow' | 'overview'>('follow');
+  const [lastHeading, setLastHeading] = useState(0);
+  const [showCustomerCancelled, setShowCustomerCancelled] = useState(false);
+  const [cancelledReason, setCancelledReason] = useState('');
 
   // Forward-only status setter — status can NEVER go backward
   const setStatus = useCallback((next: UiStatus | ((prev: UiStatus) => UiStatus)) => {
@@ -109,6 +135,9 @@ export function JobActiveRealtime() {
   useEffect(() => {
     if (myPosition) {
       broadcastLocation(myPosition);
+      if (myPosition.heading !== null && myPosition.heading !== undefined) {
+        setLastHeading(myPosition.heading);
+      }
     }
   }, [myPosition, broadcastLocation]);
 
@@ -116,7 +145,10 @@ export function JobActiveRealtime() {
   useEffect(() => {
     if (!jobId) return;
     fetchJob(jobId)
-      .then((job: any) => setStatus(mapJobStatusToUi(job?.status)))
+      .then((job: any) => {
+        setStatus(mapJobStatusToUi(job?.status));
+        if (job?.customer_completed_at) setCustomerConfirmed(true);
+      })
       .catch(console.warn);
   }, [jobId, fetchJob, setStatus]);
 
@@ -132,18 +164,23 @@ export function JobActiveRealtime() {
         table: 'jobs',
         filter: `id=eq.${jobId}`,
       }, async (payload) => {
-        // Read status directly from the DB payload — no stale closure
         const dbStatus = payload.new?.status;
+
+        // Detect customer cancellation from DB
+        if (dbStatus === 'cancelled') {
+          setCancelledReason(payload.new?.cancellation_reason || 'Customer cancelled the request');
+          setShowCustomerCancelled(true);
+          return;
+        }
+
         if (dbStatus) {
           const uiStatus = mapJobStatusToUi(dbStatus);
-          setStatus(uiStatus); // forward-only — will only advance
+          setStatus(uiStatus);
         }
-        // Also refresh job data for customer name, payout, etc.
         fetchJob(jobId).catch(console.warn);
 
-        // If job is completed by customer, navigate to completion
-        if (dbStatus === 'completed') {
-          navigate(`/complete/${jobId}`);
+        if (payload.new?.customer_completed_at && !payload.old?.customer_completed_at) {
+          setCustomerConfirmed(true);
         }
       })
       .subscribe();
@@ -151,8 +188,57 @@ export function JobActiveRealtime() {
     return () => { supabase.removeChannel(channel); };
   }, [jobId, fetchJob, setStatus, navigate]);
 
+  // Listen for instant cancellation broadcast from customer
+  useEffect(() => {
+    if (!jobId) return;
+
+    const bc = supabase
+      .channel(`job-cancel-listen-${jobId}`)
+      .on('broadcast', { event: 'job_cancelled' }, (payload) => {
+        const data = payload.payload;
+        if (data?.job_id === jobId && data?.cancelled_by === 'customer') {
+          setCancelledReason(data.reason || 'Customer cancelled the request');
+          setShowCustomerCancelled(true);
+        }
+      });
+
+    // Also listen on the job-accepted channel (same channel customer broadcasts on)
+    const acceptedChannel = supabase
+      .channel(`job-accepted-${jobId}`)
+      .on('broadcast', { event: 'job_cancelled' }, (payload) => {
+        const data = payload.payload;
+        if (data?.job_id === jobId && data?.cancelled_by === 'customer') {
+          setCancelledReason(data.reason || 'Customer cancelled the request');
+          setShowCustomerCancelled(true);
+        }
+      });
+
+    bc.subscribe();
+    acceptedChannel.subscribe();
+
+    return () => {
+      supabase.removeChannel(bc);
+      supabase.removeChannel(acceptedChannel);
+    };
+  }, [jobId]);
+
   const customerPos = useMemo(() => getPickupPosition(currentJob), [currentJob]);
   const providerPos = myPosition;
+
+  const confirmArrival = useCallback(async () => {
+    setShowProximityWarning(false);
+    setStatus('arrived');
+    if (jobId) {
+      await updateJobStatus(jobId, 'arrived').catch(console.warn);
+      const bc = supabase.channel(`job-accepted-${jobId}`);
+      bc.subscribe((s) => {
+        if (s === 'SUBSCRIBED') {
+          bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'arrived' } }).catch(() => {});
+          setTimeout(() => supabase.removeChannel(bc), 2000);
+        }
+      });
+    }
+  }, [jobId, setStatus, updateJobStatus]);
 
   const customerName = currentJob?.customer
     ? `${currentJob.customer.first_name || ''} ${currentJob.customer.last_name || ''}`.trim()
@@ -174,7 +260,7 @@ export function JobActiveRealtime() {
 
   const requestDrivingDirections = useCallback((force = false) => {
     if (!isLoaded || !providerPos || !customerPos) return;
-    if (status !== 'enroute') return;
+    if (status !== 'accepted' && status !== 'enroute') return;
     if (directionsRunningRef.current) return;
 
     const minIntervalMs = 10000;
@@ -206,15 +292,19 @@ export function JobActiveRealtime() {
           return;
         }
 
+        console.warn('[Directions API] Failed:', routeStatusText, 'origin:', providerPos, 'dest:', customerPos);
+
         const isRetryable = routeStatusText === 'OVER_QUERY_LIMIT' || routeStatusText === 'UNKNOWN_ERROR';
         if (isRetryable && directionsRetryCountRef.current < 3) {
           directionsRetryCountRef.current += 1;
           const backoffMs = 1000 * directionsRetryCountRef.current;
+          console.warn('[Directions API] Retrying in', backoffMs, 'ms (attempt', directionsRetryCountRef.current, ')');
           if (directionsRetryTimeoutRef.current) clearTimeout(directionsRetryTimeoutRef.current);
           directionsRetryTimeoutRef.current = setTimeout(() => requestDrivingDirections(true), backoffMs);
           return;
         }
 
+        console.warn('[Directions API] Giving up after status:', routeStatusText, '- falling back to Haversine ETA');
         setDirectionsError(true);
         const R = 6371;
         const dLat = (customerPos.lat - providerPos.lat) * Math.PI / 180;
@@ -234,7 +324,7 @@ export function JobActiveRealtime() {
 
   // Re-fetch directions periodically, but keep request rate below quota limits.
   useEffect(() => {
-    if (status !== 'enroute') return;
+    if (status !== 'accepted' && status !== 'enroute') return;
     const interval = setInterval(() => requestDrivingDirections(true), 15000);
     return () => clearInterval(interval);
   }, [status, requestDrivingDirections]);
@@ -247,30 +337,102 @@ export function JobActiveRealtime() {
     };
   }, []);
 
-  // Fit both points into view ONCE on initial load, then let the provider
-  // control the map freely. Markers and route update in real-time but
-  // the camera stays put so the view doesn't jump around.
+  // Initial camera setup — follow mode when enroute, overview otherwise
   useEffect(() => {
-    if (!map || !providerPos || !customerPos || hasInitialFit.current) return;
-    const bounds = new google.maps.LatLngBounds();
-    bounds.extend(providerPos);
-    bounds.extend(customerPos);
-    map.fitBounds(bounds, { top: 120, bottom: 320, left: 40, right: 40 });
+    if (!map || !providerPos || hasInitialFit.current) return;
     hasInitialFit.current = true;
-  }, [map, providerPos?.lat, providerPos?.lng, customerPos?.lat, customerPos?.lng]);
 
-  const recenterMap = useCallback(() => {
-    if (!map) return;
-    if (providerPos && customerPos) {
+    if (status === 'enroute') {
+      setMapMode('follow');
+      map.panTo(providerPos);
+      map.setZoom(16);
+      if (lastHeading) {
+        map.setHeading(lastHeading);
+        map.setTilt(45);
+      }
+    } else if (customerPos) {
+      setMapMode('overview');
       const bounds = new google.maps.LatLngBounds();
       bounds.extend(providerPos);
       bounds.extend(customerPos);
       map.fitBounds(bounds, { top: 120, bottom: 320, left: 40, right: 40 });
-    } else if (providerPos) {
-      map.panTo(providerPos);
-      map.setZoom(15);
     }
-  }, [map, providerPos, customerPos]);
+  }, [map, providerPos?.lat, providerPos?.lng, customerPos?.lat, customerPos?.lng]);
+
+  // Auto-follow camera when in follow mode and enroute
+  useEffect(() => {
+    if (!map || !providerPos || mapMode !== 'follow' || status !== 'enroute') return;
+
+    map.panTo(providerPos);
+    const currentZoom = map.getZoom();
+    if (currentZoom === undefined || currentZoom < 15 || currentZoom > 18) {
+      map.setZoom(16);
+    }
+    if (lastHeading) {
+      map.setHeading(lastHeading);
+      map.setTilt(45);
+    }
+  }, [map, providerPos?.lat, providerPos?.lng, mapMode, status, lastHeading]);
+
+  // Exit follow mode when status transitions away from enroute
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    if (prevStatusRef.current === 'enroute' && status !== 'enroute') {
+      setMapMode('overview');
+      if (map) {
+        map.setHeading(0);
+        map.setTilt(0);
+        if (providerPos && customerPos) {
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(providerPos);
+          bounds.extend(customerPos);
+          map.fitBounds(bounds, { top: 120, bottom: 320, left: 40, right: 40 });
+        }
+      }
+    }
+    prevStatusRef.current = status;
+  }, [status, map]);
+
+  const recenterMap = useCallback(() => {
+    if (!map) return;
+
+    if (status === 'enroute') {
+      if (mapMode === 'overview') {
+        // Switch to follow mode
+        setMapMode('follow');
+        if (providerPos) {
+          map.panTo(providerPos);
+          map.setZoom(16);
+          if (lastHeading) {
+            map.setHeading(lastHeading);
+            map.setTilt(45);
+          }
+        }
+      } else {
+        // Switch to overview mode
+        setMapMode('overview');
+        map.setHeading(0);
+        map.setTilt(0);
+        if (providerPos && customerPos) {
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(providerPos);
+          bounds.extend(customerPos);
+          map.fitBounds(bounds, { top: 120, bottom: 320, left: 40, right: 40 });
+        }
+      }
+    } else {
+      // Non-enroute: just fit both markers
+      if (providerPos && customerPos) {
+        const bounds = new google.maps.LatLngBounds();
+        bounds.extend(providerPos);
+        bounds.extend(customerPos);
+        map.fitBounds(bounds, { top: 120, bottom: 320, left: 40, right: 40 });
+      } else if (providerPos) {
+        map.panTo(providerPos);
+        map.setZoom(15);
+      }
+    }
+  }, [map, providerPos, customerPos, status, mapMode, lastHeading]);
 
   // Listen for incoming chat messages — play sound + system notification when chat is closed
   const isChatOpenRef = useRef(isChatOpen);
@@ -401,6 +563,15 @@ export function JobActiveRealtime() {
             center={providerPos || customerPos || { lat: 37.7749, lng: -122.4194 }}
             zoom={14}
             onLoad={(nextMap) => setMap(nextMap)}
+            onDragStart={() => {
+              if (mapMode === 'follow') {
+                setMapMode('overview');
+                if (map) {
+                  map.setHeading(0);
+                  map.setTilt(0);
+                }
+              }
+            }}
             options={{
               styles: isDark ? darkMapStyles : lightMapStyles,
               disableDefaultUI: true,
@@ -433,12 +604,13 @@ export function JobActiveRealtime() {
                   fillOpacity: 1,
                   strokeColor: '#0070B8',
                   strokeWeight: 2,
+                  rotation: lastHeading || 0,
                 }}
                 title="You"
               />
             )}
 
-            {directions && status === 'enroute' && (
+            {directions && (status === 'accepted' || status === 'enroute') && (
               <DirectionsRenderer
                 directions={directions}
                 options={{
@@ -447,6 +619,8 @@ export function JobActiveRealtime() {
                 }}
               />
             )}
+
+
           </GoogleMap>
         ) : (
           <div className="h-full flex items-center justify-center" style={{ background: isDark ? '#0A1626' : '#E8EAED' }}>
@@ -459,8 +633,8 @@ export function JobActiveRealtime() {
         <button onClick={() => navigate('/home')} className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: cardBg }} title="Back to home">
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
-        <button onClick={recenterMap} className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: cardBg }} title="Recenter map">
-          <RecenterIcon className="w-5 h-5" style={{ color: '#008CE5' }} />
+        <button onClick={recenterMap} className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: mapMode === 'follow' && status === 'enroute' ? '#008CE5' : cardBg }} title={mapMode === 'follow' ? 'Show overview' : 'Follow me'}>
+          <RecenterIcon className="w-5 h-5" style={{ color: mapMode === 'follow' && status === 'enroute' ? '#FFFFFF' : '#008CE5' }} />
         </button>
       </div>
 
@@ -482,14 +656,30 @@ export function JobActiveRealtime() {
           {status === 'working' && <p className="text-sm mt-1" style={{ color: '#008CE5' }}>Service in progress</p>}
           {status === 'photos' && <p className="text-sm mt-1" style={{ color: '#008CE5' }}>Add completion photos</p>}
         </motion.div>
+
+        {customerConfirmed && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl px-4 py-3 mt-3 text-center shadow-md backdrop-blur-md"
+            style={{
+              backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : 'rgba(0,140,229,0.1)',
+              border: '1px solid rgba(0,140,229,0.3)',
+            }}
+          >
+            <p className="text-sm font-medium" style={{ color: '#008CE5' }}>
+              Customer has confirmed service completion
+            </p>
+          </motion.div>
+        )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30">
+      <div className="fixed bottom-0 left-0 right-0 z-30" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
           className="rounded-t-3xl p-5 shadow-2xl backdrop-blur-md"
-          style={{ backgroundColor: cardBg, borderTop: `1px solid ${cardBorder}` }}
+          style={{ backgroundColor: cardBg, borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }}
         >
           <div className="flex items-center gap-3 mb-3">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-lg font-bold text-white">
@@ -499,6 +689,15 @@ export function JobActiveRealtime() {
               <h3 className="font-bold text-base" style={{ color: textColor }}>{job.customer}</h3>
               <p className="text-xs" style={{ color: subColor }}>{job.location}</p>
             </div>
+            {/* Direct phone fallback */}
+            {job.customerPhone && (
+              <a href={`tel:${job.customerPhone.replace(/\s/g, '')}`}
+                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+                style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : 'rgba(0,140,229,0.1)' }}
+              >
+                <Phone className="w-5 h-5" style={{ color: '#008CE5' }} />
+              </a>
+            )}
           </div>
 
           {job.notes && (
@@ -507,46 +706,58 @@ export function JobActiveRealtime() {
             </div>
           )}
 
-          <div className="grid grid-cols-4 gap-2.5 mb-3">
+          <div className="grid grid-cols-4 gap-2 mb-3">
             <button
               onClick={handleCall}
-              className="rounded-2xl py-3 flex flex-col items-center gap-1.5 border transition-all active:scale-95"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F7F4EF', borderColor: cardBorder }}
+              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
+              style={{
+                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
+                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
+              }}
             >
-              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
-                <Phone className="w-4 h-4" style={{ color: '#008CE5' }} />
+              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
+                <Phone className="w-4 h-4 text-white" />
               </div>
-              <span className="text-[11px] font-semibold" style={{ color: textColor }}>Call</span>
+              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Call</span>
             </button>
             <button
               onClick={handleMessage}
-              className="rounded-2xl py-3 flex flex-col items-center gap-1.5 border transition-all active:scale-95"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F7F4EF', borderColor: cardBorder }}
+              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
+              style={{
+                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
+                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
+              }}
             >
-              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
-                <MessageCircle className="w-4 h-4" style={{ color: '#008CE5' }} />
+              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
+                <MessageCircle className="w-4 h-4 text-white" />
               </div>
-              <span className="text-[11px] font-semibold" style={{ color: textColor }}>Message</span>
+              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Message</span>
             </button>
             <button
               onClick={handleShare}
-              className="rounded-2xl py-3 flex flex-col items-center gap-1.5 border transition-all active:scale-95"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F7F4EF', borderColor: cardBorder }}
+              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
+              style={{
+                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
+                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
+              }}
             >
-              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
-                <Share2 className="w-4 h-4" style={{ color: '#008CE5' }} />
+              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
+                <Share2 className="w-4 h-4 text-white" />
               </div>
-              <span className="text-[11px] font-semibold" style={{ color: textColor }}>Share</span>
+              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Share</span>
             </button>
             <button
               onClick={openExternalNavigation}
-              className="rounded-2xl py-3 flex flex-col items-center gap-1.5 border transition-all active:scale-95"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F7F4EF', borderColor: cardBorder }}
+              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
+              style={{
+                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
+                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
+              }}
             >
-              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(0,112,184,0.16)' }}>
-                <MapPinned className="w-4 h-4" style={{ color: '#0070B8' }} />
+              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
+                <MapPinned className="w-4 h-4 text-white" />
               </div>
-              <span className="text-[11px] font-semibold" style={{ color: textColor }}>Navigate</span>
+              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Navigate</span>
             </button>
           </div>
 
@@ -631,19 +842,18 @@ export function JobActiveRealtime() {
             <motion.button
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
-              onClick={async () => {
-                setStatus('arrived');
-                if (jobId) {
-                  await updateJobStatus(jobId, 'arrived').catch(console.warn);
-                  // Broadcast to customer for instant UI update
-                  const bc = supabase.channel(`job-accepted-${jobId}`);
-                  bc.subscribe((s) => {
-                    if (s === 'SUBSCRIBED') {
-                      bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'arrived' } }).catch(() => {});
-                      setTimeout(() => supabase.removeChannel(bc), 2000);
-                    }
-                  });
+              onClick={() => {
+                // Check proximity before confirming arrival
+                if (providerPos && customerPos) {
+                  const dist = distanceMiles(providerPos, customerPos);
+                  if (dist > ARRIVAL_PROXIMITY_MILES) {
+                    setProximityDistance(dist);
+                    setShowProximityWarning(true);
+                    return;
+                  }
                 }
+                // Within proximity or no location data — proceed
+                confirmArrival();
               }}
               className="w-full flex items-center justify-center gap-2"
               style={{
@@ -793,15 +1003,7 @@ export function JobActiveRealtime() {
 
           {(status === 'enroute' || status === 'arrived' || status === 'working') && (
             <button
-              onClick={async () => {
-                if (!jobId) return;
-                try {
-                  await cancelJob(jobId, 'provider_cancelled');
-                } catch (e) {
-                  console.warn('Provider cancel failed:', e);
-                }
-                navigate('/home');
-              }}
+              onClick={() => setShowCancelModal(true)}
               className="w-full rounded-2xl py-3 font-semibold text-sm"
               style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
             >
@@ -840,6 +1042,7 @@ export function JobActiveRealtime() {
         peerName={job.customer}
         peerInitials={job.customerInitials}
         role="provider"
+        jobStatus={status}
       />
 
       <CallModal
@@ -850,6 +1053,222 @@ export function JobActiveRealtime() {
         peerInitials={job.customerInitials}
         isOutgoing={isCallOutgoing}
       />
+
+      {/* Proximity warning modal */}
+      {showProximityWarning && createPortal(
+        <div
+          className="fixed inset-0 flex items-end justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2147483647 }}
+          onClick={() => setShowProximityWarning(false)}
+        >
+          <motion.div
+            initial={{ y: 300, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full max-w-lg rounded-t-[28px] p-6"
+            style={{
+              backgroundColor: isDark ? '#14263D' : '#FFFFFF',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            }}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'rgba(245,158,11,0.15)' }}>
+                <AlertTriangle className="w-6 h-6" style={{ color: '#F59E0B' }} />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg" style={{ color: textColor }}>Not Near Customer</h3>
+                <p className="text-sm" style={{ color: subColor }}>
+                  You appear to be {proximityDistance !== null ? `${proximityDistance.toFixed(1)} miles` : 'far'} from the pickup location
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl p-4 mb-5" style={{ backgroundColor: isDark ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.06)', border: `1px solid ${isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.15)'}` }}>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>
+                Please make sure you are at the customer&apos;s location before confirming arrival. If you&apos;re already there, your GPS may be inaccurate.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setShowProximityWarning(false)}
+                className="rounded-2xl py-3.5 font-semibold text-sm"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+              >
+                Go Back
+              </button>
+              <button
+                onClick={() => confirmArrival()}
+                className="rounded-2xl py-3.5 font-bold text-sm text-white"
+                style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)' }}
+              >
+                Confirm Anyway
+              </button>
+            </div>
+          </motion.div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Cancel reason modal */}
+      {showCancelModal && createPortal(
+        <div
+          className="fixed inset-0 flex items-end justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2147483647 }}
+          onClick={() => { if (!cancelling) setShowCancelModal(false); }}
+        >
+          <motion.div
+            initial={{ y: 300, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full max-w-lg rounded-t-[28px] p-6 pb-10"
+            style={{
+              backgroundColor: isDark ? '#14263D' : '#FFFFFF',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            }}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-lg mb-1" style={{ color: textColor }}>Cancel Job</h3>
+            <p className="text-sm mb-5" style={{ color: subColor }}>Please select a reason for cancellation</p>
+
+            <div className="space-y-2 mb-5">
+              {[
+                'Vehicle issue / breakdown',
+                'Customer unreachable',
+                'Unsafe location',
+                'Wrong service type',
+                'Personal emergency',
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => { setCancelReason(reason); setCancelCustomReason(''); }}
+                  className="w-full text-left rounded-xl px-4 py-3 text-sm font-medium transition-all"
+                  style={cancelReason === reason
+                    ? { background: 'linear-gradient(135deg, rgba(0,140,229,0.15), rgba(0,140,229,0.08))', border: '1px solid #008CE5', color: textColor }
+                    : { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`, color: textColor }
+                  }
+                >
+                  {reason}
+                </button>
+              ))}
+              <button
+                onClick={() => { setCancelReason('other'); }}
+                className="w-full text-left rounded-xl px-4 py-3 text-sm font-medium transition-all"
+                style={cancelReason === 'other'
+                  ? { background: 'linear-gradient(135deg, rgba(0,140,229,0.15), rgba(0,140,229,0.08))', border: '1px solid #008CE5', color: textColor }
+                  : { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`, color: textColor }
+                }
+              >
+                Other
+              </button>
+            </div>
+
+            {cancelReason === 'other' && (
+              <textarea
+                placeholder="Please describe the reason..."
+                value={cancelCustomReason}
+                onChange={(e) => setCancelCustomReason(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl px-4 py-3 mb-5 text-sm focus:outline-none resize-none"
+                style={{
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
+                  color: textColor,
+                }}
+              />
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setShowCancelModal(false); setCancelReason(''); setCancelCustomReason(''); }}
+                disabled={cancelling}
+                className="rounded-2xl py-3 font-semibold text-sm"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+              >
+                Go Back
+              </button>
+              <button
+                onClick={async () => {
+                  const finalReason = cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason;
+                  if (!finalReason || !jobId) return;
+                  setCancelling(true);
+                  try {
+                    await cancelJob(jobId, finalReason);
+                    setShowCancelModal(false);
+                    navigate('/home');
+                  } catch (e: any) {
+                    console.warn('Provider cancel failed:', e);
+                    window.alert(e?.message || 'Failed to cancel job. Please try again.');
+                  } finally {
+                    setCancelling(false);
+                  }
+                }}
+                disabled={cancelling || (!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim()))}
+                className="rounded-2xl py-3 font-bold text-sm text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #EF4444, #DC2626)',
+                  opacity: (!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim()) || cancelling) ? 0.5 : 1,
+                }}
+              >
+                {cancelling ? 'Cancelling...' : 'Confirm Cancel'}
+              </button>
+            </div>
+          </motion.div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Customer cancelled notification modal */}
+      {showCustomerCancelled && createPortal(
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2147483647 }}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="mx-6 rounded-3xl p-6 w-full max-w-sm"
+            style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF' }}
+          >
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}>
+                <AlertTriangle className="w-8 h-8" style={{ color: '#EF4444' }} />
+              </div>
+              <h2 className="font-bold text-xl mb-2" style={{ color: textColor }}>Request Cancelled</h2>
+              <p className="text-sm" style={{ color: subColor }}>
+                The customer has cancelled this service request.
+              </p>
+            </div>
+
+            {cancelledReason && cancelledReason !== 'Customer cancelled the request' && (
+              <div className="rounded-xl p-3 mb-5" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F9FAFB', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}` }}>
+                <p className="text-xs font-medium mb-1" style={{ color: subColor }}>Reason</p>
+                <p className="text-sm" style={{ color: textColor }}>{cancelledReason}</p>
+              </div>
+            )}
+
+            <p className="text-xs text-center mb-5" style={{ color: subColor }}>
+              If a cancellation fee applies, it will be reflected in your earnings.
+            </p>
+
+            <button
+              onClick={() => {
+                setShowCustomerCancelled(false);
+                navigate('/home');
+              }}
+              className="w-full h-12 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform"
+              style={{
+                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                boxShadow: '0 8px 18px rgba(0,140,229,0.28)',
+              }}
+            >
+              Back to Home
+            </button>
+          </motion.div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

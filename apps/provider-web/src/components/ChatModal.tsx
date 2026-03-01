@@ -1,4 +1,4 @@
-import { X, Send, ArrowLeft, WifiOff, Loader2, MapPin, Camera, ImagePlus } from 'lucide-react';
+import { X, Send, ArrowLeft, WifiOff, Loader2, AlertTriangle, MapPin, Camera, ImagePlus } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { loadPlatformSettings } from '../lib/platformSettings';
 import { formatPrivacyName, formatPrivacyNameFromFull, getDateLabel } from '../lib/nameFormat';
+import { encryptMessage, decryptMessage } from '../lib/chatEncryption';
 
 interface Message {
   id: string;
@@ -25,6 +26,7 @@ interface ChatModalProps {
   peerName: string;
   peerInitials: string;
   role: 'customer' | 'provider';
+  jobStatus?: string;
 }
 
 interface ChatSettings {
@@ -77,9 +79,10 @@ function getSessionId(): string {
   return id;
 }
 
-export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role }: ChatModalProps) {
+export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role, jobStatus }: ChatModalProps) {
   const { user, profile } = useAuth();
   const { isDark } = useTheme();
+  const isJobCompleted = jobStatus === 'completed' || jobStatus === 'cancelled';
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -167,16 +170,17 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
         }
       } else {
         setDbAvailable(true);
-        const mapped: Message[] = (data || []).reverse().map((row: any) => ({
+        const rows = (data || []).reverse();
+        const mapped: Message[] = await Promise.all(rows.map(async (row: any) => ({
           id: row.id,
-          text: row.message,
+          text: await decryptMessage(jobId, row.message),
           image: row.image_url || undefined,
           sender_id: row.sender_id,
           sender_name: formatPrivacyNameFromFull(row.sender_name, row.sender_role === 'customer' ? 'Customer' : 'Provider'),
           sender_role: row.sender_role,
           created_at: row.created_at,
           status: 'sent' as const,
-        }));
+        })));
 
         if (isInitial) {
           setMessages(mapped);
@@ -210,11 +214,12 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
     });
 
     channel
-      .on('broadcast', { event: 'new_message' }, (payload) => {
+      .on('broadcast', { event: 'new_message' }, async (payload) => {
         const msg = payload.payload as Message;
+        const decryptedText = await decryptMessage(jobId, msg.text);
         setMessages((prev) => {
           if (prev.find((m) => m.id === msg.id)) return prev;
-          return [...prev, { ...msg, status: 'sent' }];
+          return [...prev, { ...msg, text: decryptedText, status: 'sent' }];
         });
       })
       .subscribe((status) => {
@@ -293,16 +298,20 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
   }, [jobId, dbAvailable]);
 
   const broadcastAndSave = useCallback(async (msg: Message) => {
+    // Encrypt the message text before sending over the wire / saving to DB
+    const encryptedText = await encryptMessage(jobId, msg.text);
+    const encMsg = { ...msg, text: encryptedText };
+
     if (channelRef.current) {
       try {
-        await channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: msg });
+        await channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: encMsg });
         setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, status: 'sent' as const } : m)));
 
         const peerRole = role === 'customer' ? 'provider' : 'customer';
         const notifyChannel = supabase.channel(`chat-notify-${peerRole}-${jobId}`);
         notifyChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') {
-            notifyChannel.send({ type: 'broadcast', event: 'new_message', payload: msg }).catch(() => {});
+            notifyChannel.send({ type: 'broadcast', event: 'new_message', payload: encMsg }).catch(() => {});
             setTimeout(() => supabase.removeChannel(notifyChannel), 2000);
           }
         });
@@ -312,7 +321,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
     } else {
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, status: 'sent' as const } : m)));
     }
-    saveToDb(msg);
+    saveToDb(encMsg);
   }, [role, jobId, saveToDb]);
 
   const sendMessage = useCallback(async (overrideText?: string) => {
@@ -477,10 +486,13 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
           </div>
         )}
 
-        {messages.map((msg, index) => {
+        {(() => {
+          const completedIdx = messages.findIndex((m) => m.sender_id === 'system' && (m.text === STATUS_MESSAGES.completed || m.text === STATUS_MESSAGES.cancelled));
+          return messages.map((msg, index) => {
           const isMe = msg.sender_id === senderId;
           const isSystem = msg.sender_id === 'system';
           const showDateSep = index === 0 || getDateLabel(msg.created_at) !== getDateLabel(messages[index - 1].created_at);
+          const isPostCompletion = !isSystem && completedIdx >= 0 && index > completedIdx;
 
           return (
             <React.Fragment key={msg.id}>
@@ -499,7 +511,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
                   }}>{msg.text}</span>
                 </div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
                   <div style={{
                     maxWidth: '80%', borderRadius: 16,
                     padding: msg.image && !msg.text ? '4px' : '10px 16px',
@@ -539,16 +551,22 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
                       )}
                     </div>
                   </div>
+                  {isPostCompletion && (
+                    <span style={{ fontSize: 10, color: '#D97706', marginTop: 2, fontStyle: 'italic' }}>
+                      Sent outside service period
+                    </span>
+                  )}
                 </div>
               )}
             </React.Fragment>
           );
-        })}
+          });
+        })()}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Quick replies */}
-      {messages.length < 3 && (
+      {!isJobCompleted && messages.length < 3 && (
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '6px 16px', flexShrink: 0, borderTop: `1px solid ${headerBorder}`, background: headerBg }}>
           {quickReplies.map((text) => (
             <button key={text} onClick={() => sendMessage(text)}
@@ -560,6 +578,20 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
               {text}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Post-service warning banner */}
+      {isJobCompleted && (
+        <div style={{
+          padding: '8px 16px', borderTop: `1px solid ${isDark ? 'rgba(217,119,6,0.3)' : '#FDE68A'}`,
+          background: isDark ? 'rgba(217,119,6,0.1)' : '#FFFBEB', flexShrink: 0,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <AlertTriangle style={{ width: 16, height: 16, color: '#D97706', flexShrink: 0 }} />
+          <p style={{ fontSize: 12, color: isDark ? '#FBBF24' : '#92400E', margin: 0 }}>
+            Service has ended. Messages are sent outside the service period.
+          </p>
         </div>
       )}
 

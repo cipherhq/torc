@@ -1,19 +1,24 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
-import { CheckCircle, DollarSign, Star, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
+import { CheckCircle, DollarSign, Star, ThumbsUp, ThumbsDown, Clock, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
+import { createPortal } from 'react-dom';
 
 export function JobComplete() {
   const navigate = useNavigate();
   const { jobId } = useParams();
   const { isDark } = useTheme();
   const { currentJob, fetchJob, updateJobStatus, rateJob } = useJob();
+  const { user } = useAuth() as any;
   const [rating, setRating] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [tipToast, setTipToast] = useState<{ amount: number; service: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,7 +28,7 @@ export function JobComplete() {
         const job = await fetchJob(jobId);
         if (cancelled) return;
         const status = job?.status;
-        if (status === 'inprogress' || status === 'in_progress') {
+        if (status !== 'completed' && status !== 'cancelled') {
           await updateJobStatus(jobId, 'completed');
         }
       } catch (e) {
@@ -33,6 +38,24 @@ export function JobComplete() {
     loadAndComplete();
     return () => { cancelled = true; };
   }, [jobId]);
+
+  // Listen for tip notifications on per-provider channel
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`provider-job-${user.id}`)
+      .on('broadcast', { event: 'tip_received' }, (msg: any) => {
+        const { tip_amount, service } = msg.payload || {};
+        if (tip_amount > 0) {
+          setTipToast({ amount: tip_amount, service: service || 'Service' });
+          // Also refresh the job to show updated tip in earnings
+          if (jobId) fetchJob(jobId).catch(() => {});
+          setTimeout(() => setTipToast(null), 6000);
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, jobId]);
 
   const customerName = currentJob?.customer
     ? `${currentJob.customer.first_name || ''} ${currentJob.customer.last_name || ''}`.trim()
@@ -236,6 +259,42 @@ export function JobComplete() {
           <p className="text-sm text-red-300 mt-3 text-center">{submitError}</p>
         )}
       </div>
+
+      {/* Tip received toast */}
+      {tipToast && createPortal(
+        <motion.div
+          initial={{ opacity: 0, y: -60 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -60 }}
+          className="fixed top-0 left-0 right-0 z-[2147483000] flex justify-center"
+          style={{ paddingTop: 'calc(var(--safe-top, 0px) + 12px)' }}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-2xl px-5 py-4 flex items-center gap-4 backdrop-blur-xl"
+            style={{
+              background: isDark
+                ? 'linear-gradient(135deg, rgba(0,140,229,0.25), rgba(34,197,94,0.18))'
+                : 'linear-gradient(135deg, rgba(0,140,229,0.12), rgba(34,197,94,0.1))',
+              border: `1px solid ${isDark ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.3)'}`,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+              <DollarSign className="w-6 h-6 text-green-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm" style={{ color: '#22C55E' }}>Tip Received!</p>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.8)' : '#374151' }}>
+                You got a <span className="font-bold text-green-400">${tipToast.amount}</span> tip for {tipToast.service}
+              </p>
+            </div>
+            <button onClick={() => setTipToast(null)} className="flex-shrink-0 p-1">
+              <X className="w-4 h-4" style={{ color: subColor }} />
+            </button>
+          </div>
+        </motion.div>,
+        document.body,
+      )}
     </div>
   );
 }

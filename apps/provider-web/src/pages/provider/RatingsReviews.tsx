@@ -25,14 +25,23 @@ export function RatingsReviews() {
         setLoading(true);
         const { data, error } = await supabase
           .from('jobs')
-          .select('id, rating, review, reviewed_at, updated_at, requester_name, customer:profiles!jobs_customer_id_fkey(first_name, last_name)')
+          .select('id, rating, review, reviewed_at, updated_at, requester_name, customer_id')
           .eq('provider_id', user.id)
           .not('rating', 'is', null)
           .order('reviewed_at', { ascending: false, nullsFirst: false })
           .order('updated_at', { ascending: false })
           .limit(500);
         if (error) throw error;
-        setRows(data || []);
+
+        // Batch-fetch customer names
+        const rows = data || [];
+        const custIds = [...new Set(rows.map((r: any) => r.customer_id).filter(Boolean))] as string[];
+        if (custIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name').in('id', custIds);
+          const map = new Map((profiles || []).map((p: any) => [p.id, p]));
+          rows.forEach((r: any) => { r.customer = r.customer_id ? map.get(r.customer_id) || null : null; });
+        }
+        setRows(rows);
       } catch (error) {
         console.warn('Failed to load ratings:', error);
         setRows([]);
@@ -69,7 +78,7 @@ export function RatingsReviews() {
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   return (
-    <div className="min-h-screen pb-28" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
       <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
         <button
           onClick={() => navigate('/profile')}

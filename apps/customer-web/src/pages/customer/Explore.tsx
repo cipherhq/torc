@@ -191,7 +191,7 @@ export function Explore() {
     : { lat: 37.7749, lng: -122.4194 };
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: pageBg }}>
+    <div className="min-h-screen" style={{ background: pageBg , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
       {/* Hidden map for PlacesService (needed even in list view) */}
       {isLoaded && (
         <div style={{ width: 0, height: 0, overflow: 'hidden', position: 'absolute' }}>

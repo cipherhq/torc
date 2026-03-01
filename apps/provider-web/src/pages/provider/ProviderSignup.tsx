@@ -46,6 +46,7 @@ export function ProviderSignup() {
     const confirmPassword = String(formData.confirmPassword);
 
     if (!email || !password) { setError('Email and password are required'); return; }
+    if (!String(formData.phone).trim()) { setError('Phone number is required'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
 
@@ -206,13 +207,13 @@ export function ProviderSignup() {
 
               {/* Phone */}
               <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: labelColor }}>Phone Number</label>
+                <label className="text-sm font-medium mb-2 block" style={{ color: labelColor }}>Phone Number <span className="text-red-500">*</span></label>
                 <div className="flex items-center gap-3 rounded-2xl px-4 py-4"
                   style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
                 >
                   <Phone className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                   <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    placeholder="+1 (555) 000-0000" className="flex-1 bg-transparent border-none outline-none text-base" style={inputFieldStyle} />
+                    placeholder="+1 (555) 000-0000" required className="flex-1 bg-transparent border-none outline-none text-base" style={inputFieldStyle} />
                 </div>
               </div>
 

@@ -21,6 +21,8 @@ interface AddCardFormProps {
   subColor: string;
   inputBg: string;
   inputBorder: string;
+  submitLabel?: string;
+  cancelLabel?: string;
 }
 
 function AddCardForm({
@@ -32,6 +34,8 @@ function AddCardForm({
   subColor,
   inputBg,
   inputBorder,
+  submitLabel = 'Save Card',
+  cancelLabel = 'Cancel',
 }: AddCardFormProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -147,14 +151,14 @@ function AddCardForm({
 
       <div className="flex gap-3 mt-5">
         <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}>
-          Cancel
+          {cancelLabel}
         </button>
         <button
           onClick={submit}
           disabled={saving}
           className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50"
         >
-          {saving ? 'Saving...' : 'Save Card'}
+          {saving ? 'Processing...' : submitLabel}
         </button>
       </div>
     </>
@@ -170,6 +174,7 @@ export function PricingPayment() {
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
   const [saveCard, setSaveCard] = useState(false);
+  const [tempPaymentMethod, setTempPaymentMethod] = useState<PaymentMethod | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [showAddCard, setShowAddCard] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -236,23 +241,24 @@ export function PricingPayment() {
   const tax = subtotal * 0.08;
   const total = subtotal + tax;
 
-  const handleConfirm = async () => {
-    const validationErrors: string[] = [];
-    if (!selectedPayment && paymentMethods.length > 0) {
-      validationErrors.push('Please select a payment method');
-    }
-    if (paymentMethods.length === 0) {
-      validationErrors.push('Please add a payment method to continue');
-    }
-    if (validationErrors.length > 0) {
-      setErrors(validationErrors);
-      return;
-    }
+  const handleInlineCard = async (paymentMethod: PaymentMethod) => {
+    setTempPaymentMethod(paymentMethod);
+  };
 
-    const selected = paymentMethods.find((m: any) => m.id === selectedPayment);
-    const stripePaymentMethodId = selected?.stripe_payment_method_id;
-    if (!stripePaymentMethodId) {
-      setErrors(['Selected payment method is not linked to Stripe. Please add the card again.']);
+  const handleConfirm = async () => {
+    let stripePaymentMethodId: string | null = null;
+
+    if (tempPaymentMethod) {
+      stripePaymentMethodId = tempPaymentMethod.id;
+    } else if (selectedPayment && paymentMethods.length > 0) {
+      const selected = paymentMethods.find((m: any) => m.id === selectedPayment);
+      stripePaymentMethodId = selected?.stripe_payment_method_id || null;
+      if (!stripePaymentMethodId) {
+        setErrors(['Selected payment method is not linked to Stripe. Please add the card again.']);
+        return;
+      }
+    } else {
+      setErrors(['Please enter your card details to continue']);
       return;
     }
 
@@ -273,8 +279,6 @@ export function PricingPayment() {
         },
       });
       if (error) {
-        // Extract the real error from edge function response
-        // supabase-js v2: error.context is the parsed response body
         const ctx = error.context;
         const msg = ctx?.error || ctx?.message || data?.error || error.message;
         throw new Error(msg);
@@ -297,8 +301,23 @@ export function PricingPayment() {
         throw new Error(`Payment not completed (status: ${paymentIntent?.status || 'unknown'}).`);
       }
 
+      // Save card to DB only if user opted in
+      if (saveCard && tempPaymentMethod) {
+        const card = tempPaymentMethod.card;
+        await supabase.from('payment_methods').insert({
+          user_id: user.id,
+          type: 'card',
+          brand: card?.brand ? card.brand[0].toUpperCase() + card.brand.slice(1) : 'Card',
+          last4: card?.last4 || null,
+          exp_month: card?.exp_month || null,
+          exp_year: card?.exp_year || null,
+          stripe_payment_method_id: tempPaymentMethod.id,
+          is_default: true,
+        });
+      }
+
       updateRequestContext({
-        paymentMethodId: selectedPayment,
+        paymentMethodId: selectedPayment || null,
         estimatedPrice: total,
         paymentIntentId: paymentIntent.id,
         paymentStatus: 'paid',
@@ -379,10 +398,49 @@ export function PricingPayment() {
             <p className="font-semibold" style={{ color: textColor }}>Payment Method</p>
           </div>
 
-          {paymentMethods.length === 0 ? (
-            <div className="rounded-2xl p-5 mb-3 text-center" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-              <CreditCard className="w-10 h-10 mx-auto mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }} />
-              <p className="text-sm" style={{ color: subColor }}>Add a payment method to continue</p>
+          {paymentMethods.length === 0 && !tempPaymentMethod ? (
+            <div className="rounded-2xl p-5 mb-3" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
+              <div className="text-center mb-4">
+                <CreditCard className="w-10 h-10 mx-auto mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }} />
+                <p className="text-sm font-medium" style={{ color: textColor }}>Enter card details</p>
+                <p className="text-xs mt-1" style={{ color: subColor }}>Your card is securely processed by Stripe</p>
+              </div>
+              <Elements stripe={stripePromise}>
+                <AddCardForm
+                  onCancel={() => navigate(-1)}
+                  onSubmit={handleInlineCard}
+                  saving={saving}
+                  isDark={isDark}
+                  textColor={textColor}
+                  subColor={subColor}
+                  inputBg={inputBg}
+                  inputBorder={inputBorder}
+                  submitLabel="Continue"
+                  cancelLabel="Go Back"
+                />
+              </Elements>
+            </div>
+          ) : paymentMethods.length === 0 && tempPaymentMethod ? (
+            <div className="space-y-3 mb-3">
+              <div className="w-full rounded-2xl p-4 flex items-center gap-3"
+                style={{
+                  backgroundColor: isDark ? 'rgba(78,205,196,0.12)' : 'rgba(78,205,196,0.08)',
+                  border: '2px solid #008CE5',
+                  boxShadow: '0 4px 16px rgba(78,205,196,0.25)',
+                }}
+              >
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(78,205,196,0.2)' }}>
+                  <CreditCard className="w-5 h-5" style={{ color: '#008CE5' }} />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="font-semibold" style={{ color: textColor }}>
+                    {tempPaymentMethod.card?.brand ? tempPaymentMethod.card.brand[0].toUpperCase() + tempPaymentMethod.card.brand.slice(1) : 'Card'} •••• {tempPaymentMethod.card?.last4 || '****'}
+                  </p>
+                </div>
+                <button onClick={() => setTempPaymentMethod(null)} className="text-xs font-semibold px-3 py-1 rounded-lg" style={{ color: '#008CE5', backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : 'rgba(0,140,229,0.1)' }}>
+                  Change
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3 mb-3">
@@ -417,26 +475,30 @@ export function PricingPayment() {
             </div>
           )}
 
-          <button onClick={() => { setShowAddCard(true); }}
-            className="w-full rounded-2xl p-4 flex items-center gap-3 border-2 border-dashed transition-all hover:border-[#008CE5]/50"
-            style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}
-          >
-            <Plus className="w-5 h-5" style={{ color: '#008CE5' }} />
-            <p className="font-semibold text-sm" style={{ color: '#008CE5' }}>Add New Card</p>
-          </button>
+          {paymentMethods.length > 0 && (
+            <button onClick={() => { setShowAddCard(true); }}
+              className="w-full rounded-2xl p-4 flex items-center gap-3 border-2 border-dashed transition-all hover:border-[#008CE5]/50"
+              style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}
+            >
+              <Plus className="w-5 h-5" style={{ color: '#008CE5' }} />
+              <p className="font-semibold text-sm" style={{ color: '#008CE5' }}>Add New Card</p>
+            </button>
+          )}
         </div>
 
-        {/* Save card toggle */}
-        <button onClick={() => setSaveCard(!saveCard)} className="w-full rounded-2xl p-4 flex items-center gap-3 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-          <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors" style={{ borderColor: saveCard ? '#008CE5' : subColor, backgroundColor: saveCard ? '#008CE5' : 'transparent' }}>
-            {saveCard && <Check className="w-3 h-3 text-white" />}
-          </div>
-          <p className="font-semibold text-sm flex-1 text-left" style={{ color: textColor }}>Save card for future use</p>
-        </button>
+        {/* Save card toggle - only shown for one-time card use */}
+        {tempPaymentMethod && (
+          <button onClick={() => setSaveCard(!saveCard)} className="w-full rounded-2xl p-4 flex items-center gap-3 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
+            <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors" style={{ borderColor: saveCard ? '#008CE5' : subColor, backgroundColor: saveCard ? '#008CE5' : 'transparent' }}>
+              {saveCard && <Check className="w-3 h-3 text-white" />}
+            </div>
+            <p className="font-semibold text-sm flex-1 text-left" style={{ color: textColor }}>Save card for future use</p>
+          </button>
+        )}
       </div>
 
       {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         {errors.length > 0 && (
           <div className="mb-3 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
             {errors.map((err, i) => (

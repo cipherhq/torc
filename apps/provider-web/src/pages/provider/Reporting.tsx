@@ -250,7 +250,7 @@ export function ProviderReporting() {
   const pageBg = isDark ? '#0A1626' : '#EEF4FF';
 
   return (
-    <div className="min-h-screen pb-28" style={{ background: pageBg }}>
+    <div className="min-h-screen" style={{ background: pageBg , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
       <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
         <div className="flex items-center gap-3">
           <button

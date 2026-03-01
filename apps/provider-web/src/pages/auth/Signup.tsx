@@ -111,7 +111,7 @@ export function Signup() {
           </div>
 
           <div>
-            <label className="text-white/80 text-sm mb-2 block">Phone</label>
+            <label className="text-white/80 text-sm mb-2 block">Phone <span className="text-red-400">*</span></label>
             <div className="glass rounded-[24px] px-5 py-4 flex items-center gap-3">
               <Phone className="w-5 h-5 text-[#008CE5]" />
               <input
@@ -119,6 +119,7 @@ export function Signup() {
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 placeholder="+1 (555) 123-4567"
+                required
                 className="flex-1 bg-transparent border-none text-white placeholder-white/40 focus:outline-none"
               />
             </div>
@@ -177,7 +178,7 @@ export function Signup() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleSignup}
-            disabled={!acceptedTerms}
+            disabled={!acceptedTerms || !formData.phone.trim()}
             className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 mt-6 disabled:opacity-50"
           >
             Create Account

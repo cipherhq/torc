@@ -12,6 +12,20 @@ let unlocked = false;
 let compressorNode: DynamicsCompressorNode | null = null;
 let masterGainNode: GainNode | null = null;
 
+/* ─── Call Session Tracking ────────────────────────────────────────────── */
+let callActive = false;
+
+/** Mark a call as active — suppresses notification/ringtone sounds. */
+export function setCallActive(active: boolean) {
+  callActive = active;
+  if (active) stopRequestRingtone();
+}
+
+/** Check whether a call is currently active. */
+export function isCallActive(): boolean {
+  return callActive;
+}
+
 function getOrCreateCtx(): AudioContext {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -80,8 +94,9 @@ export function initAudio(): AudioContext {
   return ctx;
 }
 
-/** Play a three-tone ascending chime (A5 → D6 → E6). */
+/** Play a three-tone ascending chime (A5 → D6 → E6). Suppressed during active calls. */
 export function playNotificationBell() {
+  if (callActive) return;
   try {
     const ctx = getOrCreateCtx();
 
@@ -119,8 +134,9 @@ function _playChime(ctx: AudioContext) {
   }
 }
 
-/** Play a short single-tone "ding" for incoming messages. */
+/** Play a short single-tone "ding" for incoming messages. Suppressed during active calls. */
 export function playMessageSound() {
+  if (callActive) return;
   try {
     const ctx = getOrCreateCtx();
 
@@ -171,6 +187,8 @@ let ringtoneActive = false;
  * Call stopRequestRingtone() to stop.
  */
 export function playRequestRingtone() {
+  // Don't play ringtone during an active call
+  if (callActive) return;
   // Don't stack multiple ringtones
   if (ringtoneActive) return;
   ringtoneActive = true;

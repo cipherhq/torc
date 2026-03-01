@@ -8,7 +8,7 @@ import {
   DollarSign, TrendingUp, Users, Search, RefreshCw,
   Send, X, Loader2, CreditCard, Building2, Wallet,
   Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
-  FileText, Hash,
+  FileText,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -132,7 +132,6 @@ export function AdminPayouts() {
 
   /* Payout modal */
   const [payingProvider, setPayingProvider] = useState<ProviderBalance | null>(null);
-  const [payAmount, setPayAmount] = useState('');
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
   const [payMethodId, setPayMethodId] = useState<string | null>(null);
@@ -329,7 +328,6 @@ export function AdminPayouts() {
 
   function openPayModal(provider: ProviderBalance) {
     setPayingProvider(provider);
-    setPayAmount(provider.balance.toFixed(2));
     setPayRef('');
     setPayNotes('');
     const methods = allMethods[provider.provider_id] || [];
@@ -343,12 +341,8 @@ export function AdminPayouts() {
 
   async function handleCompletePayout() {
     if (!payingProvider) return;
-    const amount = Number(payAmount);
+    const amount = payingProvider.balance;
     if (!amount || amount <= 0) return;
-    if (amount > payingProvider.balance) {
-      alert(`Payout amount cannot exceed provider balance (${fmt(payingProvider.balance)}).`);
-      return;
-    }
     if (!payRef.trim()) {
       alert('Please enter a payment reference ID.');
       return;
@@ -523,59 +517,59 @@ export function AdminPayouts() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="border-b border-gray-200">
+                <table className="w-full table-fixed">
+                  <thead className="border-b border-gray-200 bg-gray-50/50">
                     <tr>
-                      <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">Provider</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Jobs</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Earned</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Tips</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Fee ({platformFee}%)</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Net Owed</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Paid</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Balance</th>
-                      <th className="px-6 py-4 text-right text-gray-500 text-sm font-semibold">Action</th>
+                      <th className="w-[20%] px-6 py-4 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Provider</th>
+                      <th className="w-[7%] px-3 py-4 text-center text-gray-500 text-xs font-semibold uppercase tracking-wider">Jobs</th>
+                      <th className="w-[11%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Earned</th>
+                      <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Tips</th>
+                      <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Fee ({platformFee}%)</th>
+                      <th className="w-[11%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Net Owed</th>
+                      <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Paid</th>
+                      <th className="w-[11%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Balance</th>
+                      <th className="w-[10%] px-4 py-4 text-center text-gray-500 text-xs font-semibold uppercase tracking-wider">Action</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-gray-100">
                     {paginatedProviders.map((prov, i) => (
                       <motion.tr
                         key={prov.provider_id}
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: i * 0.02 }}
-                        className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                        className="hover:bg-blue-50/30 transition-colors"
                       >
                         <td className="px-6 py-4">
-                          <p className="text-gray-900 font-semibold">{prov.provider_name}</p>
-                          <p className="text-gray-400 text-xs">{prov.provider_email}</p>
+                          <p className="text-gray-900 font-semibold text-sm truncate">{prov.provider_name}</p>
+                          <p className="text-gray-400 text-xs truncate">{prov.provider_email}</p>
                         </td>
-                        <td className="px-4 py-4 text-right text-gray-700 font-medium">{prov.jobs_count}</td>
-                        <td className="px-4 py-4 text-right text-gray-700">{fmt(prov.total_earned)}</td>
-                        <td className="px-4 py-4 text-right" style={{ color: '#22C55E' }}>+{fmt(prov.total_tips)}</td>
-                        <td className="px-4 py-4 text-right text-red-400">-{fmt(prov.platform_fee)}</td>
-                        <td className="px-4 py-4 text-right text-gray-900 font-semibold">{fmt(prov.net_owed)}</td>
-                        <td className="px-4 py-4 text-right text-gray-500">{fmt(prov.already_paid)}</td>
-                        <td className="px-4 py-4 text-right">
-                          <span className={`font-bold text-lg ${prov.balance > 0.01 ? '' : 'text-gray-400'}`}
+                        <td className="px-3 py-4 text-center text-gray-700 font-medium text-sm">{prov.jobs_count}</td>
+                        <td className="px-3 py-4 text-right text-gray-700 text-sm font-medium">{fmt(prov.total_earned)}</td>
+                        <td className="px-3 py-4 text-right text-sm font-medium" style={{ color: '#22C55E' }}>+{fmt(prov.total_tips)}</td>
+                        <td className="px-3 py-4 text-right text-red-400 text-sm font-medium">-{fmt(prov.platform_fee)}</td>
+                        <td className="px-3 py-4 text-right text-gray-900 font-bold text-sm">{fmt(prov.net_owed)}</td>
+                        <td className="px-3 py-4 text-right text-gray-500 text-sm">{fmt(prov.already_paid)}</td>
+                        <td className="px-3 py-4 text-right">
+                          <span className={`font-bold text-base ${prov.balance > 0.01 ? '' : 'text-gray-400'}`}
                             style={prov.balance > 0.01 ? { color: '#008CE5' } : undefined}
                           >
                             {fmt(prov.balance)}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 py-4 text-center">
                           {prov.balance > 0.01 ? (
                             <motion.button
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
                               onClick={() => openPayModal(prov)}
-                              className="px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                              className="px-5 py-2 rounded-xl text-sm font-semibold text-white shadow-sm shadow-blue-500/20"
                               style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
                             >
                               Pay
                             </motion.button>
                           ) : (
-                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                            <span className="px-3 py-1.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
                               Paid
                             </span>
                           )}
@@ -611,15 +605,15 @@ export function AdminPayouts() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="border-b border-gray-200">
+                  <thead className="border-b border-gray-200 bg-gray-50/50">
                     <tr>
-                      <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">Date</th>
-                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Provider</th>
-                      <th className="px-4 py-4 text-right text-gray-500 text-sm font-semibold">Amount</th>
-                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Method</th>
-                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Reference</th>
-                      <th className="px-4 py-4 text-left text-gray-500 text-sm font-semibold">Status</th>
-                      <th className="px-6 py-4 text-center text-gray-500 text-sm font-semibold"></th>
+                      <th className="px-6 py-4 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Date</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Provider</th>
+                      <th className="px-4 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Amount</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Method</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Reference</th>
+                      <th className="px-4 py-4 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-center text-gray-500 text-xs font-semibold uppercase tracking-wider"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -787,60 +781,46 @@ export function AdminPayouts() {
               )}
             </div>
 
-            {/* Amount */}
-            <div className="mb-4">
+            {/* Amount — locked to prevent human error */}
+            <div className="mb-5">
               <label className="text-gray-600 text-sm font-semibold mb-2 block">Payout Amount</label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max={payingProvider.balance}
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 text-lg font-bold focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                />
+              <div className="w-full py-3.5 px-4 bg-gray-100 border-2 border-gray-200 rounded-xl text-gray-900 text-lg font-bold select-none">
+                {fmt(payingProvider.balance)}
               </div>
+              <p className="text-gray-400 text-xs mt-1.5">Full outstanding balance will be paid out</p>
             </div>
 
             {/* Reference ID */}
-            <div className="mb-4">
+            <div className="mb-5">
               <label className="text-gray-600 text-sm font-semibold mb-2 block">
                 Payment Reference ID <span className="text-red-400">*</span>
               </label>
-              <div className="relative">
-                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="e.g. TXN-123456, PayPal ID, etc."
-                  value={payRef}
-                  onChange={(e) => setPayRef(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
+              <input
+                type="text"
+                placeholder="Enter transaction ID (e.g. TXN-123456)"
+                value={payRef}
+                onChange={(e) => setPayRef(e.target.value)}
+                className="w-full px-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              />
             </div>
 
             {/* Notes */}
-            <div className="mb-6">
+            <div className="mb-8">
               <label className="text-gray-600 text-sm font-semibold mb-2 block">Notes (optional)</label>
-              <div className="relative">
-                <FileText className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <textarea
-                  placeholder="Additional notes about this payout..."
-                  value={payNotes}
-                  onChange={(e) => setPayNotes(e.target.value)}
-                  rows={2}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-none"
-                />
-              </div>
+              <textarea
+                placeholder="Additional notes about this payout..."
+                value={payNotes}
+                onChange={(e) => setPayNotes(e.target.value)}
+                rows={3}
+                className="w-full px-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 resize-none"
+              />
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <button
                 onClick={() => setPayingProvider(null)}
-                className="flex-1 px-6 py-3 rounded-[20px] bg-gray-100 text-gray-900 font-semibold hover:bg-gray-200 transition-colors"
+                className="flex-1 px-6 py-3.5 rounded-2xl bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200 transition-colors"
               >
                 Cancel
               </button>
@@ -848,8 +828,8 @@ export function AdminPayouts() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleCompletePayout}
-                disabled={payProcessing || !payRef.trim() || Number(payAmount) <= 0}
-                className="flex-1 px-6 py-3 rounded-[20px] font-bold flex items-center justify-center gap-2 disabled:opacity-50 text-white"
+                disabled={payProcessing || !payRef.trim()}
+                className="flex-[1.3] px-6 py-3.5 rounded-2xl font-bold flex items-center justify-center gap-2.5 disabled:opacity-50 text-white shadow-lg shadow-blue-500/20"
                 style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
               >
                 {payProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}

@@ -124,14 +124,17 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_profiles_ensure_provider_profile_row ON public.profiles;
-CREATE TRIGGER trg_profiles_ensure_provider_profile_row
-AFTER INSERT OR UPDATE OF role ON public.profiles
+DROP TRIGGER IF EXISTS trg_profiles_ensure_provider_profile_row_insert ON public.profiles;
+DROP TRIGGER IF EXISTS trg_profiles_ensure_provider_profile_row_update ON public.profiles;
+
+CREATE TRIGGER trg_profiles_ensure_provider_profile_row_insert
+AFTER INSERT ON public.profiles
 FOR EACH ROW
-WHEN (
-  NEW.role = 'provider'
-  AND (
-    TG_OP = 'INSERT'
-    OR OLD.role IS DISTINCT FROM NEW.role
-  )
-)
+WHEN (NEW.role = 'provider')
+EXECUTE FUNCTION public.ensure_provider_profile_row();
+
+CREATE TRIGGER trg_profiles_ensure_provider_profile_row_update
+AFTER UPDATE OF role ON public.profiles
+FOR EACH ROW
+WHEN (NEW.role = 'provider' AND OLD.role IS DISTINCT FROM NEW.role)
 EXECUTE FUNCTION public.ensure_provider_profile_row();

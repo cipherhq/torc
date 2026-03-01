@@ -86,7 +86,7 @@ export function useRealtimeLocation({ jobId, role, enabled = true }: UseRealtime
 }
 
 export function useWatchPosition(enabled = true) {
-  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
+  const [position, setPosition] = useState<{ lat: number; lng: number; heading: number | null; speed: number | null } | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -97,6 +97,8 @@ export function useWatchPosition(enabled = true) {
         setPosition({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
         });
       },
       (err) => {

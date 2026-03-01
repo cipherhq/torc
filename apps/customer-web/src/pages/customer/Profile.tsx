@@ -116,7 +116,7 @@ export function Profile() {
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
       {/* Header */}
       <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
         <h1 className="text-3xl font-bold mb-1" style={{ color: textColor }}>Profile</h1>

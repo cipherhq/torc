@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { setCallActive, stopRequestRingtone } from '../utils/audio';
 
 type CallState = 'idle' | 'ringing' | 'connecting' | 'connected' | 'ended';
 
@@ -80,6 +81,7 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
   }, []);
 
   const cleanup = useCallback(() => {
+    setCallActive(false);
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -111,19 +113,33 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
     onClose();
   }, [cleanup, myId, onClose]);
 
-  // Initialize WebRTC and signaling
+  // Pre-check mic permission when modal opens; only start WebRTC after mic is acquired
+  const [micReady, setMicReady] = useState(false);
+
   useEffect(() => {
-    if (!isOpen || !jobId) return;
+    if (!isOpen) { setMicReady(false); return; }
+    // Stop any playing ringtone/notifications when call modal opens
+    stopRequestRingtone();
+    setCallActive(true);
+    let cancelled = false;
+    (async () => {
+      const stream = await requestMicrophoneStream();
+      if (cancelled) { stream?.getTracks().forEach(t => t.stop()); return; }
+      if (stream) { localStreamRef.current = stream; setMicReady(true); }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, startNonce, requestMicrophoneStream]);
+
+  // Initialize WebRTC and signaling (only after mic is ready)
+  useEffect(() => {
+    if (!isOpen || !jobId || !micReady) return;
 
     let cancelled = false;
 
     async function startCall() {
       try {
-        // Get audio stream (reuse stream granted by explicit user action if present)
-        const stream = localStreamRef.current ?? await requestMicrophoneStream();
+        const stream = localStreamRef.current;
         if (!stream || cancelled) return;
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        localStreamRef.current = stream;
 
         // Create peer connection
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -237,7 +253,7 @@ export function CallModal({ jobId, peerName, peerInitials, isOpen, onClose, isOu
       cancelled = true;
       cleanup();
     };
-  }, [isOpen, jobId, startNonce, requestMicrophoneStream]);
+  }, [isOpen, jobId, micReady]);
 
   const toggleMute = () => {
     if (localStreamRef.current) {

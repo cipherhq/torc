@@ -151,6 +151,21 @@ export function AuthProvider({ children }) {
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+
+    // Enforce role: only providers may use this app
+    if (data?.user?.id) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (prof?.role && prof.role !== 'provider') {
+        await supabase.auth.signOut();
+        throw new Error('This account is registered as a customer. Please use the TORC Customer app to log in.');
+      }
+    }
+
     return data;
   };
 

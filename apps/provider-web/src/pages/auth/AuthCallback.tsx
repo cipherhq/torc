@@ -21,12 +21,13 @@ export function AuthCallback() {
           throw new Error('Invalid or expired link');
         }
 
-        const { error } = await supabase.auth.setSession({
+        const { data: sessionData, error } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken || '',
         });
 
         if (error) throw error;
+        const userId = sessionData?.user?.id;
 
         if (type === 'recovery') {
           setStatus('success');
@@ -38,8 +39,17 @@ export function AuthCallback() {
           setStatus('success');
           setMessage('Email verified successfully!');
           localStorage.removeItem('pendingVerificationEmail');
+
+          // Check if provider needs onboarding (no services selected yet)
+          const { data: pp } = await supabase
+            .from('provider_profiles')
+            .select('services')
+            .eq('id', userId ?? '')
+            .maybeSingle();
+
+          const needsOnboarding = !pp || !pp.services || pp.services.length === 0;
           setTimeout(() => {
-            navigate('/home', { replace: true });
+            navigate(needsOnboarding ? '/onboarding' : '/home', { replace: true });
           }, 2000);
         } else {
           setStatus('success');

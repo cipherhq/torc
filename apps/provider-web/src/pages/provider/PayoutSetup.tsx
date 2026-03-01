@@ -385,8 +385,8 @@ export function PayoutSetup() {
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden pb-28"
-      style={{ background: isDark ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #EEF4FF 100%)' }}
+    <div className="min-h-screen relative overflow-hidden"
+      style={{ background: isDark ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #EEF4FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}
     >
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#008CE5', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />

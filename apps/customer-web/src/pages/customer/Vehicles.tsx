@@ -99,7 +99,7 @@ export function Vehicles() {
         </button>
       </div>
 
-      <div className="px-6 pb-24">
+      <div className="px-6" style={{ paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
         {/* Add Vehicle Form */}
         {showAdd && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}

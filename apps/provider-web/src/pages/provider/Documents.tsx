@@ -20,23 +20,27 @@ interface DocumentRecord {
   updated_at: string;
 }
 
+interface DocTypeConfig {
+  id: string;
+  name: string;
+  required: boolean;
+  description: string;
+}
+
 export function ProviderDocuments() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
   const { user } = useAuth() as any;
-  const [documents, setDocuments] = useState<Record<string, DocumentRecord | null>>({
-    license: null,
-    insurance: null,
-    registration: null,
-    towing: null,
-  });
+  const [documents, setDocuments] = useState<Record<string, DocumentRecord | null>>({});
   const [loading, setLoading] = useState(true);
   const [savingDocId, setSavingDocId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<{ id: string; url: string; mimeType: string | null; fileName: string | null } | null>(null);
+  const [documentConfig, setDocumentConfig] = useState<DocTypeConfig[]>([]);
 
-  const documentConfig = [
+  // Fallback config if document_types table doesn't exist yet
+  const fallbackConfig: DocTypeConfig[] = [
     { id: 'license', name: "Driver's License", required: true, description: "Valid state-issued driver's license" },
     { id: 'insurance', name: 'Insurance Certificate', required: true, description: 'Proof of commercial vehicle insurance' },
     { id: 'registration', name: 'Vehicle Registration', required: false, description: 'Current vehicle registration' },
@@ -48,8 +52,32 @@ export function ProviderDocuments() {
       setLoading(false);
       return;
     }
-    loadDocuments();
+    loadDocumentTypes().then(() => loadDocuments());
   }, [user?.id]);
+
+  async function loadDocumentTypes() {
+    try {
+      const { data, error } = await supabase
+        .from('document_types')
+        .select('id, name, description, is_required')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setDocumentConfig(data.map((dt: any) => ({
+          id: dt.id,
+          name: dt.name,
+          required: dt.is_required,
+          description: dt.description || '',
+        })));
+      } else {
+        setDocumentConfig(fallbackConfig);
+      }
+    } catch {
+      // Table may not exist yet — use fallback
+      setDocumentConfig(fallbackConfig);
+    }
+  }
 
   async function getActiveProviderUser() {
     const { data, error } = await supabase.auth.getUser();
@@ -96,16 +124,13 @@ export function ProviderDocuments() {
         .eq('provider_id', authUser.id);
       if (error) throw error;
 
-      const next: Record<string, DocumentRecord | null> = {
-        license: null,
-        insurance: null,
-        registration: null,
-        towing: null,
-      };
+      const next: Record<string, DocumentRecord | null> = {};
+      // Initialize all configured types as null
+      documentConfig.forEach(dc => { next[dc.id] = null; });
+      // Also include fallback keys so old documents still show
+      fallbackConfig.forEach(dc => { if (!(dc.id in next)) next[dc.id] = null; });
       (data || []).forEach((row: any) => {
-        if (next[row.type] !== undefined) {
-          next[row.type] = row as DocumentRecord;
-        }
+        next[row.type] = row as DocumentRecord;
       });
       setDocuments(next);
     } catch (error: any) {
@@ -297,7 +322,7 @@ export function ProviderDocuments() {
         <h1 className="text-xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Upload Documents</h1>
       </div>
 
-      <div className="relative z-10 flex-1 px-6 pb-28 overflow-y-auto">
+      <div className="relative z-10 flex-1 px-6 pb-36 overflow-y-auto">
         {pageError && (
           <div className="rounded-2xl p-4 mb-4 border border-red-500/30" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }}>
             <p className="text-red-400 text-sm">{pageError}</p>
@@ -404,25 +429,27 @@ export function ProviderDocuments() {
           </label>
         </div>
 
-        <div className="mb-8">
-          <motion.button
-            whileTap={{ scale: loading || !!savingDocId ? 1 : 0.98 }}
-            onClick={handleSubmit}
-            disabled={loading || !!savingDocId}
-            className="w-full rounded-xl py-3.5 font-semibold text-sm disabled:opacity-60 flex items-center justify-center gap-2"
-            style={{
-              background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-              color: '#FFFFFF',
-              boxShadow: '0 6px 16px rgba(0,140,229,0.30)',
-            }}
-          >
-            {savingDocId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {savingDocId ? 'Uploading...' : 'Save Documents'}
-          </motion.button>
-          <p className="text-xs text-center mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#6B7280' }}>
-            {canSubmit ? 'Ready to continue to payout setup' : 'Upload required documents and check consent to continue'}
-          </p>
-        </div>
+      </div>
+
+      {/* Fixed bottom save button */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 px-6 pt-4" style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
+        <motion.button
+          whileTap={{ scale: loading || !!savingDocId ? 1 : 0.98 }}
+          onClick={handleSubmit}
+          disabled={loading || !!savingDocId}
+          className="w-full rounded-xl py-3.5 font-semibold text-sm disabled:opacity-60 flex items-center justify-center gap-2"
+          style={{
+            background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+            color: '#FFFFFF',
+            boxShadow: '0 6px 16px rgba(0,140,229,0.30)',
+          }}
+        >
+          {savingDocId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          {savingDocId ? 'Uploading...' : 'Save Documents'}
+        </motion.button>
+        <p className="text-xs text-center mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : '#6B7280' }}>
+          {canSubmit ? 'Ready to continue to payout setup' : 'Upload required documents and check consent to continue'}
+        </p>
       </div>
 
       {/* Preview Modal */}

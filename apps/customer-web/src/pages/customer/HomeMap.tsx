@@ -254,7 +254,7 @@ export function HomeMap() {
       </div>
 
       {/* Request help button */}
-      <div className="relative z-10 px-4 pb-24">
+      <div className="relative z-10 px-4" style={{ paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
         <button
           onClick={() => navigate('/who-needs-help')}
           className="torc-btn-primary"

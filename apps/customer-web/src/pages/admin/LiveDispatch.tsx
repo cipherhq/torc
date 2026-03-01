@@ -31,6 +31,8 @@ export function AdminLiveDispatch() {
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [jobMessages, setJobMessages] = useState<ChatMessage[]>([]);
+  const [loadingJobChat, setLoadingJobChat] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [announcement, setAnnouncement] = useState('');
@@ -51,8 +53,6 @@ export function AdminLiveDispatch() {
             customer_id,
             provider_id,
             created_at,
-            customer:profiles!jobs_customer_id_fkey(first_name,last_name,email),
-            provider:profiles!jobs_provider_id_fkey(first_name,last_name,email),
             service:services(name)
           `)
           .in('status', ['pending', 'requested', 'matching', 'matched', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
@@ -67,9 +67,19 @@ export function AdminLiveDispatch() {
         if (error) throw error;
         if (chatError) throw chatError;
 
+        // Batch-fetch profile names
+        const allIds = [...new Set((data || []).flatMap((j: any) => [j.customer_id, j.provider_id]).filter(Boolean))] as string[];
+        const profileMap = new Map<string, { first_name: string | null; last_name: string | null; email: string | null }>();
+        if (allIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name, email').in('id', allIds);
+          (profiles || []).forEach((p: any) => profileMap.set(p.id, p));
+        }
+
         const formattedJobs: Job[] = (data || []).map((job: any, index: number) => {
-          const customerName = `${job.customer?.first_name || ''} ${job.customer?.last_name || ''}`.trim() || job.customer?.email || null;
-          const providerName = `${job.provider?.first_name || ''} ${job.provider?.last_name || ''}`.trim() || job.provider?.email || null;
+          const cp = job.customer_id ? profileMap.get(job.customer_id) : null;
+          const pp = job.provider_id ? profileMap.get(job.provider_id) : null;
+          const customerName = cp ? (`${cp.first_name || ''} ${cp.last_name || ''}`.trim() || cp.email || null) : null;
+          const providerName = pp ? (`${pp.first_name || ''} ${pp.last_name || ''}`.trim() || pp.email || null) : null;
           const serviceName = job.service?.name || 'Unknown Service';
           
           // Map status
@@ -116,6 +126,33 @@ export function AdminLiveDispatch() {
     const interval = setInterval(loadActiveJobs, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Load full chat history for selected job
+  useEffect(() => {
+    if (!selectedJob) {
+      setJobMessages([]);
+      return;
+    }
+    async function loadJobChat() {
+      try {
+        setLoadingJobChat(true);
+        const { data, error } = await supabase
+          .from('chat_messages')
+          .select('id, job_id, sender_name, sender_role, message, created_at')
+          .eq('job_id', selectedJob)
+          .order('created_at', { ascending: true })
+          .limit(100);
+        if (error) throw error;
+        setJobMessages((data || []) as ChatMessage[]);
+      } catch (err) {
+        console.warn('Failed to load job chat:', err);
+        setJobMessages([]);
+      } finally {
+        setLoadingJobChat(false);
+      }
+    }
+    loadJobChat();
+  }, [selectedJob]);
 
   const stats = [
     { label: 'Active Jobs', value: jobs.filter(j => j.status !== 'completed').length, icon: Activity, color: 'from-[#008CE5] to-[#0070B8]' },
@@ -314,22 +351,51 @@ export function AdminLiveDispatch() {
               <div className="glass-light rounded-2xl p-4">
                 <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-[#008CE5]" />
-                  Recent user/provider messages
+                  {selectedJob ? `Chat — JOB-${selectedJob.slice(0, 8)}` : 'Recent messages'}
                 </h3>
-                {messages.length === 0 ? (
-                  <p className="text-white/60 text-sm">No messages found.</p>
+                {selectedJob && (
+                  <button
+                    onClick={() => setSelectedJob(null)}
+                    className="text-xs text-[#008CE5] mb-2 hover:underline"
+                  >
+                    &larr; Show all recent messages
+                  </button>
+                )}
+                {selectedJob ? (
+                  loadingJobChat ? (
+                    <p className="text-white/60 text-sm">Loading conversation...</p>
+                  ) : jobMessages.length === 0 ? (
+                    <p className="text-white/60 text-sm">No messages for this job.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {jobMessages.map((msg) => (
+                        <div key={msg.id} className={`rounded-xl p-3 ${msg.sender_role === 'customer' ? 'bg-blue-500/10' : msg.sender_role === 'provider' ? 'bg-green-500/10' : 'bg-white/5'}`}>
+                          <p className="text-xs text-white/60">{msg.sender_name} <span className={`font-semibold ${msg.sender_role === 'customer' ? 'text-blue-400' : msg.sender_role === 'provider' ? 'text-green-400' : 'text-white/40'}`}>({msg.sender_role})</span></p>
+                          <p className="text-sm text-white mt-0.5">{msg.message}</p>
+                          <p className="text-[11px] text-white/50 mt-1">
+                            {new Date(msg.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 ) : (
-                  <div className="space-y-2">
-                    {messages.map((msg) => (
-                      <div key={msg.id} className="rounded-xl bg-white/5 p-3">
-                        <p className="text-xs text-white/60">{msg.sender_name} ({msg.sender_role})</p>
-                        <p className="text-sm text-white">{msg.message}</p>
-                        <p className="text-[11px] text-white/50 mt-1">
-                          {new Date(msg.created_at).toLocaleString()} • JOB-{msg.job_id.slice(0, 8)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+                  messages.length === 0 ? (
+                    <p className="text-white/60 text-sm">No messages found.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {messages.map((msg) => (
+                        <div key={msg.id} className="rounded-xl bg-white/5 p-3 cursor-pointer hover:bg-white/10 transition-colors"
+                          onClick={() => setSelectedJob(msg.job_id)}>
+                          <p className="text-xs text-white/60">{msg.sender_name} ({msg.sender_role})</p>
+                          <p className="text-sm text-white">{msg.message}</p>
+                          <p className="text-[11px] text-white/50 mt-1">
+                            {new Date(msg.created_at).toLocaleString()} • JOB-{msg.job_id.slice(0, 8)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
             </motion.div>

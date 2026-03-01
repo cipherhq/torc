@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import {
   Wrench, Search, RefreshCw, DollarSign, ToggleLeft, ToggleRight,
-  Plus, Edit3, Save, Loader2, AlertCircle, Clock, X,
+  Plus, Edit3, Save, Loader2, AlertCircle, Clock, X, Trash2,
 } from 'lucide-react';
 
 interface Service {
@@ -35,6 +35,16 @@ export function AdminServices() {
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [editForm, setEditForm] = useState({ name: '', description: '', estimated_time: '', base_price: '', is_active: true });
   const [editSaving, setEditSaving] = useState(false);
+
+  /* Add service modal state */
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true });
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  /* Delete state */
+  const [deletingService, setDeletingService] = useState<Service | null>(null);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -209,6 +219,79 @@ export function AdminServices() {
     }
   };
 
+  // Add new service
+  const handleAddService = async () => {
+    const id = addForm.id.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!id || !addForm.name.trim()) {
+      setAddError('Service ID and name are required');
+      return;
+    }
+    if (services.some(s => s.id === id)) {
+      setAddError('A service with this ID already exists');
+      return;
+    }
+    const parsed = parseFloat(addForm.base_price) || 0;
+
+    setAddSaving(true);
+    setAddError(null);
+    try {
+      const { error: insertError } = await supabase
+        .from('services')
+        .insert({
+          id,
+          name: addForm.name.trim(),
+          description: addForm.description.trim() || null,
+          estimated_time: addForm.estimated_time.trim() || null,
+          base_price: parsed,
+          is_active: addForm.is_active,
+          icon: 'Wrench',
+        });
+
+      if (insertError) throw insertError;
+
+      setServices(prev => [...prev, {
+        id,
+        name: addForm.name.trim(),
+        icon: 'Wrench',
+        description: addForm.description.trim() || null,
+        estimated_time: addForm.estimated_time.trim() || null,
+        base_price: parsed,
+        is_active: addForm.is_active,
+        created_at: new Date().toISOString(),
+        totalJobs: 0,
+      }]);
+      setShowAddModal(false);
+      setAddForm({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true });
+    } catch (e: any) {
+      console.warn('Failed to add service:', e);
+      setAddError(e.message || 'Failed to add service');
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
+  // Delete service
+  const handleDeleteService = async () => {
+    if (!deletingService) return;
+    setDeleteConfirming(true);
+    try {
+      const { error: deleteError } = await supabase
+        .from('services')
+        .delete()
+        .eq('id', deletingService.id);
+
+      if (deleteError) throw deleteError;
+
+      setServices(prev => prev.filter(s => s.id !== deletingService.id));
+      setDeletingService(null);
+    } catch (e: any) {
+      console.warn('Failed to delete service:', e);
+      alert('Failed to delete service: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDeleteConfirming(false);
+    }
+  };
+
   // Filter by search
   const filteredServices = useMemo(() => {
     if (!search.trim()) return services;
@@ -237,16 +320,28 @@ export function AdminServices() {
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Service Management</h1>
             <p className="text-gray-500">Manage platform services and pricing</p>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={loadServices}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </motion.button>
+          <div className="flex items-center gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => { setShowAddModal(true); setAddForm({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true }); setAddError(null); }}
+              style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl text-white font-semibold"
+            >
+              <Plus className="w-4 h-4" />
+              Add Service
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={loadServices}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </motion.button>
+          </div>
         </div>
 
         {/* Error banner */}
@@ -353,6 +448,13 @@ export function AdminServices() {
                         title="Edit service"
                       >
                         <Edit3 className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => setDeletingService(service)}
+                        className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                        title="Delete service"
+                      >
+                        <Trash2 className="w-5 h-5" />
                       </button>
                       <button
                         onClick={() => handleToggleActive(service.id, service.is_active)}
@@ -601,6 +703,210 @@ export function AdminServices() {
                     <Save className="w-5 h-5" />
                   )}
                   {editSaving ? 'Saving...' : 'Save Changes'}
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {/* Add Service Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-[32px] p-8 max-w-lg w-full shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-gray-900 font-bold text-2xl">Add New Service</h2>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {addError && (
+                <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-600 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {addError}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Service ID */}
+                <div>
+                  <label className="text-gray-600 text-sm font-medium mb-1.5 block">Service ID</label>
+                  <input
+                    type="text"
+                    value={addForm.id}
+                    onChange={(e) => setAddForm({ ...addForm, id: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5]"
+                    placeholder="e.g. flat-tire, oil-change"
+                  />
+                  <p className="text-gray-400 text-xs mt-1">Lowercase identifier, auto-formatted</p>
+                </div>
+
+                {/* Name */}
+                <div>
+                  <label className="text-gray-600 text-sm font-medium mb-1.5 block">Service Name</label>
+                  <input
+                    type="text"
+                    value={addForm.name}
+                    onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5]"
+                    placeholder="e.g. Oil Change"
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="text-gray-600 text-sm font-medium mb-1.5 block">Description</label>
+                  <textarea
+                    rows={3}
+                    value={addForm.description}
+                    onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5] resize-none"
+                    placeholder="Describe this service..."
+                  />
+                </div>
+
+                {/* Estimated Time + Base Price */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-gray-600 text-sm font-medium mb-1.5 block">Estimated Time</label>
+                    <input
+                      type="text"
+                      value={addForm.estimated_time}
+                      onChange={(e) => setAddForm({ ...addForm, estimated_time: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5]"
+                      placeholder="e.g. 30-45 min"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-600 text-sm font-medium mb-1.5 block">Base Price ($)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={addForm.base_price}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                        setAddForm({ ...addForm, base_price: val });
+                      }}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5]"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+
+                {/* Active toggle */}
+                <div className="flex items-center justify-between bg-gray-50 rounded-[16px] px-4 py-3 border border-gray-200">
+                  <span className="text-gray-700 text-sm font-medium">Service Active</span>
+                  <button
+                    onClick={() => setAddForm({ ...addForm, is_active: !addForm.is_active })}
+                    style={{
+                      width: 56,
+                      height: 32,
+                      borderRadius: 9999,
+                      position: 'relative',
+                      flexShrink: 0,
+                      backgroundColor: addForm.is_active ? '#111827' : '#D1D5DB',
+                      transition: 'background-color 0.2s',
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        width: 24,
+                        height: 24,
+                        borderRadius: 9999,
+                        top: 4,
+                        backgroundColor: '#FFFFFF',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                        transition: 'left 0.2s, right 0.2s',
+                        ...(addForm.is_active ? { right: 4, left: 'auto' } : { left: 4, right: 'auto' }),
+                      }}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal actions */}
+              <div className="flex gap-3 mt-6">
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 px-6 py-3 rounded-[20px] bg-gray-100 text-gray-900 font-semibold"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleAddService}
+                  disabled={addSaving || !addForm.id.trim() || !addForm.name.trim()}
+                  style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)', color: '#FFFFFF' }}
+                  className="flex-1 px-6 py-3 rounded-[20px] font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {addSaving ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Plus className="w-5 h-5" />
+                  )}
+                  {addSaving ? 'Adding...' : 'Add Service'}
+                </motion.button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {deletingService && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-[32px] p-8 max-w-md w-full shadow-2xl"
+            >
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-100 flex-shrink-0">
+                  <Trash2 className="w-6 h-6 text-red-500" />
+                </div>
+                <h2 className="text-gray-900 font-bold text-xl">Delete Service</h2>
+              </div>
+
+              <p className="text-gray-600 mb-2">
+                Are you sure you want to delete <strong>{deletingService.name}</strong>?
+              </p>
+              {deletingService.totalJobs > 0 && (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-700 text-sm mb-4">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  This service has {deletingService.totalJobs} associated job{deletingService.totalJobs !== 1 ? 's' : ''}. Deleting may fail if jobs reference it.
+                </div>
+              )}
+              <p className="text-gray-400 text-sm mb-6">This action cannot be undone.</p>
+
+              <div className="flex gap-3">
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setDeletingService(null)}
+                  className="flex-1 px-6 py-3 rounded-[20px] bg-gray-100 text-gray-900 font-semibold"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleDeleteService}
+                  disabled={deleteConfirming}
+                  className="flex-1 px-6 py-3 rounded-[20px] bg-red-500 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {deleteConfirming ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-5 h-5" />
+                  )}
+                  {deleteConfirming ? 'Deleting...' : 'Delete'}
                 </motion.button>
               </div>
             </motion.div>

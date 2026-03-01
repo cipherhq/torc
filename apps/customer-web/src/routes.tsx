@@ -237,10 +237,14 @@ export const router = createBrowserRouter([
     path: "/shop/:shopId",
     element: <ProtectedRoute requiredRole="customer"><ShopDetail /></ProtectedRoute>,
   },
-  // Provider app is served from provider-web to avoid duplicated runtime paths.
+  // Provider routes don't exist in customer app — redirect to home.
   {
     path: "/provider/*",
-    element: <Navigate to="/apps" replace />,
+    element: <Navigate to="/customer/home" replace />,
+  },
+  {
+    path: "/apps",
+    element: <Navigate to="/customer/home" replace />,
   },
 
   // Admin routes

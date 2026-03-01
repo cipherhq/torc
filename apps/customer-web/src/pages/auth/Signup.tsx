@@ -59,6 +59,7 @@ export function Signup() {
     const confirmPassword = String(formData.confirmPassword);
 
     if (!email || !password) { setError('Email and password are required'); return; }
+    if (!String(formData.phone).trim()) { setError('Phone number is required'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
     if (!acceptedTerms) { setError('Please accept the Terms and Privacy Policy to continue.'); return; }
@@ -206,13 +207,13 @@ export function Signup() {
 
             {/* Phone */}
             <div>
-              <label className="text-sm font-medium mb-2 block" style={{ color: labelColor }}>Phone Number</label>
+              <label className="text-sm font-medium mb-2 block" style={{ color: labelColor }}>Phone Number <span className="text-red-500">*</span></label>
               <div className="flex items-center gap-3 rounded-2xl px-4 py-4"
                 style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
               >
                 <Phone className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <input type="tel" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="+1 (555) 000-0000" className="flex-1 bg-transparent border-none outline-none text-base" style={inputFieldStyle} />
+                  placeholder="+1 (555) 000-0000" required className="flex-1 bg-transparent border-none outline-none text-base" style={inputFieldStyle} />
               </div>
             </div>
 
@@ -270,7 +271,7 @@ export function Signup() {
 
           {/* Submit */}
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit"
-            disabled={loading || !formData.email || !formData.password || !acceptedTerms}
+            disabled={loading || !formData.email || !formData.phone.trim() || !formData.password || !acceptedTerms}
             className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-2xl py-4 font-bold text-white text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading ? (<><div className="w-5 h-5 border-2 border-[#0A1626] border-t-transparent rounded-full animate-spin" />Creating Account...</>) : 'Create Account'}

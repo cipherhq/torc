@@ -81,6 +81,9 @@ export function ProviderHome() {
   const mapRef = useRef<google.maps.Map | null>(null);
   const [incomingJob, setIncomingJob] = useState<any>(null);
   const [incomingCountdown, setIncomingCountdown] = useState(0);
+  const [tipToast, setTipToast] = useState<{ amount: number; service: string } | null>(null);
+  const [providerServices, setProviderServices] = useState<string[]>([]);
+  const providerServicesRef = useRef<string[]>([]);
 
   // Track dismissed jobs — backed by DB table provider_job_dismissals
   const dismissedJobIds = useRef<Set<string>>(new Set());
@@ -265,6 +268,41 @@ export function ProviderHome() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  // Persist provider location to provider_locations table for tiered dispatch
+  const locationUpsertRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!isOnline || !user || !currentPos) {
+      if (locationUpsertRef.current) {
+        clearInterval(locationUpsertRef.current);
+        locationUpsertRef.current = null;
+      }
+      return;
+    }
+
+    const upsertLocation = () => {
+      supabase.from('provider_locations').upsert({
+        provider_id: user.id,
+        latitude: currentPos.lat,
+        longitude: currentPos.lng,
+        is_online: true,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'provider_id' }).then(() => {});
+    };
+
+    // Immediate upsert when going online or position changes
+    upsertLocation();
+
+    // Periodic upsert every 30 seconds
+    locationUpsertRef.current = setInterval(upsertLocation, 30000);
+
+    return () => {
+      if (locationUpsertRef.current) {
+        clearInterval(locationUpsertRef.current);
+        locationUpsertRef.current = null;
+      }
+    };
+  }, [isOnline, user, currentPos]);
+
   // Load stats + restore online state from DB + calculate real rating
   useEffect(() => {
     if (!user) return;
@@ -299,7 +337,7 @@ export function ProviderHome() {
 
         const { data: pp } = await supabase
           .from('provider_profiles')
-          .select('rating, is_online')
+          .select('rating, is_online, services')
           .eq('id', user!.id)
           .maybeSingle();
 
@@ -307,6 +345,20 @@ export function ProviderHome() {
           if (!providerRating && pp.rating) setProviderRating(pp.rating);
           // Restore the provider's online state from DB — don't force offline
           setIsOnline(pp.is_online || false);
+          // Load provider's selected services for filtering incoming requests
+          const svcList = pp.services || [];
+          setProviderServices(svcList);
+          providerServicesRef.current = svcList;
+
+          // Redirect to onboarding if no services selected
+          if (svcList.length === 0) {
+            navigate('/onboarding', { replace: true });
+            return;
+          }
+        } else {
+          // No provider profile at all — needs full onboarding
+          navigate('/onboarding', { replace: true });
+          return;
         }
       } catch (e) { console.warn('Failed to load provider stats:', e); }
     }
@@ -349,6 +401,10 @@ export function ProviderHome() {
       const job = payload.payload;
       if (!job?.id || dismissedJobIds.current.has(job.id)) return;
 
+      // Filter by provider's selected services — ignore jobs for services we don't offer
+      const myServices = providerServicesRef.current;
+      if (myServices.length > 0 && job.service_id && !myServices.includes(job.service_id)) return;
+
       // Check if provider already has an active job — don't interrupt
       try {
         const { data: activeJobs } = await supabase
@@ -382,11 +438,25 @@ export function ProviderHome() {
       .channel('new-job-rebroadcast')
       .on('broadcast', { event: 'new_job' }, handleNewJob)
       .subscribe();
+    // Per-provider targeted channel for tiered radius dispatch + tip notifications
+    const providerChannel = supabase
+      .channel(`provider-job-${user.id}`)
+      .on('broadcast', { event: 'new_job' }, handleNewJob)
+      .on('broadcast', { event: 'tip_received' }, (msg: any) => {
+        const { tip_amount, service } = msg.payload || {};
+        if (tip_amount > 0) {
+          setTipToast({ amount: tip_amount, service: service || 'Service' });
+          showSystemNotification('Tip Received!', `You received a $${tip_amount} tip for ${service || 'your service'}`, 'tip');
+          setTimeout(() => setTipToast(null), 5000);
+        }
+      })
+      .subscribe();
 
     return () => {
       stopRequestRingtone();
       supabase.removeChannel(channel);
       supabase.removeChannel(rebroadcast);
+      supabase.removeChannel(providerChannel);
     };
   }, [isOnline, user, navigate, announceIncomingJob]);
 
@@ -399,8 +469,13 @@ export function ProviderHome() {
       .is('provider_id', null)
       .order('created_at', { ascending: false });
     if (data) {
-      // Filter out dismissed jobs before setting state
-      let filtered = data.filter((j: any) => !dismissedJobIds.current.has(j.id));
+      // Filter out dismissed jobs and jobs for services we don't offer
+      const myServices = providerServicesRef.current;
+      let filtered = data.filter((j: any) => {
+        if (dismissedJobIds.current.has(j.id)) return false;
+        if (myServices.length > 0 && j.service_id && !myServices.includes(j.service_id)) return false;
+        return true;
+      });
 
       // Sort by proximity to provider when location is available
       const pos = currentPos;
@@ -442,6 +517,12 @@ export function ProviderHome() {
     requestNotificationPermission();
 
     const newStatus = !isOnline;
+
+    // Require at least one service selected before going online
+    if (newStatus && providerServicesRef.current.length === 0) {
+      navigate('/services');
+      return;
+    }
     setIsOnline(newStatus);
     if (!newStatus) {
       stopRequestRingtone();
@@ -451,6 +532,16 @@ export function ProviderHome() {
     }
     if (user) {
       await supabase.from('provider_profiles').upsert({ id: user.id, is_online: newStatus }).select();
+      // Also update provider_locations for tiered dispatch
+      if (currentPos) {
+        supabase.from('provider_locations').upsert({
+          provider_id: user.id,
+          latitude: currentPos.lat,
+          longitude: currentPos.lng,
+          is_online: newStatus,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'provider_id' }).then(() => {});
+      }
     }
   };
 
@@ -567,6 +658,23 @@ export function ProviderHome() {
                   </p>
                 </div>
               </div>
+
+              {/* Customer name */}
+              {(incomingJob.customer_first_name || incomingJob.customer_name) && (
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.18)' : 'rgba(0,140,229,0.1)' }}>
+                    <span className="font-bold text-sm" style={{ color: '#008CE5' }}>
+                      {(incomingJob.customer_first_name || incomingJob.customer_name || '?').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-sm" style={{ color: textColor }}>
+                      {incomingJob.customer_first_name || ''} {incomingJob.customer_last_name || ''}
+                    </p>
+                    <p className="text-xs" style={{ color: subColor }}>Customer</p>
+                  </div>
+                </div>
+              )}
 
               <div className="rounded-2xl p-4 mb-4"
                 style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC', border: `1px solid ${isDark ? 'rgba(255,255,255,0.09)' : '#E5E7EB'}` }}>
@@ -792,7 +900,10 @@ export function ProviderHome() {
                             <MapPin className="w-5 h-5" style={{ color: '#008CE5' }} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate" style={{ color: textColor }}>{serviceName}</p>
+                            <p className="font-semibold text-sm truncate" style={{ color: textColor }}>
+                              {serviceName}
+                              {req.customer_first_name ? ` — ${req.customer_first_name} ${req.customer_last_name || ''}`.trimEnd() : ''}
+                            </p>
                             <p className="text-xs truncate" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#6B7280' }}>
                               {req.pickup_address || 'Nearby location'}
                             </p>
@@ -880,6 +991,42 @@ export function ProviderHome() {
           </div>
         </div>
       </div>
+
+      {/* Tip received toast */}
+      {tipToast && createPortal(
+        <motion.div
+          initial={{ opacity: 0, y: -60 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -60 }}
+          className="fixed top-0 left-0 right-0 z-[2147483000] flex justify-center"
+          style={{ paddingTop: 'calc(var(--safe-top, 0px) + 12px)' }}
+        >
+          <div
+            className="mx-4 w-full max-w-sm rounded-2xl px-5 py-4 flex items-center gap-4 backdrop-blur-xl"
+            style={{
+              background: isDark
+                ? 'linear-gradient(135deg, rgba(0,140,229,0.25), rgba(34,197,94,0.18))'
+                : 'linear-gradient(135deg, rgba(0,140,229,0.12), rgba(34,197,94,0.1))',
+              border: `1px solid ${isDark ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.3)'}`,
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+              <DollarSign className="w-6 h-6 text-green-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm" style={{ color: '#22C55E' }}>Tip Received!</p>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.8)' : '#374151' }}>
+                You got a <span className="font-bold text-green-400">${tipToast.amount}</span> tip for {tipToast.service}
+              </p>
+            </div>
+            <button onClick={() => setTipToast(null)} className="flex-shrink-0 p-1">
+              <X className="w-4 h-4" style={{ color: subColor }} />
+            </button>
+          </div>
+        </motion.div>,
+        document.body,
+      )}
 
     </div>
   );

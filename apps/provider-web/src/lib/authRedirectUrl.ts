@@ -52,7 +52,7 @@ export function getAuthSiteUrl(): string {
   // Local/dev fallback.
   if (envUrl) return normalizeBaseUrl(envUrl);
   if (origin) return normalizeBaseUrl(origin);
-  return 'https://www.torcapp.com';
+  return 'https://provider-web-zeta.vercel.app';
 }
 
 export function getAuthCallbackUrl(): string {

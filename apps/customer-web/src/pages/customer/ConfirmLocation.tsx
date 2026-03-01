@@ -478,27 +478,32 @@ export function ConfirmLocation() {
         style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: '1px solid ' + (isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2') }}
       >
         {/* Address display with search trigger */}
-        <div className="mb-4">
-          <div className="flex items-center gap-2 mb-2">
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-3">
             <MapPin className="w-4 h-4 text-[#008CE5]" />
             <p className="font-semibold text-sm" style={{ color: textColor }}>Service Location</p>
           </div>
           <button
             onClick={() => setShowSearch(true)}
-            className="w-full rounded-2xl px-4 py-3.5 text-left flex items-center gap-3 focus:outline-none transition-colors"
+            className="w-full rounded-xl px-4 py-4 text-left flex items-center gap-3 focus:outline-none transition-all active:scale-[0.99]"
             style={{
-              backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-              border: '1px solid ' + cardBorder,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F8FC',
+              border: '1.5px solid ' + (isDark ? 'rgba(255,255,255,0.12)' : '#C8D8E8'),
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
             }}
           >
-            <Search className="w-4 h-4 flex-shrink-0" style={{ color: subColor }} />
-            {address ? (
-              <span className="text-sm truncate flex-1" style={{ color: textColor }}>{address}</span>
-            ) : (
-              <span className="text-sm flex-1" style={{ color: subColor }}>Search for an address...</span>
-            )}
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : 'rgba(0,140,229,0.08)' }}>
+              <Search className="w-4.5 h-4.5" style={{ color: '#008CE5' }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              {address ? (
+                <p className="text-sm font-medium leading-snug" style={{ color: textColor, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{address}</p>
+              ) : (
+                <p className="text-sm" style={{ color: subColor }}>Search for an address...</p>
+              )}
+            </div>
           </button>
-          <p className="text-xs mt-1.5" style={{ color: subColor }}>
+          <p className="text-xs mt-2 ml-1" style={{ color: subColor }}>
             Tap to search or drag the map to adjust
           </p>
         </div>

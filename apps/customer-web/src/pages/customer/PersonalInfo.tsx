@@ -135,7 +135,7 @@ export function PersonalInfo() {
       </div>
 
       {/* Form Content */}
-      <div className="px-6 pb-24 flex-1 flex flex-col max-w-md mx-auto w-full">
+      <div className="px-6 flex-1 flex flex-col max-w-md mx-auto w-full" style={{ paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
         {/* Error message */}
         {error && (
           <motion.div

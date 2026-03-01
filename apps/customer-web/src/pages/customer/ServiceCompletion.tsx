@@ -4,6 +4,7 @@ import { CheckCircle, Star, DollarSign, Flag, Camera, Download } from 'lucide-re
 import { useState, useEffect } from 'react';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
+import { supabase } from '../../lib/supabase';
 
 export function ServiceCompletion() {
   const navigate = useNavigate();
@@ -37,21 +38,38 @@ export function ServiceCompletion() {
   const BRAND_SECONDARY = '#0070B8';
 
   const handleSubmit = async () => {
-    if (rating === 0) {
-      setSubmitError('Please rate your provider and service before continuing.');
-      return;
-    }
-
     setSubmitError('');
     setSubmitting(true);
     try {
-      if (jobId) {
+      // Save tip to the job (independent of rating)
+      if (jobId && tip > 0) {
+        await supabase
+          .from('jobs')
+          .update({ tip })
+          .eq('id', jobId);
+
+        // Notify the provider they received a tip
+        const providerId = currentJob?.provider_id;
+        if (providerId) {
+          const channel = supabase.channel(`provider-job-${providerId}`);
+          await channel.subscribe();
+          await channel.send({
+            type: 'broadcast',
+            event: 'tip_received',
+            payload: { job_id: jobId, tip_amount: tip, service: serviceName },
+          });
+          setTimeout(() => supabase.removeChannel(channel), 1500);
+        }
+      }
+
+      // Save rating if provided
+      if (jobId && rating > 0) {
         await rateJob(jobId, rating, feedback);
       }
       navigate('/home');
     } catch (err) {
-      console.warn('Failed to submit rating:', err);
-      setSubmitError('Could not submit your rating. Please try again.');
+      console.warn('Failed to submit:', err);
+      setSubmitError('Could not submit. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -150,21 +168,30 @@ export function ServiceCompletion() {
             </div>
           </div>
 
-          <div className="rounded-2xl p-4" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', border: '1px solid ' + cardBorder }}>
-            <p className="text-sm mb-3" style={{ color: subColor }}>Add a tip for great service</p>
-            <div className="flex gap-2 mb-4">
+          <div className="rounded-2xl p-4" style={{
+            background: isDark
+              ? 'linear-gradient(180deg, rgba(0,140,229,0.12), rgba(255,255,255,0.04))'
+              : 'linear-gradient(180deg, rgba(0,140,229,0.06), rgba(255,255,255,0.8))',
+            border: `1px solid ${isDark ? 'rgba(0,140,229,0.25)' : 'rgba(0,140,229,0.18)'}`,
+          }}>
+            <div className="flex items-center gap-2 mb-1">
+              <DollarSign className="w-4 h-4 text-[#008CE5]" />
+              <p className="font-semibold text-sm" style={{ color: textColor }}>Tip Your Provider</p>
+            </div>
+            <p className="text-xs mb-3" style={{ color: subColor }}>100% of tips go directly to your provider</p>
+            <div className="flex gap-2">
               {tipOptions.map((amount) => (
                 <motion.button
                   key={amount}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => setTip(amount)}
-                  className={`flex-1 py-2 rounded-xl font-semibold transition-all ${
+                  className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${
                     tip === amount
                       ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8]'
                       : ''
                   }`}
                   style={tip === amount
-                    ? { color: isDark ? '#081427' : '#14263D' }
+                    ? { color: '#FFFFFF' }
                     : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: subColor }
                   }
                 >
@@ -278,21 +305,21 @@ export function ServiceCompletion() {
       </div>
 
       {/* Fixed bottom button */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: '1px solid ' + cardBorder }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: '1px solid ' + cardBorder, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.96 }}
           onClick={handleSubmit}
-          disabled={rating === 0 || submitting}
+          disabled={submitting}
           className="w-full rounded-[32px] py-5 font-bold text-lg"
           style={{
             background: `linear-gradient(to right, ${BRAND_PRIMARY}, ${BRAND_SECONDARY})`,
             color: '#FFFFFF',
             boxShadow: '0 10px 28px rgba(0,140,229,0.35)',
-            opacity: rating === 0 || submitting ? 0.78 : 1,
+            opacity: submitting ? 0.78 : 1,
           }}
         >
-          {submitting ? 'Submitting...' : rating === 0 ? 'Please rate your experience' : 'Submit & Return Home'}
+          {submitting ? 'Submitting...' : rating === 0 ? 'Skip Rating' : 'Submit & Return Home'}
         </motion.button>
         {submitError && (
           <p className="text-center mt-3 text-sm text-red-400">{submitError}</p>

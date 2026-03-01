@@ -41,6 +41,17 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
 const SETTINGS_KEYS = Object.keys(DEFAULT_PLATFORM_SETTINGS);
 const CACHE_TTL_MS = 60_000;
 
+// Map camelCase cache keys → snake_case DB keys written by Settings.tsx
+const DB_KEY_ALIASES: Record<string, string> = {
+  platformFee: 'platform_commission_pct',
+  emailNotifications: 'email_notifications',
+  smsNotifications: 'sms_notifications',
+  autoApproveProviders: 'auto_approve_providers',
+  maintenanceMode: 'maintenance_mode',
+  maxJobRadius: 'max_job_radius',
+  providerTimeout: 'provider_timeout',
+};
+
 let cachedSettings: PlatformSettingsMap | null = null;
 let cachedAt = 0;
 
@@ -62,10 +73,14 @@ export async function loadPlatformSettings(force = false): Promise<PlatformSetti
   }
 
   try {
+    // Query both camelCase keys and their snake_case DB aliases
+    const aliasValues = Object.values(DB_KEY_ALIASES);
+    const allDbKeys = [...SETTINGS_KEYS, ...aliasValues];
+
     const { data, error } = await supabase
       .from('platform_settings')
       .select('key, value')
-      .in('key', SETTINGS_KEYS);
+      .in('key', allDbKeys);
 
     if (error && !String(error.message || '').toLowerCase().includes('does not exist')) {
       throw error;
@@ -78,7 +93,10 @@ export async function loadPlatformSettings(force = false): Promise<PlatformSetti
 
     const merged = SETTINGS_KEYS.reduce((acc, key) => {
       const typedKey = key as keyof PlatformSettingsMap;
-      acc[typedKey] = parseSettingValue(typedKey, valuesByKey[key] ?? DEFAULT_PLATFORM_SETTINGS[typedKey]) as never;
+      // Prefer the snake_case DB alias if it exists, fall back to camelCase key
+      const alias = DB_KEY_ALIASES[key];
+      const value = valuesByKey[key] ?? (alias ? valuesByKey[alias] : undefined) ?? DEFAULT_PLATFORM_SETTINGS[typedKey];
+      acc[typedKey] = parseSettingValue(typedKey, value) as never;
       return acc;
     }, { ...DEFAULT_PLATFORM_SETTINGS } as PlatformSettingsMap);
 

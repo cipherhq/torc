@@ -164,7 +164,7 @@ export function ProviderServiceSelection() {
       </div>
 
       {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
+      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         <p className="text-sm mb-3 text-center" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
           {selectedServices.length} service{selectedServices.length !== 1 ? 's' : ''} selected
         </p>

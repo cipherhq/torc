@@ -59,7 +59,7 @@ export function ProviderEarnings() {
         const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes] = await Promise.all([
           supabase
             .from('jobs')
-            .select('*, service:services(name), customer:profiles!jobs_customer_id_fkey(first_name, last_name)')
+            .select('*, service:services(name)')
             .eq('provider_id', user!.id)
             .order('created_at', { ascending: false }),
           supabase
@@ -80,17 +80,15 @@ export function ProviderEarnings() {
             .then(r => r, () => ({ data: null, error: null })),
         ]);
 
-        if (jobsRes.data) {
-          setJobs(jobsRes.data);
-        } else {
-          // Fallback: fetch jobs without joins if the relationship query fails
-          const fallback = await supabase
-            .from('jobs')
-            .select('*')
-            .eq('provider_id', user!.id)
-            .order('created_at', { ascending: false });
-          if (fallback.data) setJobs(fallback.data as any);
+        const jobRows = jobsRes.data || [];
+        // Batch-fetch customer names
+        const custIds = [...new Set(jobRows.map((j: any) => j.customer_id).filter(Boolean))] as string[];
+        if (custIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name').in('id', custIds);
+          const map = new Map((profiles || []).map((p: any) => [p.id, p]));
+          jobRows.forEach((j: any) => { j.customer = j.customer_id ? map.get(j.customer_id) || null : null; });
         }
+        setJobs(jobRows as Job[]);
         if (settingsRes.data?.value) setCommissionPct(Number(settingsRes.data.value) || FALLBACK_COMMISSION_PCT);
         if (payoutMethodsRes.data) setPayoutMethods(payoutMethodsRes.data);
         if (payoutsRes.data) setPayouts(payoutsRes.data);
@@ -270,7 +268,7 @@ export function ProviderEarnings() {
   const textTertiary = isDark ? 'rgba(255,255,255,0.35)' : '#9CA3AF';
 
   return (
-    <div className="min-h-screen relative overflow-hidden pb-28" style={{ background: bg }}>
+    <div className="min-h-screen relative overflow-hidden" style={{ background: bg , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
       {/* Ambient glow */}
       <div className="absolute inset-0 pointer-events-none">
         <div

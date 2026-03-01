@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router';
 import { Phone, MessageCircle, Share2, Shield, Star, Clock, MapPin, Loader2, ArrowLeft, X, AlertTriangle, PhoneCall, Flag, MapPinned, DollarSign, Navigation2 as Recenter } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { GoogleMap, MarkerF, DirectionsRenderer } from '@react-google-maps/api';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useLocation as useLocationCtx } from '../../context/LocationContext';
@@ -80,7 +81,12 @@ export function LiveTracking() {
   const [jobError, setJobError] = useState(false);
   const [showSafety, setShowSafety] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showCancelReason, setShowCancelReason] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelCustomReason, setCancelCustomReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [showProviderCancelled, setShowProviderCancelled] = useState(false);
+  const [providerCancelReason, setProviderCancelReason] = useState('');
   const directionsServiceRef = useRef<boolean>(false);
   const lastDirectionsRequestAtRef = useRef(0);
   const directionsRetryCountRef = useRef(0);
@@ -142,6 +148,13 @@ export function LiveTracking() {
       }, (payload) => {
         const normalizedStatus = normalizeJobStatus(payload.new?.status);
         setStatus(normalizedStatus);
+
+        // Show modal when provider cancels (DB change fallback)
+        if (normalizedStatus === 'cancelled' && !showProviderCancelled) {
+          setProviderCancelReason(payload.new?.cancellation_reason || '');
+          setShowProviderCancelled(true);
+        }
+
         if (
           payload.new?.provider_id && !currentJob?.provider ||
           normalizedStatus === 'arrived' ||
@@ -162,7 +175,8 @@ export function LiveTracking() {
           setStatus('cancelled');
           const cancelledBy = payload.payload?.cancelled_by;
           if (cancelledBy === 'provider') {
-            showToast('error', 'Provider Cancelled', 'The provider has cancelled this request. We\'ll help you find another provider.');
+            setProviderCancelReason(payload.payload?.reason || '');
+            setShowProviderCancelled(true);
           } else {
             showToast('error', 'Request Cancelled', 'Your service request has been cancelled.');
           }
@@ -177,7 +191,10 @@ export function LiveTracking() {
           if (newStatus === 'arrived') showToast('success', 'Provider Arrived', 'Your provider has arrived at your location.');
           if (newStatus === 'inprogress') showToast('info', 'Service Started', 'Your provider has begun the service.');
           if (newStatus === 'completed') showToast('success', 'Service Completed', 'Your service has been completed successfully!');
-          if (newStatus === 'cancelled') showToast('error', 'Provider Cancelled', 'The provider has cancelled this request.');
+          if (newStatus === 'cancelled') {
+            setProviderCancelReason('');
+            setShowProviderCancelled(true);
+          }
         }
       })
       .on('broadcast', { event: 'job_accepted' }, (payload) => {
@@ -288,15 +305,19 @@ export function LiveTracking() {
           return;
         }
 
+        console.warn('[Directions API] Failed:', routeStatusText, 'origin:', activeProviderPos, 'dest:', customerPos);
+
         const isRetryable = routeStatusText === 'OVER_QUERY_LIMIT' || routeStatusText === 'UNKNOWN_ERROR';
         if (isRetryable && directionsRetryCountRef.current < 3) {
           directionsRetryCountRef.current += 1;
           const backoffMs = 1000 * directionsRetryCountRef.current;
+          console.warn('[Directions API] Retrying in', backoffMs, 'ms (attempt', directionsRetryCountRef.current, ')');
           if (directionsRetryTimeoutRef.current) clearTimeout(directionsRetryTimeoutRef.current);
           directionsRetryTimeoutRef.current = setTimeout(() => requestDrivingDirections(true), backoffMs);
           return;
         }
 
+        console.warn('[Directions API] Giving up after status:', routeStatusText, '- falling back to Haversine ETA');
         setDirectionsError(true);
         if (activeProviderPos && customerPos) {
           const R = 6371;
@@ -390,7 +411,14 @@ export function LiveTracking() {
 
   const handleComplete = async () => {
     if (jobId) {
-      try { await updateJobStatus(jobId, 'completed'); } catch (e) { console.warn(e); }
+      try {
+        // Set customer_completed_at instead of changing status to 'completed'.
+        // The provider must still complete their flow (photos) independently.
+        await supabase
+          .from('jobs')
+          .update({ customer_completed_at: new Date().toISOString() })
+          .eq('id', jobId);
+      } catch (e) { console.warn(e); }
     }
     navigate(`/completion/${jobId}`);
   };
@@ -437,18 +465,27 @@ export function LiveTracking() {
   const cancellationFee = providerHasAccepted ? Math.round(totalAmount * (cancellationFeePct / 100) * 100) / 100 : 0;
 
   const handleCancelRequest = () => {
+    // Always show reason modal first
+    setShowCancelReason(true);
+  };
+
+  const handleReasonSelected = () => {
+    const finalReason = cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason;
+    if (!finalReason) return;
+    setShowCancelReason(false);
     if (providerHasAccepted && cancellationFee > 0) {
       setShowCancelConfirm(true);
     } else {
-      handleCancelDirect();
+      handleCancelDirect(finalReason);
     }
   };
 
-  const handleCancelDirect = async () => {
+  const handleCancelDirect = async (reason?: string) => {
     if (!jobId) return;
+    const finalReason = reason || (cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason) || 'user_cancelled';
     setCancelling(true);
     try {
-      await cancelJob(jobId, 'user_cancelled');
+      await cancelJob(jobId, finalReason);
     } catch (e) {
       console.warn('Cancel failed:', e);
     }
@@ -458,6 +495,7 @@ export function LiveTracking() {
 
   const handleCancelWithFee = async () => {
     if (!jobId) return;
+    const finalReason = (cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason) || 'user_cancelled_with_fee';
     setCancelling(true);
     try {
       // Store cancellation fee on the job
@@ -469,7 +507,7 @@ export function LiveTracking() {
         })
         .eq('id', jobId);
 
-      await cancelJob(jobId, 'user_cancelled_with_fee');
+      await cancelJob(jobId, finalReason);
     } catch (e) {
       console.warn('Cancel failed:', e);
     }
@@ -560,6 +598,7 @@ export function LiveTracking() {
               />
             )}
 
+
           </GoogleMap>
         ) : (
           <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#F9FAFB' }}>
@@ -631,7 +670,7 @@ export function LiveTracking() {
       {/* Bottom sheet */}
       <div className="fixed bottom-0 left-0 right-0 z-30">
         <div className="rounded-t-3xl p-5 shadow-2xl"
-          style={{ backgroundColor: 'rgba(255,255,255,0.97)', borderTop: '1px solid #E5E7EB', backdropFilter: 'blur(12px)' }}>
+          style={{ backgroundColor: 'rgba(255,255,255,0.97)', borderTop: '1px solid #E5E7EB', backdropFilter: 'blur(12px)', paddingBottom: 'calc(20px + var(--safe-bottom, 0px))' }}>
           {/* Provider card */}
           {providerInfo ? (
             <div className="mb-4">
@@ -658,6 +697,15 @@ export function LiveTracking() {
                     </div>
                   )}
                 </div>
+                {/* Direct phone fallback */}
+                {providerInfo.phone && (
+                  <a href={`tel:${providerInfo.phone.replace(/\s/g, '')}`}
+                    className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
+                    style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}
+                  >
+                    <Phone className="w-5 h-5" style={{ color: '#008CE5' }} />
+                  </a>
+                )}
               </div>
 
               {/* Vehicle info */}
@@ -888,16 +936,20 @@ export function LiveTracking() {
         isOutgoing={isCallOutgoing}
       />
 
-      {/* Cancellation fee confirmation modal */}
-      {showCancelConfirm && (
+      {/* Cancellation fee confirmation modal — portaled to body so it renders above everything */}
+      {showCancelConfirm && createPortal(
         <div
-          className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 flex items-end justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2147483647 }}
           onClick={() => setShowCancelConfirm(false)}
         >
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="mx-6 rounded-3xl p-6 w-full max-w-sm"
-            style={{ backgroundColor: '#FFFFFF' }}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-t-[28px] p-6"
+            style={{
+              backgroundColor: '#FFFFFF',
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            }}
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -928,7 +980,7 @@ export function LiveTracking() {
               </div>
             </div>
 
-            <p className="text-xs mb-5" style={{ color: '#9CA3AF' }}>
+            <p className="text-xs mb-4" style={{ color: '#9CA3AF' }}>
               This fee compensates the provider for their time and travel.
             </p>
 
@@ -966,7 +1018,99 @@ export function LiveTracking() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Cancel reason modal */}
+      {showCancelReason && createPortal(
+        <div
+          className="fixed inset-0 flex items-end justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2147483647 }}
+          onClick={() => { if (!cancelling) { setShowCancelReason(false); setCancelReason(''); setCancelCustomReason(''); } }}
+        >
+          <div
+            className="w-full max-w-lg rounded-t-[28px] p-6"
+            style={{
+              backgroundColor: '#FFFFFF',
+              border: '1px solid #D3E0F2',
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            }}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-lg mb-1" style={{ color: '#14263D' }}>Cancel Request</h3>
+            <p className="text-sm mb-5" style={{ color: '#6B7280' }}>Please select a reason for cancellation</p>
+
+            <div className="space-y-2 mb-5">
+              {[
+                'Changed my mind',
+                'Wait time too long',
+                'Found another service',
+                'Issue resolved on my own',
+                'Accidentally created request',
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => { setCancelReason(reason); setCancelCustomReason(''); }}
+                  className="w-full text-left rounded-xl px-4 py-3 text-sm font-medium transition-all"
+                  style={cancelReason === reason
+                    ? { background: 'linear-gradient(135deg, rgba(0,140,229,0.15), rgba(0,140,229,0.08))', border: '1px solid #008CE5', color: '#14263D' }
+                    : { backgroundColor: '#F5F9FF', border: '1px solid #E5E7EB', color: '#14263D' }
+                  }
+                >
+                  {reason}
+                </button>
+              ))}
+              <button
+                onClick={() => { setCancelReason('other'); }}
+                className="w-full text-left rounded-xl px-4 py-3 text-sm font-medium transition-all"
+                style={cancelReason === 'other'
+                  ? { background: 'linear-gradient(135deg, rgba(0,140,229,0.15), rgba(0,140,229,0.08))', border: '1px solid #008CE5', color: '#14263D' }
+                  : { backgroundColor: '#F5F9FF', border: '1px solid #E5E7EB', color: '#14263D' }
+                }
+              >
+                Other
+              </button>
+            </div>
+
+            {cancelReason === 'other' && (
+              <textarea
+                placeholder="Please describe the reason..."
+                value={cancelCustomReason}
+                onChange={(e) => setCancelCustomReason(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl px-4 py-3 mb-5 text-sm focus:outline-none resize-none"
+                style={{
+                  backgroundColor: '#F5F9FF',
+                  border: '1px solid #D3E0F2',
+                  color: '#14263D',
+                }}
+              />
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setShowCancelReason(false); setCancelReason(''); setCancelCustomReason(''); }}
+                className="rounded-2xl py-3 font-semibold text-sm"
+                style={{ backgroundColor: '#E8F0FB', color: '#14263D' }}
+              >
+                Go Back
+              </button>
+              <button
+                onClick={handleReasonSelected}
+                disabled={!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim())}
+                className="rounded-2xl py-3 font-bold text-sm text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #EF4444, #DC2626)',
+                  opacity: (!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim())) ? 0.5 : 1,
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
 
       {/* Safety & Support Modal */}
@@ -1067,6 +1211,72 @@ export function LiveTracking() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Provider cancelled notification modal */}
+      {showProviderCancelled && createPortal(
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2147483647 }}
+        >
+          <div
+            className="mx-6 rounded-3xl p-6 w-full max-w-sm"
+            style={{ backgroundColor: '#FFFFFF' }}
+          >
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}>
+                <AlertTriangle className="w-8 h-8" style={{ color: '#EF4444' }} />
+              </div>
+              <h2 className="font-bold text-xl mb-2" style={{ color: '#14263D' }}>Provider Cancelled</h2>
+              <p className="text-sm" style={{ color: '#6B7280' }}>
+                The provider has cancelled this service request. We apologize for the inconvenience.
+              </p>
+            </div>
+
+            {providerCancelReason && (
+              <div className="rounded-xl p-3 mb-5" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
+                <p className="text-xs font-medium mb-1" style={{ color: '#6B7280' }}>Reason</p>
+                <p className="text-sm" style={{ color: '#14263D' }}>{providerCancelReason}</p>
+              </div>
+            )}
+
+            <p className="text-xs text-center mb-5" style={{ color: '#9CA3AF' }}>
+              You will not be charged for this request. You can submit a new request to find another provider.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => {
+                  setShowProviderCancelled(false);
+                  navigate('/customer/home');
+                }}
+                className="w-full h-12 rounded-xl font-semibold text-sm active:scale-[0.98] transition-transform"
+                style={{
+                  backgroundColor: '#F3F4F6',
+                  color: '#374151',
+                  touchAction: 'manipulation',
+                }}
+              >
+                Back to Home
+              </button>
+              <button
+                onClick={() => {
+                  setShowProviderCancelled(false);
+                  navigate('/confirm-location');
+                }}
+                className="w-full h-12 rounded-xl font-bold text-sm text-white active:scale-[0.98] transition-transform"
+                style={{
+                  background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                  boxShadow: '0 8px 18px rgba(0,140,229,0.28)',
+                  touchAction: 'manipulation',
+                }}
+              >
+                New Request
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { Loader, MapPin, CheckCircle, Star, Navigation, User, ArrowLeft } from 'lucide-react';
 import { getRequestContext } from '../../data/requestContext';
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useJob } from '../../context/JobContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -22,7 +23,7 @@ export function Matching() {
   const navigate = useNavigate();
   const context = getRequestContext();
   const { createJob, updateJobDetails, cancelJob, subscribeToJobUpdates } = useJob();
-  const { user } = useAuth();
+  const { user, profile } = useAuth() as any;
   const { isDark } = useTheme();
   const jobCreated = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,8 +42,12 @@ export function Matching() {
     photo: string | null;
   } | null>(null);
   const providerFoundRef = useRef(false);
+  const dispatchCleanupRef = useRef<(() => void) | null>(null);
+  const [showCancelReason, setShowCancelReason] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelCustomReason, setCancelCustomReason] = useState('');
 
-  // Step 1: Create the job and broadcast to providers
+  // Step 1: Create the job and dispatch to providers in waves
   useEffect(() => {
     if (jobCreated.current) return;
     jobCreated.current = true;
@@ -51,8 +56,6 @@ export function Matching() {
       try {
         setError(null);
         if (user) {
-          // Build job details from request context and pass directly to createJob
-          // (avoids React state race condition with updateJobDetails)
           const jobDetailsFromContext = {
             serviceId: context.serviceId || null,
             pickupLocation: context.location
@@ -74,7 +77,6 @@ export function Matching() {
             paymentCurrency: context.paymentCurrency || 'USD',
           };
 
-          // Also update JobContext state for other consumers
           updateJobDetails(jobDetailsFromContext);
 
           const job = await createJob(context.paymentMethodId || null, jobDetailsFromContext);
@@ -84,23 +86,97 @@ export function Matching() {
               setPickupCoords({ lat: job.pickup_latitude, lng: job.pickup_longitude });
             }
 
-            // Broadcast to online providers via Supabase Realtime Broadcast
-            const broadcastChannel = supabase.channel('new-job-broadcast');
-            await broadcastChannel.subscribe();
-            await broadcastChannel.send({
-              type: 'broadcast',
-              event: 'new_job',
-              payload: {
-                id: job.id,
-                pickup_address: job.pickup_address,
-                pickup_lat: job.pickup_latitude,
-                pickup_lng: job.pickup_longitude,
-                total_amount: job.total_amount,
-                service_id: job.service_id,
-                created_at: job.created_at,
-              },
-            });
-            setTimeout(() => supabase.removeChannel(broadcastChannel), 2000);
+            // Tiered radius dispatch
+            const customerFirst = profile?.first_name || '';
+            const customerLast = profile?.last_name || '';
+            const jobPayload = {
+              id: job.id,
+              pickup_address: job.pickup_address,
+              pickup_lat: job.pickup_latitude,
+              pickup_lng: job.pickup_longitude,
+              pickup_latitude: job.pickup_latitude,
+              pickup_longitude: job.pickup_longitude,
+              total_amount: job.total_amount,
+              base_price: job.base_price,
+              service_id: job.service_id,
+              created_at: job.created_at,
+              customer_first_name: customerFirst,
+              customer_last_name: customerLast ? customerLast.charAt(0) + '.' : '',
+            };
+
+            const notifiedProviders = new Set<string>();
+
+            // Helper: send job to specific providers via per-provider channels
+            async function notifyProviders(providerIds: string[]) {
+              const newProviders = providerIds.filter(id => !notifiedProviders.has(id));
+              for (const pid of newProviders) {
+                notifiedProviders.add(pid);
+                const ch = supabase.channel(`provider-job-${pid}`);
+                await ch.subscribe();
+                await ch.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
+                setTimeout(() => supabase.removeChannel(ch), 2000);
+              }
+            }
+
+            // Helper: check if job is still pending before expanding
+            async function isStillPending() {
+              if (providerFoundRef.current) return false;
+              const { data: check } = await supabase
+                .from('jobs').select('status').eq('id', job.id).single();
+              return check?.status === 'pending';
+            }
+
+            // Wave 1: providers within 5 miles (immediate)
+            if (job.pickup_latitude && job.pickup_longitude) {
+              try {
+                const { data: wave1 } = await supabase.rpc('get_nearby_providers', {
+                  p_pickup_lat: job.pickup_latitude,
+                  p_pickup_lng: job.pickup_longitude,
+                  p_radius_miles: 5,
+                  p_service_id: job.service_id,
+                });
+                if (wave1?.length) {
+                  await notifyProviders(wave1.map((p: any) => p.provider_id));
+                }
+              } catch (e) {
+                console.warn('Wave 1 dispatch error:', e);
+              }
+            }
+
+            // Wave 2: expand to 15 miles after 15 seconds
+            const wave2Timer = setTimeout(async () => {
+              if (!(await isStillPending())) return;
+              if (job.pickup_latitude && job.pickup_longitude) {
+                try {
+                  const { data: wave2 } = await supabase.rpc('get_nearby_providers', {
+                    p_pickup_lat: job.pickup_latitude,
+                    p_pickup_lng: job.pickup_longitude,
+                    p_radius_miles: 15,
+                    p_service_id: job.service_id,
+                  });
+                  if (wave2?.length) {
+                    await notifyProviders(wave2.map((p: any) => p.provider_id));
+                  }
+                } catch (e) {
+                  console.warn('Wave 2 dispatch error:', e);
+                }
+              }
+            }, 15000);
+
+            // Wave 3: global broadcast after 30 seconds (fallback for all providers)
+            const wave3Timer = setTimeout(async () => {
+              if (!(await isStillPending())) return;
+              const globalCh = supabase.channel('new-job-broadcast');
+              await globalCh.subscribe();
+              await globalCh.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
+              setTimeout(() => supabase.removeChannel(globalCh), 2000);
+            }, 30000);
+
+            dispatchCleanupRef.current = () => {
+              clearTimeout(wave2Timer);
+              clearTimeout(wave3Timer);
+            };
+
             return;
           }
         }
@@ -112,6 +188,9 @@ export function Matching() {
     }
 
     startMatching();
+    return () => {
+      if (dispatchCleanupRef.current) dispatchCleanupRef.current();
+    };
   }, []);
 
   // Subscribe to real-time job updates via JobContext
@@ -281,14 +360,7 @@ export function Matching() {
     <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
       {/* Back / Cancel button */}
       <button
-        onClick={async () => {
-          try {
-            if (createdJobId) await cancelJob(createdJobId, 'user_cancelled');
-          } catch (e) {
-            console.warn('Cancel failed:', e);
-          }
-          navigate('/home');
-        }}
+        onClick={() => setShowCancelReason(true)}
         className="absolute top-0 left-0 z-20 m-6 w-10 h-10 rounded-full flex items-center justify-center"
         style={{ marginTop: 'calc(var(--safe-top) + 8px)', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
       >
@@ -546,14 +618,7 @@ export function Matching() {
 
             {/* Cancel button */}
             <button
-              onClick={async () => {
-                try {
-                  if (createdJobId) await cancelJob(createdJobId, 'user_cancelled');
-                } catch (e) {
-                  console.warn('Cancel failed:', e);
-                }
-                navigate('/home');
-              }}
+              onClick={() => setShowCancelReason(true)}
               className="torc-btn-secondary mt-12"
               style={{ color: subColor }}
             >
@@ -562,6 +627,106 @@ export function Matching() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Cancel reason modal */}
+      {showCancelReason && createPortal(
+        <div
+          className="fixed inset-0 flex items-end justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2147483647 }}
+          onClick={() => { setShowCancelReason(false); setCancelReason(''); setCancelCustomReason(''); }}
+        >
+          <div
+            className="w-full max-w-lg rounded-t-[28px] p-6"
+            style={{
+              backgroundColor: isDark ? '#14263D' : '#FFFFFF',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            }}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-lg mb-1" style={{ color: textColor }}>Cancel Request</h3>
+            <p className="text-sm mb-5" style={{ color: subColor }}>Please select a reason for cancellation</p>
+
+            <div className="space-y-2 mb-5">
+              {[
+                'Changed my mind',
+                'Wait time too long',
+                'Found another service',
+                'Issue resolved on my own',
+                'Accidentally created request',
+              ].map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => { setCancelReason(reason); setCancelCustomReason(''); }}
+                  className="w-full text-left rounded-xl px-4 py-3 text-sm font-medium transition-all"
+                  style={cancelReason === reason
+                    ? { background: 'linear-gradient(135deg, rgba(0,140,229,0.15), rgba(0,140,229,0.08))', border: '1px solid #008CE5', color: textColor }
+                    : { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`, color: textColor }
+                  }
+                >
+                  {reason}
+                </button>
+              ))}
+              <button
+                onClick={() => { setCancelReason('other'); }}
+                className="w-full text-left rounded-xl px-4 py-3 text-sm font-medium transition-all"
+                style={cancelReason === 'other'
+                  ? { background: 'linear-gradient(135deg, rgba(0,140,229,0.15), rgba(0,140,229,0.08))', border: '1px solid #008CE5', color: textColor }
+                  : { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB'}`, color: textColor }
+                }
+              >
+                Other
+              </button>
+            </div>
+
+            {cancelReason === 'other' && (
+              <textarea
+                placeholder="Please describe the reason..."
+                value={cancelCustomReason}
+                onChange={(e) => setCancelCustomReason(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl px-4 py-3 mb-5 text-sm focus:outline-none resize-none"
+                style={{
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
+                  color: textColor,
+                }}
+              />
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setShowCancelReason(false); setCancelReason(''); setCancelCustomReason(''); }}
+                className="rounded-2xl py-3 font-semibold text-sm"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+              >
+                Go Back
+              </button>
+              <button
+                onClick={async () => {
+                  const finalReason = cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason;
+                  if (!finalReason) return;
+                  try {
+                    if (createdJobId) await cancelJob(createdJobId, finalReason);
+                  } catch (e) {
+                    console.warn('Cancel failed:', e);
+                  }
+                  navigate('/home');
+                }}
+                disabled={!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim())}
+                className="rounded-2xl py-3 font-bold text-sm text-white"
+                style={{
+                  background: 'linear-gradient(135deg, #EF4444, #DC2626)',
+                  opacity: (!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim())) ? 0.5 : 1,
+                }}
+              >
+                Confirm Cancel
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
