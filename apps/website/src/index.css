@@ -2925,13 +2925,13 @@
   --text-tertiary: #64748b;
   
   /* Brand Colors */
-  --mint: #059669;
-  --mint-bright: #10b981;
+  --mint: #008CE5;
+  --mint-bright: #0070B8;
   --cobalt: #007AFF;
   --cobalt-bright: #00A3FF;
-  
+
   /* Shadows */
-  --shadow-mint: rgba(5, 150, 105, 0.15);
+  --shadow-mint: rgba(0, 140, 229, 0.15);
   --shadow-cobalt: rgba(0, 122, 255, 0.15);
   --border-light: #e2e8f0;
   --container-max: 1200px;
@@ -3291,12 +3291,12 @@ body {
 
 .chip {
   padding: 0.5rem 1rem;
-  background: var(--mint-light, rgba(16, 185, 129, 0.1));
+  background: rgba(0, 140, 229, 0.1);
   color: var(--mint);
   font-size: 0.875rem;
   font-weight: 500;
   border-radius: 9999px;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  border: 1px solid rgba(0, 140, 229, 0.25);
 }
 
 /* Services grid with images */

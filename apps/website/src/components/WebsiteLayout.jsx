@@ -40,7 +40,7 @@ export function WebsiteLayout({ children }) {
       <footer className="website-footer">
         <div className="footer-inner">
           <div className="footer-brand">
-            <img src="/logo.svg" alt="TORC - Auto Services On-Demand" className="footer-logo-img" />
+            <img src="/logo-white.svg" alt="TORC - Auto Services On-Demand" className="footer-logo-img" />
             <p>Guardians of Your Journey</p>
           </div>
           <div className="footer-links">
