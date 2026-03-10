@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { BatteryCharging, Fuel, KeyRound, Truck, Wrench, CircleDot } from "lucide-react";
+import { BatteryCharging, Fuel, KeyRound, Truck, Wrench, CircleDot, Cable, Settings, Search, AlertTriangle, Bike, Zap, MessageCircle } from "lucide-react";
 import { WebsiteLayout } from "../components/WebsiteLayout";
 import { websiteContent } from "../content/websiteContent";
 
@@ -9,6 +9,13 @@ const SERVICE_ICONS = {
   "Jump Start & Battery": BatteryCharging,
   "Lockout Support": KeyRound,
   "Tire Assistance": CircleDot,
+  "Winch Out": Cable,
+  "Minor Repair": Settings,
+  Diagnostic: Search,
+  "Emergency Help": AlertTriangle,
+  Motorcycle: Bike,
+  "EV Charge": Zap,
+  Consultation: MessageCircle,
 };
 
 export function Landing() {

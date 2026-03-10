@@ -8,7 +8,7 @@ export const websiteContent = {
   hero: {
     title: "Roadside help, right when you need it.",
     subtitle:
-      "Request towing, fuel delivery, jump-start, lockout, and tire support from your phone with live tracking and secure payments. Available 24/7.",
+      "Request towing, fuel delivery, jump-start, lockout, tire change, winch out, EV charging, motorcycle assistance, and more from your phone with live tracking and secure payments. Available 24/7.",
     ctaPrimary: "Get The App",
     ctaSecondary: "Become A Provider",
     image: "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=1600&q=80",
@@ -44,6 +44,34 @@ export const websiteContent = {
       title: "Tire Assistance",
       description: "Flat tire replacement and emergency tire support where and when you need it. Don't let a flat strand you.",
       image: "https://images.unsplash.com/photo-1609521263047-f8f205293f24?w=600&q=80",
+    },
+    {
+      title: "Winch Out",
+      description: "Stuck in mud, sand, or snow? Our providers will safely pull your vehicle out and get you back on solid ground.",
+    },
+    {
+      title: "Minor Repair",
+      description: "On-the-spot minor mechanical repairs from experienced technicians. Quick fixes to get you moving again without a trip to the shop.",
+    },
+    {
+      title: "Diagnostic",
+      description: "Mobile diagnostic service to identify what's wrong with your vehicle. Get expert analysis right where you are.",
+    },
+    {
+      title: "Emergency Help",
+      description: "General emergency roadside assistance for unexpected situations. Whatever the problem, we'll send help fast.",
+    },
+    {
+      title: "Motorcycle",
+      description: "Specialized motorcycle towing and roadside assistance. Trained providers equipped to handle two-wheeled vehicles safely.",
+    },
+    {
+      title: "EV Charge",
+      description: "Mobile charging for electric vehicles. Run out of charge? We'll bring portable power to get you to the nearest station.",
+    },
+    {
+      title: "Consultation",
+      description: "Expert advice on vehicle issues over the app. Get professional guidance before deciding on repairs or services.",
     },
   ],
   howItWorks: [
