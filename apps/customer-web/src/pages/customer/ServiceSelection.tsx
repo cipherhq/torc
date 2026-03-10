@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Search, Loader2 } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { updateRequestContext } from '../../data/requestContext';
 import { supabase } from '../../lib/supabase';
@@ -78,21 +79,9 @@ export function ServiceSelection() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/confirm-location')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-6 h-6" style={{ color: textColor }} />
-        </motion.button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Select Service</h1>
-      </div>
+      <PageHeader title="Select Service" onBack={() => navigate('/confirm-location')} />
 
-      <div className="relative z-10 flex-1 px-6 pb-6 overflow-y-auto">
+      <div className="relative z-10 flex-1 px-6 pb-6 overflow-y-auto" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Search */}
         <div className="mb-6">
           <div className="rounded-2xl px-4 py-3 flex items-center gap-3" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}>

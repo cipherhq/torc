@@ -2,11 +2,13 @@ import { motion } from 'motion/react';
 import { Home, DollarSign, User, MessageCircle, Compass } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
+import { useUnreadMessages } from '../hooks/useUnreadMessages';
 
 export function ProviderBottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
+  const hasUnread = useUnreadMessages('provider');
 
   const tabs = [
     { icon: Home, label: 'Home', path: '/home' },
@@ -54,10 +56,15 @@ export function ProviderBottomNav() {
                     transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                   />
                 )}
-                <Icon
-                  className="w-6 h-6 relative z-10"
-                  style={{ color: isActive ? '#008CE5' : inactiveColor }}
-                />
+                <div className="relative">
+                  <Icon
+                    className="w-6 h-6 relative z-10"
+                    style={{ color: isActive ? '#008CE5' : inactiveColor }}
+                  />
+                  {tab.label === 'Messages' && hasUnread && (
+                    <div className="absolute -top-0.5 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 z-20" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
+                  )}
+                </div>
                 <span
                   className="text-xs relative z-10"
                   style={{ color: isActive ? '#008CE5' : inactiveColor, fontWeight: isActive ? 600 : 400 }}

@@ -1,6 +1,8 @@
 import { motion } from 'motion/react';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
-import { CreditCard, Plus, DollarSign, Gift, Download, Trash2, ArrowLeft } from 'lucide-react';
+import { CreditCard, Plus, DollarSign, Gift, Download, Trash2 } from 'lucide-react';
+import { downloadWalletHistory } from '../../utils/downloadReceipt';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -24,6 +26,7 @@ export function Wallet() {
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [walletError, setWalletError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -113,31 +116,23 @@ export function Wallet() {
   }
 
   async function deleteMethod(id: string) {
+    if (deletingId) return;
+    setDeletingId(id);
     try {
       await supabase.from('payment_methods').delete().eq('id', id);
       await fetchPaymentMethods();
-    } catch (e) {
-      console.warn('Failed to delete:', e);
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setDeletingId(null);
     }
   }
 
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <div>
-          <h1 className="text-2xl font-bold mb-1" style={{ color: textColor }}>Wallet</h1>
-          <p className="text-sm" style={{ color: subColor }}>Manage payments and credits</p>
-        </div>
-      </div>
+      <PageHeader title="Wallet" />
 
-      <div className="relative z-10 px-6">
+      <div className="relative z-10 px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -198,7 +193,7 @@ export function Wallet() {
                       </p>
                     </div>
                     {!method.is_default && (
-                      <button onClick={() => deleteMethod(method.id)} className="p-1.5 rounded-full" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }} title="Remove card">
+                      <button onClick={() => deleteMethod(method.id)} disabled={!!deletingId} className="p-1.5 rounded-full disabled:opacity-40" style={{ backgroundColor: 'rgba(239,68,68,0.1)' }} title="Remove card">
                         <Trash2 className="w-4 h-4 text-red-400" />
                       </button>
                     )}
@@ -237,7 +232,7 @@ export function Wallet() {
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold" style={{ color: textColor }}>Recent Transactions</h2>
-            <button className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Download history">
+            <button onClick={() => downloadWalletHistory(transactions)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Download history">
               <Download className="w-4 h-4" style={{ color: '#008CE5' }} />
             </button>
           </div>

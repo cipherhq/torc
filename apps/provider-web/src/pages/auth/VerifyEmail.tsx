@@ -1,10 +1,11 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Mail, ArrowLeft, RefreshCw, CheckCircle } from 'lucide-react';
+import { Mail, RefreshCw, CheckCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 
 export function VerifyEmail() {
   const navigate = useNavigate();
@@ -73,22 +74,10 @@ export function VerifyEmail() {
         />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 flex items-center gap-4 mb-8">
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/login')}
-          className="rounded-full p-3"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-6 h-6" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-        </motion.button>
-        <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Verify Email</h1>
-      </div>
+      <PageHeader title="Verify Email" onBack={() => navigate('/login')} />
 
       {/* Content */}
-      <div className="relative z-10 flex-1 flex flex-col justify-center items-center max-w-md mx-auto w-full text-center">
+      <div className="relative z-10 flex-1 flex flex-col justify-center items-center max-w-md mx-auto w-full text-center" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {alreadyVerified ? (
           <>
             <motion.div
@@ -175,7 +164,7 @@ export function VerifyEmail() {
                 onClick={handleResend}
                 disabled={resending || resent}
                 className="w-full rounded-[32px] py-4 font-semibold flex items-center justify-center gap-2 mb-4 disabled:opacity-50"
-                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', color: isDark ? '#FFFFFF' : '#14263D' }}
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
               >
                 <RefreshCw className={`w-5 h-5 ${resending ? 'animate-spin' : ''}`} />
                 {resent ? 'Email Sent!' : resending ? 'Sending...' : 'Resend Email'}

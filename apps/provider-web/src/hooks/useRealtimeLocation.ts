@@ -56,7 +56,25 @@ export function useRealtimeLocation({ jobId, role, enabled = true }: UseRealtime
 
     channelRef.current = channel;
 
+    // Reconnect channel when app returns from background
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && channelRef.current) {
+        // Re-subscribe if the channel was disconnected while backgrounded
+        const state = (channelRef.current as any).state;
+        if (state !== 'joined' && state !== 'joining') {
+          channelRef.current.subscribe((s) => {
+            if (s === 'SUBSCRIBED') {
+              setIsConnected(true);
+              channelRef.current?.track({ role, online_at: new Date().toISOString() });
+            }
+          });
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
       channel.unsubscribe();
       channelRef.current = null;
     };
@@ -87,33 +105,27 @@ export function useRealtimeLocation({ jobId, role, enabled = true }: UseRealtime
 
 export function useWatchPosition(enabled = true) {
   const [position, setPosition] = useState<{ lat: number; lng: number; heading: number | null; speed: number | null } | null>(null);
-  const watchIdRef = useRef<number | null>(null);
+  const watchIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || !navigator.geolocation) return;
+    if (!enabled) return;
+    let cancelled = false;
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        setPosition({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed,
-        });
-      },
-      (err) => {
-        console.error('Watch position error:', err);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 2000,
-      }
-    );
+    async function start() {
+      const { safeWatchPosition } = await import('../utils/safeLocation');
+      if (cancelled) return;
+
+      watchIdRef.current = await safeWatchPosition(
+        (pos) => setPosition(pos),
+        (err) => console.error('Watch position error:', err)
+      );
+    }
+    start();
 
     return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
+      cancelled = true;
+      if (watchIdRef.current) {
+        import('../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchIdRef.current));
       }
     };
   }, [enabled]);

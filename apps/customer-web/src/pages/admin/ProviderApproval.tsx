@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { AdminNav } from '../../components/AdminNav';
-import { CheckCircle, XCircle, Clock, FileText, User, Car, Shield, DollarSign, Eye } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, FileText, User, Car, Shield, DollarSign, Eye, Calendar, Loader2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 export function ProviderApproval() {
@@ -11,6 +11,12 @@ export function ProviderApproval() {
   const [pendingProviders, setPendingProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actioningProviderId, setActioningProviderId] = useState<string | null>(null);
+
+  /* Per-document action state */
+  const [docActionLoading, setDocActionLoading] = useState<string | null>(null);
+  const [rejectingDocId, setRejectingDocId] = useState<string | null>(null);
+  const [docRejectReason, setDocRejectReason] = useState('');
+
   const [stats, setStats] = useState({
     approvedToday: 0,
     rejectedToday: 0,
@@ -72,6 +78,7 @@ export function ProviderApproval() {
             file: doc.file_name || 'document.pdf',
             url: doc.file_url || null,
             rejectionReason: doc.rejection_reason || null,
+            expires_at: doc.expires_at || null,
           })) || [],
           backgroundCheck: 'pending',
           servicesOffered,
@@ -117,6 +124,102 @@ export function ProviderApproval() {
   useEffect(() => {
     void loadPendingProviders();
   }, []);
+
+  const handleUpdateDocExpiry = async (docId: string, expiryDate: string | null) => {
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ expires_at: expiryDate || null })
+        .eq('id', docId);
+      if (error) throw error;
+      setPendingProviders(prev => prev.map((p: any) => ({
+        ...p,
+        documents: p.documents.map((d: any) =>
+          d.id === docId ? { ...d, expires_at: expiryDate } : d
+        ),
+      })));
+    } catch (e: any) {
+      console.error('Failed to update document expiry:', e);
+    }
+  };
+
+  const handleApproveDoc = async (docId: string) => {
+    setDocActionLoading(docId);
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ status: 'approved', rejection_reason: null, reviewed_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+      setPendingProviders(prev => prev.map((p: any) => ({
+        ...p,
+        documents: p.documents.map((d: any) =>
+          d.id === docId ? { ...d, status: 'approved', rejectionReason: null } : d
+        ),
+      })));
+    } catch (e: any) {
+      window.alert('Failed to approve document: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDocActionLoading(null);
+    }
+  };
+
+  const handleRejectDoc = async (docId: string, reason: string) => {
+    setDocActionLoading(docId);
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ status: 'rejected', rejection_reason: reason || 'Rejected by admin', reviewed_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+      setPendingProviders(prev => prev.map((p: any) => ({
+        ...p,
+        documents: p.documents.map((d: any) =>
+          d.id === docId ? { ...d, status: 'rejected', rejectionReason: reason || 'Rejected by admin' } : d
+        ),
+      })));
+      setRejectingDocId(null);
+      setDocRejectReason('');
+    } catch (e: any) {
+      window.alert('Failed to reject document: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDocActionLoading(null);
+    }
+  };
+
+  const handleRequestDocUpdate = async (providerId: string, docId: string, docType: string, reason: string) => {
+    setDocActionLoading(docId);
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ status: 'rejected', rejection_reason: reason || 'Please upload an updated document.', reviewed_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+
+      setPendingProviders(prev => prev.map((p: any) => ({
+        ...p,
+        documents: p.documents.map((d: any) =>
+          d.id === docId ? { ...d, status: 'rejected', rejectionReason: reason || 'Please upload an updated document.' } : d
+        ),
+      })));
+
+      // Send notification to provider
+      await supabase.from('notifications').insert({
+        user_id: providerId,
+        type: 'alert',
+        title: 'Document Update Required',
+        message: `Your ${docType.replace(/_/g, ' ')} needs to be updated: ${reason || 'Please upload an updated document.'}`,
+        action_url: '/documents',
+      });
+
+      setRejectingDocId(null);
+      setDocRejectReason('');
+    } catch (e: any) {
+      window.alert('Failed to request document update: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDocActionLoading(null);
+    }
+  };
 
   const handleApprove = async (providerId: string) => {
     try {
@@ -272,31 +375,151 @@ export function ProviderApproval() {
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       {provider.documents.map((doc: any) => (
-                        <div key={doc.type} className="bg-white/5 rounded-xl p-3 flex items-center justify-between">
-                          <div>
-                            <span className="text-white/80 text-sm block">{doc.type}</span>
-                            <span className={`text-[10px] uppercase tracking-wide ${
-                              doc.status === 'approved'
-                                ? 'text-[#008CE5]'
-                                : doc.status === 'rejected'
-                                  ? 'text-red-400'
-                                  : 'text-yellow-400'
-                            }`}>
-                              {doc.status}
-                            </span>
-                          </div>
-                          {doc.url ? (
-                            <button
-                              onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
-                              className="text-[#008CE5] text-xs font-semibold hover:underline flex items-center gap-1"
-                              title={`View ${doc.type}`}
-                            >
-                              <Eye className="w-3 h-3" />
-                              View
-                            </button>
-                          ) : (
-                            <span className="text-white/40 text-xs">No file</span>
+                        <div key={doc.id || doc.type} className="bg-white/5 rounded-xl p-3">
+                          {/* Document preview */}
+                          {doc.url && (
+                            <div className="mb-3">
+                              {(doc.file || '').match(/\.(jpg|jpeg|png|gif|webp)$/i) || (doc.url || '').match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
+                                <a href={doc.url} target="_blank" rel="noopener noreferrer" className="block">
+                                  <img src={doc.url} alt={doc.type} className="w-full h-32 object-cover rounded-lg hover:opacity-90 transition-opacity" />
+                                </a>
+                              ) : (
+                                <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-2 text-[#008CE5] text-sm font-semibold hover:underline py-1">
+                                  <Eye className="w-4 h-4" />
+                                  View Document
+                                </a>
+                              )}
+                            </div>
                           )}
+
+                          {/* Info row */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <span className="text-white/80 text-sm block">{doc.type}</span>
+                              <span className={`text-[10px] uppercase tracking-wide ${
+                                doc.status === 'approved'
+                                  ? 'text-[#008CE5]'
+                                  : doc.status === 'rejected'
+                                    ? 'text-red-400'
+                                    : 'text-yellow-400'
+                              }`}>
+                                {doc.status}
+                              </span>
+                            </div>
+                            {!doc.url && (
+                              <span className="text-white/40 text-xs">No file</span>
+                            )}
+                          </div>
+
+                          {/* Rejection reason display */}
+                          {doc.status === 'rejected' && doc.rejectionReason && (
+                            <p className="text-xs text-red-400 mb-2">Reason: {doc.rejectionReason}</p>
+                          )}
+
+                          {/* Per-document action buttons */}
+                          <div className="flex gap-2 mb-2">
+                            <button
+                              onClick={() => handleApproveDoc(doc.id)}
+                              disabled={doc.status === 'approved' || docActionLoading === doc.id}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors ${
+                                doc.status === 'approved'
+                                  ? 'bg-[#008CE5]/20 text-[#008CE5] border border-[#008CE5]/30'
+                                  : 'bg-white/5 text-white/60 hover:bg-[#008CE5]/20 hover:text-[#008CE5] border border-white/10 hover:border-[#008CE5]/30'
+                              } disabled:opacity-50`}
+                            >
+                              {docActionLoading === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (rejectingDocId === doc.id) {
+                                  setRejectingDocId(null);
+                                  setDocRejectReason('');
+                                } else {
+                                  setRejectingDocId(doc.id);
+                                  setDocRejectReason(doc.rejectionReason || '');
+                                }
+                              }}
+                              disabled={docActionLoading === doc.id}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors ${
+                                doc.status === 'rejected'
+                                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                  : 'bg-white/5 text-white/60 hover:bg-red-500/20 hover:text-red-400 border border-white/10 hover:border-red-500/30'
+                              } disabled:opacity-50`}
+                            >
+                              <XCircle className="w-3 h-3" />
+                              Reject
+                            </button>
+                          </div>
+
+                          {/* Inline reject/request-update reason input */}
+                          {rejectingDocId === doc.id && (
+                            <div className="mb-2">
+                              <input
+                                type="text"
+                                placeholder="Reason (sent to provider)..."
+                                value={docRejectReason}
+                                onChange={(e) => setDocRejectReason(e.target.value)}
+                                className="w-full text-xs bg-white/5 border border-red-500/30 rounded-lg px-3 py-2 text-white/80 placeholder-white/30 focus:outline-none focus:border-red-400 mb-1.5"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleRequestDocUpdate(provider.providerId, doc.id, doc.type, docRejectReason)}
+                                  disabled={!docRejectReason.trim() || docActionLoading === doc.id}
+                                  className="flex-1 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
+                                >
+                                  {docActionLoading === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+                                  Send Update Request
+                                </button>
+                                <button
+                                  onClick={() => { setRejectingDocId(null); setDocRejectReason(''); }}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 text-white/60"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Expiry date */}
+                          <div className="pt-2 border-t border-white/10">
+                            {(() => {
+                              if (!doc.expires_at) return null;
+                              const today = new Date(); today.setHours(0,0,0,0);
+                              const expiry = new Date(doc.expires_at + 'T00:00:00');
+                              const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000*60*60*24));
+                              if (diffDays < 0) return <p className="text-xs font-semibold text-red-400 mb-1.5">Expired {Math.abs(diffDays)}d ago</p>;
+                              if (diffDays === 0) return <p className="text-xs font-semibold text-red-400 mb-1.5">Expires today</p>;
+                              if (diffDays <= 30) return <p className="text-xs font-semibold text-yellow-400 mb-1.5">Expires in {diffDays}d</p>;
+                              return null;
+                            })()}
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-3.5 h-3.5 text-white/30 flex-shrink-0" />
+                              <span className="text-white/30 text-xs whitespace-nowrap">Expires:</span>
+                              <input
+                                type="date"
+                                value={doc.expires_at || ''}
+                                onChange={(e) => handleUpdateDocExpiry(doc.id, e.target.value || null)}
+                                className="flex-1 text-xs bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white/70 focus:outline-none focus:border-[#008CE5] min-w-0"
+                                style={{ colorScheme: 'dark' }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Request Update button */}
+                          <button
+                            onClick={() => {
+                              setRejectingDocId(doc.id);
+                              setDocRejectReason(doc.expires_at && new Date(doc.expires_at + 'T00:00:00') < new Date(new Date().toDateString())
+                                ? 'Document has expired. Please upload a current version.'
+                                : '');
+                            }}
+                            className="w-full mt-2 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 bg-orange-500/15 text-orange-400 border border-orange-500/30 hover:bg-orange-500/25 transition-colors"
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            Request Update
+                          </button>
                         </div>
                       ))}
                     </div>

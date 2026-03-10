@@ -1,4 +1,5 @@
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useLocation } from 'react-router';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Phone, MessageCircle, Share2, Shield, Star, Clock, MapPin, Loader2, ArrowLeft, X, AlertTriangle, PhoneCall, Flag, MapPinned, DollarSign, Navigation2 as Recenter } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -13,6 +14,7 @@ import { callPhone, shareContent, shareJobDetails } from '../../utils/communicat
 import { supabase } from '../../lib/supabase';
 import { showToast } from '../../components/NotificationToast';
 import { initAudio, playMessageSound } from '../../utils/audio';
+import { decryptMessage } from '../../lib/chatEncryption';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 
@@ -56,12 +58,19 @@ function normalizeJobStatus(status?: string): JobStatus {
 export function LiveTracking() {
   const navigate = useNavigate();
   const { jobId } = useParams();
+  const location = useLocation();
   const { isLoaded } = useGoogleMaps();
   const { currentLocation } = useLocationCtx();
   const { currentJob, fetchJob, updateJobStatus, cancelJob, platformSettings } = useJob();
   const myPosition = useWatchPosition(true);
 
-  const [status, setStatusRaw] = useState<JobStatus>('pending');
+  // Read accepted payload from Matching page navigation state
+  const acceptedPayload = (location.state as any)?.acceptedPayload;
+  const initialProviderPos = acceptedPayload?.provider_lat && acceptedPayload?.provider_lng
+    ? { lat: acceptedPayload.provider_lat, lng: acceptedPayload.provider_lng }
+    : null;
+
+  const [status, setStatusRaw] = useState<JobStatus>(acceptedPayload ? 'accepted' : 'pending');
   // Forward-only status setter — status never goes backward (except cancelled which can happen anytime)
   const setStatus = useCallback((next: JobStatus) => {
     setStatusRaw((prev) => {
@@ -70,10 +79,11 @@ export function LiveTracking() {
       return prev; // ignore backward transitions
     });
   }, []);
-  const [eta, setEta] = useState<number | null>(null);
+  const [eta, setEta] = useState<number | null>(acceptedPayload?.eta_minutes ?? null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [hasUnreadChat, setHasUnreadChat] = useState(false);
   const [isCallOpen, setIsCallOpen] = useState(false);
   const [isCallOutgoing, setIsCallOutgoing] = useState(true);
   const [shareToast, setShareToast] = useState(false);
@@ -107,9 +117,20 @@ export function LiveTracking() {
     isVerified: provider.is_verified || false,
   } : null;
 
-  const customerPos = myPosition || (currentLocation
+  // Use the job's pickup location (correct for 3rd party requests) with GPS fallback
+  const pickupPos = (() => {
+    const lat = Number(currentJob?.pickup_latitude);
+    const lng = Number(currentJob?.pickup_longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0) return { lat, lng };
+    return null;
+  })();
+  const customerPos = pickupPos || myPosition || (currentLocation
     ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
     : { lat: 37.7749, lng: -122.4194 });
+
+  // Static initial center — only used when map first mounts so
+  // camera doesn't jump around on every GPS update.
+  const initialCenter = useRef(customerPos);
 
   const { peerLocation: providerLocation, isConnected, broadcastLocation } = useRealtimeLocation({
     jobId,
@@ -117,9 +138,26 @@ export function LiveTracking() {
     enabled: true,
   });
 
+  // Keep screen awake during live tracking
+  useEffect(() => {
+    KeepAwake.keepAwake().catch(() => {});
+    return () => { KeepAwake.allowSleep().catch(() => {}); };
+  }, []);
+
   // Broadcast customer location
   useEffect(() => {
     if (myPosition) broadcastLocation(myPosition);
+  }, [myPosition, broadcastLocation]);
+
+  // Re-broadcast fresh position immediately when app returns from background
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && myPosition) {
+        broadcastLocation(myPosition);
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [myPosition, broadcastLocation]);
 
   // Fetch job details and sync status
@@ -192,7 +230,7 @@ export function LiveTracking() {
           if (newStatus === 'inprogress') showToast('info', 'Service Started', 'Your provider has begun the service.');
           if (newStatus === 'completed') showToast('success', 'Service Completed', 'Your service has been completed successfully!');
           if (newStatus === 'cancelled') {
-            setProviderCancelReason('');
+            setProviderCancelReason(payload.payload?.reason || '');
             setShowProviderCancelled(true);
           }
         }
@@ -222,14 +260,17 @@ export function LiveTracking() {
       config: { broadcast: { self: false } },
     });
     channel
-      .on('broadcast', { event: 'new_message' }, (payload) => {
+      .on('broadcast', { event: 'new_message' }, async (payload) => {
         const msg = payload.payload;
         if (!msg || msg.sender_role === 'customer') return;
+        setHasUnreadChat(true);
         if (!isChatOpenRef.current) {
           initAudio();
           playMessageSound();
           const senderName = msg.sender_name || 'Provider';
-          showToast('message', senderName, msg.text?.slice(0, 80) || 'Sent you a message', 5000, () => {
+          const plainText = msg.text ? await decryptMessage(jobId!, msg.text) : '';
+          showToast('message', senderName, plainText?.slice(0, 80) || 'Sent you a message', 5000, () => {
+            setHasUnreadChat(false);
             setIsChatOpen(true);
           });
         }
@@ -238,38 +279,10 @@ export function LiveTracking() {
     return () => { supabase.removeChannel(channel); };
   }, [jobId]);
 
-  // Simulated provider approach when no real provider connected
-  const [simulatedProvider, setSimulatedProvider] = useState<{ lat: number; lng: number } | null>(null);
-
-  useEffect(() => {
-    if (providerLocation) return;
-    if (status !== 'enroute' && status !== 'accepted') return;
-
-    const startLat = customerPos.lat + 0.008;
-    const startLng = customerPos.lng - 0.006;
-    setSimulatedProvider({ lat: startLat, lng: startLng });
-
-    const interval = setInterval(() => {
-      setSimulatedProvider((prev) => {
-        if (!prev) return { lat: startLat, lng: startLng };
-        const dLat = (customerPos.lat - prev.lat) * 0.08;
-        const dLng = (customerPos.lng - prev.lng) * 0.08;
-        const newLat = prev.lat + dLat;
-        const newLng = prev.lng + dLng;
-        const dist = Math.sqrt((newLat - customerPos.lat) ** 2 + (newLng - customerPos.lng) ** 2);
-        if (dist < 0.0003) {
-          return { lat: customerPos.lat, lng: customerPos.lng };
-        }
-        return { lat: newLat, lng: newLng };
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [providerLocation, status, customerPos.lat, customerPos.lng]);
-
+  // Real provider position from real-time channel (no simulation)
   const activeProviderPos = providerLocation
     ? { lat: providerLocation.lat, lng: providerLocation.lng }
-    : simulatedProvider;
+    : initialProviderPos;
 
   const requestDrivingDirections = useCallback((force = false) => {
     if (!isLoaded || !activeProviderPos || !customerPos) return;
@@ -355,12 +368,12 @@ export function LiveTracking() {
     };
   }, []);
 
-  // Fit both points into view ONCE on initial load, then let the user
-  // control the map freely. Markers and route update in real-time but
-  // the camera stays put so the view doesn't jump around.
+  // Fit both points into view ONCE when provider position first appears.
+  // After that the user controls the map; markers update without camera jumps.
   useEffect(() => {
     if (!map || hasInitialFit.current) return;
     if (!activeProviderPos) {
+      // No provider yet — just show customer location, once
       map.panTo(customerPos);
       map.setZoom(15);
       return;
@@ -371,7 +384,7 @@ export function LiveTracking() {
     bounds.extend(activeProviderPos);
     map.fitBounds(bounds, { top: 120, bottom: 380, left: 40, right: 40 });
     hasInitialFit.current = true;
-  }, [map, activeProviderPos?.lat, activeProviderPos?.lng, customerPos.lat, customerPos.lng, status]);
+  }, [map, activeProviderPos?.lat, activeProviderPos?.lng]);
 
   const recenterMap = useCallback(() => {
     if (!map) return;
@@ -424,10 +437,11 @@ export function LiveTracking() {
   };
 
   const handleCall = () => {
-    setIsCallOutgoing(true);
-    setIsCallOpen(true);
+    if (providerInfo?.phone) {
+      callPhone(providerInfo.phone);
+    }
   };
-  const handleMessage = () => setIsChatOpen(true);
+  const handleMessage = () => { setHasUnreadChat(false); setIsChatOpen(true); };
 
   // Listen for incoming VoIP calls from provider
   useEffect(() => {
@@ -540,6 +554,31 @@ export function LiveTracking() {
     navigate(`/completion/${jobId}`, { replace: true });
   }, [jobId, mustCompleteCustomerRating, navigate]);
 
+  // Auto-expire requests that aren't accepted within 2 hours
+  // (Server-side push worker also handles this and notifies the customer)
+  useEffect(() => {
+    if (!jobId || !currentJob?.created_at) return;
+    if (status !== 'pending' && status !== 'matching') return;
+
+    const EXPIRE_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+    function checkExpiry() {
+      const createdAt = new Date(currentJob!.created_at).getTime();
+      const elapsed = Date.now() - createdAt;
+
+      if (elapsed >= EXPIRE_MS) {
+        cancelJob(jobId!, 'request_expired').catch(console.warn);
+        showToast('error', 'Request Expired', 'No providers were available. Please try again.');
+        navigate('/customer/home');
+      }
+    }
+
+    checkExpiry();
+    const interval = setInterval(checkExpiry, 30000);
+
+    return () => clearInterval(interval);
+  }, [jobId, status, currentJob?.created_at, cancelJob, navigate]);
+
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>
       {/* Full-screen Google Map */}
@@ -547,7 +586,7 @@ export function LiveTracking() {
         {isLoaded ? (
           <GoogleMap
             mapContainerStyle={mapContainerStyle}
-            center={customerPos}
+            center={initialCenter.current}
             zoom={14}
             onLoad={onLoad}
             options={{
@@ -570,17 +609,18 @@ export function LiveTracking() {
               title="Your location"
             />
 
-            {/* Provider marker (en route) */}
+            {/* Provider marker (en route) — shows real-time location */}
             {showProviderOnMap && (
               <MarkerF
                 position={providerMarkerPos}
                 icon={{
-                  path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                  scale: 7,
-                  fillColor: '#008CE5',
+                  path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z',
+                  scale: 1.8,
+                  fillColor: '#0070B8',
                   fillOpacity: 1,
-                  strokeColor: '#0070B8',
-                  strokeWeight: 2,
+                  strokeColor: '#FFFFFF',
+                  strokeWeight: 1.5,
+                  anchor: new google.maps.Point(12, 22),
                   rotation: providerLocation?.heading || 0,
                 }}
                 title="Provider"
@@ -607,8 +647,8 @@ export function LiveTracking() {
         )}
       </div>
 
-      {/* Back button + Recenter */}
-      <div className="absolute z-30 flex gap-2" style={{ top: 'calc(env(safe-area-inset-top, 16px) + 16px)', left: '16px' }}>
+      {/* Back button */}
+      <div className="absolute z-30" style={{ top: 'calc(env(safe-area-inset-top, 16px) + 16px)', left: '16px' }}>
         <button
           onClick={() => {
             if (mustCompleteCustomerRating) {
@@ -622,6 +662,10 @@ export function LiveTracking() {
         >
           <ArrowLeft className="w-5 h-5" style={{ color: '#14263D' }} />
         </button>
+      </div>
+
+      {/* Recenter button — bottom right of map */}
+      <div className="absolute z-30" style={{ bottom: 'calc(50% + 16px)', right: '16px' }}>
         <button
           onClick={recenterMap}
           className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg"
@@ -805,36 +849,32 @@ export function LiveTracking() {
           {/* Communication buttons (only when provider is assigned) */}
           {hasProvider && (
             <div className="grid grid-cols-3 gap-3 mb-3">
-              <button
-                onClick={handleCall}
-                className="rounded-2xl py-3.5 flex flex-col items-center gap-1.5 active:scale-[0.97] transition-transform"
-                style={{ backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB', touchAction: 'manipulation' }}
-              >
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(78,205,196,0.12)' }}>
-                  <Phone className="w-5 h-5" style={{ color: '#008CE5' }} />
-                </div>
-                <span className="text-xs font-semibold" style={{ color: '#14263D' }}>Call</span>
-              </button>
-              <button
-                onClick={handleMessage}
-                className="rounded-2xl py-3.5 flex flex-col items-center gap-1.5 active:scale-[0.97] transition-transform"
-                style={{ backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB', touchAction: 'manipulation' }}
-              >
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(42,157,143,0.12)' }}>
-                  <MessageCircle className="w-5 h-5" style={{ color: '#0070B8' }} />
-                </div>
-                <span className="text-xs font-semibold" style={{ color: '#14263D' }}>Message</span>
-              </button>
-              <button
-                onClick={handleShare}
-                className="rounded-2xl py-3.5 flex flex-col items-center gap-1.5 active:scale-[0.97] transition-transform"
-                style={{ backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB', touchAction: 'manipulation' }}
-              >
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(107,114,128,0.1)' }}>
-                  <Share2 className="w-5 h-5" style={{ color: '#6B7280' }} />
-                </div>
-                <span className="text-xs font-semibold" style={{ color: '#14263D' }}>Share</span>
-              </button>
+              {[
+                { label: 'Call', icon: Phone, onClick: handleCall, color: '#008CE5' },
+                { label: 'Message', icon: MessageCircle, onClick: handleMessage, color: '#0070B8' },
+                { label: 'Share', icon: Share2, onClick: handleShare, color: '#6B7280' },
+              ].map((btn) => {
+                const BtnIcon = btn.icon;
+                return (
+                  <button
+                    key={btn.label}
+                    onClick={btn.onClick}
+                    className="flex flex-col items-center gap-1.5 py-2 active:scale-95 transition-transform"
+                    style={{ touchAction: 'manipulation' }}
+                  >
+                    <div
+                      className="w-12 h-12 rounded-full flex items-center justify-center relative"
+                      style={{ backgroundColor: '#F3F4F6' }}
+                    >
+                      <BtnIcon className="w-5 h-5" style={{ color: btn.color }} />
+                      {btn.label === 'Message' && hasUnreadChat && !isChatOpen && (
+                        <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
+                      )}
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: '#6B7280' }}>{btn.label}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 

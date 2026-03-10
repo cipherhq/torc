@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -79,19 +80,9 @@ export function RatingsReviews() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button
-          onClick={() => navigate('/profile')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-          title="Back to profile"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Ratings & Reviews</h1>
-      </div>
+      <PageHeader title="Ratings & Reviews" onBack={() => navigate('/profile')} />
 
-      <div className="px-6">
+      <div className="px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Summary card */}
         <div className="rounded-2xl p-6 mb-5" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
           <div className="flex items-center gap-3 mb-3">
@@ -187,7 +178,7 @@ export function RatingsReviews() {
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
                   className="w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-30"
-                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : '#D3E0F2'}` }}
                 >
                   <ChevronLeft className="w-5 h-5" style={{ color: textColor }} />
                 </button>
@@ -198,7 +189,7 @@ export function RatingsReviews() {
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}
                   className="w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-30"
-                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : '#D3E0F2'}` }}
                 >
                   <ChevronRight className="w-5 h-5" style={{ color: textColor }} />
                 </button>

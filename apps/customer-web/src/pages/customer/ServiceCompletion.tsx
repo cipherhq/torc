@@ -1,7 +1,9 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
-import { CheckCircle, Star, DollarSign, Flag, Camera, Download } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { CheckCircle, Star, DollarSign, Flag, Camera, Download, X, ImagePlus } from 'lucide-react';
+import { downloadJobReceipt } from '../../utils/downloadReceipt';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { useState, useEffect, useRef } from 'react';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
@@ -16,6 +18,46 @@ export function ServiceCompletion() {
   const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [afterPhoto, setAfterPhoto] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const capturePhoto = async () => {
+    try {
+      const image = await CapCamera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Prompt,
+        width: 1600,
+        height: 1600,
+        promptLabelHeader: 'Add Service Photo',
+        promptLabelPhoto: 'Choose from Gallery',
+        promptLabelPicture: 'Take Photo',
+      });
+      if (image.dataUrl) {
+        setAfterPhoto(image.dataUrl);
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('User cancelled') || err?.message?.includes('canceled')) return;
+      console.warn('Camera error:', err);
+      // Fallback to native file input
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setAfterPhoto(reader.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -37,28 +79,51 @@ export function ServiceCompletion() {
   const BRAND_PRIMARY = '#008CE5';
   const BRAND_SECONDARY = '#0070B8';
 
+  const uploadPhoto = async (dataUrl: string, jId: string): Promise<string | null> => {
+    try {
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+      const path = `jobs/${jId}/completion_${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from('job-photos').upload(path, blob, { contentType: blob.type, upsert: true });
+      if (error) { console.warn('Photo upload error:', error); return null; }
+      const { data: urlData } = supabase.storage.from('job-photos').getPublicUrl(path);
+      return urlData?.publicUrl || null;
+    } catch (e) { console.warn('Photo upload failed:', e); return null; }
+  };
+
   const handleSubmit = async () => {
     setSubmitError('');
     setSubmitting(true);
     try {
-      // Save tip to the job (independent of rating)
-      if (jobId && tip > 0) {
-        await supabase
-          .from('jobs')
-          .update({ tip })
-          .eq('id', jobId);
+      // Upload photo if taken
+      let photoUrl: string | null = null;
+      if (afterPhoto && jobId) {
+        photoUrl = await uploadPhoto(afterPhoto, jobId);
+      }
+
+      // Save tip and photo to the job
+      if (jobId) {
+        const updateData: any = {};
+        if (tip > 0) updateData.tip = tip;
+        if (photoUrl) updateData.completion_photo_url = photoUrl;
+        if (Object.keys(updateData).length > 0) {
+          await supabase.from('jobs').update(updateData).eq('id', jobId);
+        }
 
         // Notify the provider they received a tip
-        const providerId = currentJob?.provider_id;
-        if (providerId) {
-          const channel = supabase.channel(`provider-job-${providerId}`);
-          await channel.subscribe();
-          await channel.send({
-            type: 'broadcast',
-            event: 'tip_received',
-            payload: { job_id: jobId, tip_amount: tip, service: serviceName },
-          });
-          setTimeout(() => supabase.removeChannel(channel), 1500);
+        if (tip > 0) {
+          const providerId = currentJob?.provider_id;
+          if (providerId) {
+            const channel = supabase.channel(`provider-job-${providerId}`);
+            await channel.subscribe();
+            await channel.send({
+              type: 'broadcast',
+              event: 'tip_received',
+              payload: { job_id: jobId, tip_amount: tip, service: serviceName },
+            });
+            setTimeout(() => supabase.removeChannel(channel), 1500);
+          }
         }
       }
 
@@ -101,28 +166,50 @@ export function ServiceCompletion() {
           <p className="text-lg" style={{ color: subColor }}>Your vehicle is ready to go</p>
         </motion.div>
 
-        {/* Proof photos */}
+        {/* After photo */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
           className="mb-6"
         >
+          {/* Hidden file input fallback for camera */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            aria-label="Upload service photo"
+            title="Upload service photo"
+            className="hidden"
+            onChange={handleFileInput}
+          />
           <div className="flex items-center gap-3 mb-4">
             <Camera className="w-5 h-5 text-[#008CE5]" />
-            <p className="font-semibold" style={{ color: textColor }}>Service Photos</p>
+            <p className="font-semibold" style={{ color: textColor }}>After Service Photo</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            {['Before', 'After'].map((label, i) => (
-              <div key={i} className="rounded-2xl overflow-hidden" style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}>
-                <div className="aspect-square flex items-center justify-center" style={{ background: isDark ? 'linear-gradient(to bottom right, rgba(255,255,255,0.05), rgba(255,255,255,0.1))' : 'linear-gradient(to bottom right, rgba(0,0,0,0.03), rgba(0,0,0,0.06))' }}>
-                  <Camera className="w-12 h-12" style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)' }} />
-                </div>
-                <div className="p-3">
-                  <p className="text-sm" style={{ color: subColor }}>{label}</p>
-                </div>
+          <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}>
+            {afterPhoto ? (
+              <div className="relative">
+                <img src={afterPhoto} alt="After service" className="w-full aspect-[4/3] object-cover" />
+                <button
+                  onClick={() => setAfterPhoto(null)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+                >
+                  <X className="w-4 h-4 text-white" />
+                </button>
               </div>
-            ))}
+            ) : (
+              <button
+                onClick={capturePhoto}
+                className="w-full py-10 flex flex-col items-center justify-center gap-3 active:scale-[0.98] transition-transform"
+                style={{ background: isDark ? 'linear-gradient(to bottom right, rgba(255,255,255,0.05), rgba(255,255,255,0.1))' : 'linear-gradient(to bottom right, rgba(0,0,0,0.03), rgba(0,0,0,0.06))' }}
+              >
+                <ImagePlus className="w-12 h-12" style={{ color: '#008CE5' }} />
+                <span className="text-sm font-medium" style={{ color: subColor }}>Take a photo or choose from gallery</span>
+              </button>
+            )}
           </div>
         </motion.div>
 
@@ -139,6 +226,7 @@ export function ServiceCompletion() {
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
+              onClick={() => currentJob && downloadJobReceipt({ ...currentJob, tip })}
               className="w-10 h-10 rounded-full flex items-center justify-center"
               style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
             >
@@ -183,16 +271,22 @@ export function ServiceCompletion() {
               {tipOptions.map((amount) => (
                 <motion.button
                   key={amount}
-                  whileTap={{ scale: 0.95 }}
+                  whileTap={{ scale: 0.9 }}
+                  animate={tip === amount ? { scale: 1.05 } : { scale: 1 }}
                   onClick={() => setTip(amount)}
-                  className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${
-                    tip === amount
-                      ? 'bg-gradient-to-r from-[#008CE5] to-[#0070B8]'
-                      : ''
-                  }`}
+                  className="flex-1 py-2.5 rounded-xl font-bold transition-all"
                   style={tip === amount
-                    ? { color: '#FFFFFF' }
-                    : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: subColor }
+                    ? {
+                        background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                        color: '#FFFFFF',
+                        boxShadow: '0 4px 16px rgba(0,140,229,0.45)',
+                        border: '2px solid #008CE5',
+                      }
+                    : {
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                        color: subColor,
+                        border: `2px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                      }
                   }
                 >
                   ${amount}
@@ -296,6 +390,7 @@ export function ServiceCompletion() {
           transition={{ delay: 0.5 }}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
+          onClick={() => navigate('/customer/help-center')}
           className="w-full rounded-2xl py-4 flex items-center justify-center gap-3 mb-6 border"
           style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : 'rgba(0,140,229,0.08)', borderColor: 'rgba(0,140,229,0.35)' }}
         >

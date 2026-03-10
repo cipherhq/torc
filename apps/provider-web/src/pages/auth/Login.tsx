@@ -110,7 +110,8 @@ export function Login() {
               whileTap={{ scale: 0.98 }}
               onClick={handleSendCode}
               disabled={method === 'phone' ? !phone : !email}
-              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
+              className="w-full rounded-[32px] py-5 font-bold text-white text-lg disabled:opacity-50"
+              style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)', boxShadow: '0 10px 25px rgba(0,140,229,0.3)' }}
             >
               Send Code
             </motion.button>
@@ -148,7 +149,8 @@ export function Login() {
               whileTap={{ scale: 0.98 }}
               onClick={handleVerify}
               disabled={code.length !== 6}
-              className="w-full bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-[32px] py-5 font-bold text-[#081427] text-lg shadow-lg shadow-[#008CE5]/30 disabled:opacity-50"
+              className="w-full rounded-[32px] py-5 font-bold text-white text-lg disabled:opacity-50"
+              style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)', boxShadow: '0 10px 25px rgba(0,140,229,0.3)' }}
             >
               Verify & Continue
             </motion.button>

@@ -1,14 +1,27 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams, useLocation } from 'react-router';
 import { MapBackground } from '../../components/MapBackground';
-import { X, MapPin, DollarSign, User, AlertCircle } from 'lucide-react';
+import { X, MapPin, DollarSign, User, AlertCircle, Calendar, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../../lib/supabase';
 import { useJob } from '../../context/JobContext';
 import { useAuth } from '../../context/AuthContext';
 import { initAudio, playRequestRingtone, stopRequestRingtone } from '../../utils/audio';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 
-const REQUEST_WINDOW_SECONDS = 60;
+const vibrateDevice = () => {
+  // Capacitor Haptics for iOS, navigator.vibrate fallback for Android
+  Haptics.vibrate({ duration: 500 }).catch(() => {});
+  navigator.vibrate?.([300, 120, 300, 120, 300]);
+};
+
+const stopVibration = () => {
+  navigator.vibrate?.(0);
+};
+
+const REQUEST_WINDOW_SECONDS = 90;
 const URGENT_THRESHOLD_SECONDS = 15;
 const CRITICAL_THRESHOLD_SECONDS = 7;
 
@@ -33,22 +46,25 @@ export function JobRequest() {
   const [accepting, setAccepting] = useState(false);
   const [providerPos, setProviderPos] = useState<{ lat: number; lng: number } | null>(null);
   const [distanceText, setDistanceText] = useState('-');
+  const [showCustomerCancelled, setShowCustomerCancelled] = useState(false);
+  const [customerCancelReason, setCustomerCancelReason] = useState('');
   const vibrateIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Ensure request alerts are audible/haptic on the dedicated request screen.
     initAudio();
     playRequestRingtone();
-    if (navigator.vibrate) {
-      navigator.vibrate([300, 120, 300, 120, 300]);
-      vibrateIntervalRef.current = window.setInterval(() => {
-        navigator.vibrate?.([300, 120, 300, 120, 300]);
-      }, 2000);
-    }
+    KeepAwake.keepAwake().catch(() => {});
+    // Start repeating vibration (Haptics for iOS + navigator.vibrate for Android)
+    vibrateDevice();
+    vibrateIntervalRef.current = window.setInterval(() => {
+      vibrateDevice();
+    }, 2000);
 
     return () => {
       stopRequestRingtone();
-      navigator.vibrate?.(0);
+      stopVibration();
+      KeepAwake.allowSleep().catch(() => {});
       if (vibrateIntervalRef.current) {
         window.clearInterval(vibrateIntervalRef.current);
         vibrateIntervalRef.current = null;
@@ -56,14 +72,11 @@ export function JobRequest() {
     };
   }, []);
 
-  // Get provider's current location
+  // Get provider's current location — uses Capacitor native API (never re-prompts)
   useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setProviderPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+    import('../../utils/safeLocation').then(({ getSafePosition }) => {
+      getSafePosition().then((pos) => setProviderPos(pos));
+    });
   }, []);
 
   // Try to fetch job from DB; fallback to broadcast data
@@ -82,6 +95,7 @@ export function JobRequest() {
         service_id: broadcastJob.service_id,
         base_price: broadcastJob.base_price,
         customer_notes: broadcastJob.customer_notes,
+        scheduled_for: broadcastJob.scheduled_for,
       });
     }
 
@@ -98,21 +112,26 @@ export function JobRequest() {
   useEffect(() => {
     if (!requestId) return;
 
-    const recordDismissalAndNavigate = () => {
+    const showCancellation = (reason?: string) => {
+      stopRequestRingtone();
+      stopVibration();
+      setCustomerCancelReason(reason || '');
+      setShowCustomerCancelled(true);
       if (requestId && user) {
         supabase.from('provider_job_dismissals').upsert(
           { provider_id: user.id, job_id: requestId },
           { onConflict: 'provider_id,job_id' }
         ).then(() => {});
       }
-      navigate('/home', { state: { cancelledJobId: requestId } });
     };
 
     const bc = supabase
       .channel(`job-accepted-${requestId}`)
       .on('broadcast', { event: 'job_cancelled' }, (payload) => {
         const cancelledId = payload.payload?.job_id;
-        if (cancelledId === requestId) recordDismissalAndNavigate();
+        if (cancelledId === requestId) {
+          showCancellation(payload.payload?.reason);
+        }
       })
       .subscribe();
 
@@ -124,7 +143,9 @@ export function JobRequest() {
         table: 'jobs',
         filter: `id=eq.${requestId}`,
       }, (payload) => {
-        if (payload.new?.status === 'cancelled') recordDismissalAndNavigate();
+        if (payload.new?.status === 'cancelled') {
+          showCancellation(payload.new?.cancellation_reason);
+        }
       })
       .subscribe();
 
@@ -142,7 +163,7 @@ export function JobRequest() {
           // Timer expired — do NOT record dismissal so the job stays in the
           // active request queue and can be re-shown based on proximity.
           stopRequestRingtone();
-          navigator.vibrate?.(0);
+          stopVibration();
           navigate('/home', { state: { timedOutJobId: requestId } });
           return 0;
         }
@@ -167,6 +188,18 @@ export function JobRequest() {
   const customerName = jobData?.customer
     ? `${jobData.customer.first_name || ''} ${jobData.customer.last_name || ''}`.trim()
     : 'Customer';
+
+  const isScheduled = (() => {
+    if (!jobData?.scheduled_for) return false;
+    const scheduled = new Date(jobData.scheduled_for);
+    const now = new Date();
+    // If scheduled more than 10 minutes from now, it's a scheduled request
+    return (scheduled.getTime() - now.getTime()) > 10 * 60 * 1000;
+  })();
+
+  const scheduledTimeStr = isScheduled && jobData?.scheduled_for
+    ? new Date(jobData.scheduled_for).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
 
   const requestData = {
     customer: customerName,
@@ -209,7 +242,7 @@ export function JobRequest() {
         // Push worker will automatically notify customer via pg_notify
         console.log('Job accepted successfully:', data);
         stopRequestRingtone();
-        navigator.vibrate?.(0);
+        stopVibration();
 
         // Fetch provider profile for additional broadcast data
         let providerRating = 0;
@@ -249,7 +282,7 @@ export function JobRequest() {
       } catch (e) {
         console.error('Accept error:', e);
         stopRequestRingtone();
-        navigator.vibrate?.(0);
+        stopVibration();
         navigate('/home');
       }
     } else {
@@ -260,7 +293,7 @@ export function JobRequest() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-b from-[#F4F8FF] via-[#EEF5FF] to-[#FFFFFF]">
+    <div className="min-h-screen relative overflow-x-hidden overflow-y-auto bg-gradient-to-b from-[#F4F8FF] via-[#EEF5FF] to-[#FFFFFF]" style={{ paddingBottom: 'calc(24px + var(--safe-bottom, 0px))' }}>
       <MapBackground />
 
       {/* Pulsating urgency border glow */}
@@ -343,7 +376,7 @@ export function JobRequest() {
               className="w-2.5 h-2.5 rounded-full"
               style={{ backgroundColor: isUrgent ? '#EF4444' : '#008CE5' }}
             />
-            <p className="text-[#0070B8] text-xs font-semibold uppercase tracking-wider">Incoming Service Request</p>
+            <p className="text-[#0070B8] text-xs font-semibold uppercase tracking-wider">{isScheduled ? 'Scheduled Service Request' : 'Incoming Service Request'}</p>
           </div>
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold text-[#0F172A]">Respond in {timeLeft}s</h1>
@@ -363,7 +396,7 @@ export function JobRequest() {
           whileTap={{ scale: 0.9 }}
           onClick={() => {
             stopRequestRingtone();
-            navigator.vibrate?.(0);
+            stopVibration();
             if (requestId && user) {
               supabase.from('provider_job_dismissals').upsert(
                 { provider_id: user.id, job_id: requestId },
@@ -400,9 +433,20 @@ export function JobRequest() {
             >
               <AlertCircle className="w-4 h-4" style={{ color: isUrgent ? '#EF4444' : '#0070B8' }} />
               <p className="text-sm font-semibold" style={{ color: isUrgent ? '#EF4444' : '#0070B8' }}>
-                New request just came in. Claim it before another provider does.
+                {isScheduled ? 'Scheduled service request. Claim it before another provider does.' : 'New request just came in. Claim it before another provider does.'}
               </p>
             </div>
+
+          {/* Scheduled indicator */}
+          {isScheduled && (
+            <div className="rounded-2xl px-4 py-3 mb-5 flex items-center gap-3" style={{ backgroundColor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}>
+              <Calendar className="w-5 h-5 text-amber-500 shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-amber-600">Scheduled Request</p>
+                <p className="text-xs text-amber-500 mt-0.5">{scheduledTimeStr}</p>
+              </div>
+            </div>
+          )}
 
           {/* Customer info */}
           <div className="flex items-center gap-4 mb-6 pb-6 border-b border-[#0070B8]/10">
@@ -479,7 +523,7 @@ export function JobRequest() {
             whileTap={{ scale: 0.98 }}
             onClick={async () => {
               stopRequestRingtone();
-              navigator.vibrate?.(0);
+              stopVibration();
               if (requestId && user) {
                 try {
                   await Promise.all([
@@ -521,6 +565,52 @@ export function JobRequest() {
           </motion.button>
         </div>
       </div>
+
+      {/* Customer cancelled modal */}
+      {showCustomerCancelled && createPortal(
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 2147483647 }}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="mx-6 rounded-3xl p-6 w-full max-w-sm bg-white"
+          >
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}>
+                <AlertTriangle className="w-8 h-8" style={{ color: '#EF4444' }} />
+              </div>
+              <h2 className="font-bold text-xl mb-2" style={{ color: '#14263D' }}>Customer Cancelled</h2>
+              <p className="text-sm" style={{ color: '#6B7280' }}>
+                The customer has cancelled this service request.
+              </p>
+            </div>
+
+            {customerCancelReason && (
+              <div className="rounded-xl p-3 mb-5" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
+                <p className="text-xs font-medium mb-1" style={{ color: '#6B7280' }}>Reason</p>
+                <p className="text-sm" style={{ color: '#14263D' }}>{customerCancelReason}</p>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setShowCustomerCancelled(false);
+                navigate('/home', { state: { cancelledJobId: requestId } });
+              }}
+              className="w-full h-12 rounded-2xl font-bold text-base text-white active:scale-[0.98] transition-transform"
+              style={{
+                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                boxShadow: '0 8px 18px rgba(0,140,229,0.28)',
+              }}
+            >
+              Back to Home
+            </button>
+          </motion.div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

@@ -50,6 +50,11 @@ export async function sendCustomerInvoiceEmail(
   return sendEmail(email, 'customer_invoice', data);
 }
 
+/** Notify provider their account has been suspended */
+export async function sendProviderSuspendedEmail(email: string, name: string, reason: string) {
+  return sendEmail(email, 'provider_suspended', { name, reason });
+}
+
 /** Send completion summary to provider after service */
 export async function sendProviderCompletionEmail(
   email: string,

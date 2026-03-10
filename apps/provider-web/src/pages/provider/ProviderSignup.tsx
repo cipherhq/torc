@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Mail, Phone, Lock, Building2, Eye, EyeOff, AlertCircle, UserCircle, Briefcase } from 'lucide-react';
+import { User, Mail, Phone, Lock, Building2, Eye, EyeOff, AlertCircle, UserCircle, Briefcase } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
 export function ProviderSignup() {
@@ -84,6 +85,11 @@ export function ProviderSignup() {
         }, { onConflict: 'id' });
       }
 
+      // Send welcome email (fire-and-forget)
+      import('../../services/email.service').then(({ sendWelcomeEmail }) => {
+        sendWelcomeEmail(email, String(formData.firstName).trim() || 'there');
+      });
+
       localStorage.setItem('pendingVerificationEmail', email);
       navigate('/verify-email');
     } catch (err: any) {
@@ -104,23 +110,20 @@ export function ProviderSignup() {
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-6 pb-8 overflow-auto" style={{ paddingTop: 'var(--safe-top)' }}>
-        {/* Header with back + steps */}
-        <div className="flex items-center gap-4 mb-4">
-          <motion.button whileTap={{ scale: 0.9 }} onClick={() => step === 1 ? navigate('/login') : setStep(1)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-          >
-            <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-          </motion.button>
-          <div className="flex-1 flex gap-2">
+      <PageHeader
+        title="Provider Signup"
+        onBack={() => step === 1 ? navigate('/login') : setStep(1)}
+        rightAction={
+          <div className="flex gap-1 w-10">
             {[1, 2].map(s => (
-              <div key={s} className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2' }}>
-                <div className="h-full rounded-full transition-all duration-500" style={{ width: step >= s ? '100%' : '0%', backgroundColor: '#008CE5' }} />
+              <div key={s} className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.3)' }}>
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: step >= s ? '100%' : '0%', backgroundColor: '#FFFFFF' }} />
               </div>
             ))}
           </div>
-        </div>
+        }
+      />
+      <div className="relative z-10 flex-1 flex flex-col px-6 pb-8 overflow-auto" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
 
         {/* Logo + Title */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">

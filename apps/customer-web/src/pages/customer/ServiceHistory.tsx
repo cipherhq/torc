@@ -1,6 +1,8 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, MapPin, Clock, DollarSign, Star, Download, Calendar } from 'lucide-react';
+import { MapPin, Clock, DollarSign, Star, Download, Calendar } from 'lucide-react';
+import { downloadJobReceipt } from '../../utils/downloadReceipt';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -127,27 +129,9 @@ export function ServiceHistory() {
   return (
     <div className="min-h-screen"
       style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      {/* Header */}
-      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
-        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-          <div className="flex items-center gap-4 mb-2">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-            >
-              <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-            </motion.button>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Service History</h1>
-              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>{services.length} total services</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="Service History" onBack={() => navigate('/profile')} />
 
-      <div className="max-w-2xl mx-auto p-6 space-y-6">
+      <div className="max-w-2xl mx-auto p-6 space-y-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {loadError && (
           <div className="rounded-[20px] p-4" style={{ backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : '#FEF2F2', border: '1px solid rgba(239,68,68,0.3)' }}>
             <p className="text-red-500 text-sm">{loadError}</p>
@@ -279,18 +263,20 @@ export function ServiceHistory() {
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
+                      onClick={() => downloadJobReceipt({
+                        id: service.id,
+                        service: { name: service.service },
+                        pickup_address: service.location,
+                        completed_at: service.date,
+                        total_amount: service.amount,
+                        tip: service.tip,
+                        provider: { first_name: service.provider },
+                      })}
                       className="flex-1 px-4 py-3 rounded-[16px] font-semibold text-sm flex items-center justify-center gap-2"
                       style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: textColor }}
                     >
                       <Download className="w-4 h-4" />
                       Receipt
-                    </motion.button>
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className="flex-1 px-4 py-3 rounded-[16px] bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white font-semibold text-sm"
-                    >
-                      Book Again
                     </motion.button>
                   </div>
                 </>

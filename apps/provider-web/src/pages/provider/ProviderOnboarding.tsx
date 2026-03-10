@@ -1,7 +1,8 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Building, User, ChevronRight, Wrench, FileText, DollarSign, CheckCircle } from 'lucide-react';
+import { Building, User, ChevronRight, Wrench, FileText, DollarSign, CheckCircle } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 
 export function ProviderOnboarding() {
   const navigate = useNavigate();
@@ -26,14 +27,9 @@ export function ProviderOnboarding() {
         <div className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#008CE5', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate('/login')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
-          <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
-        </motion.button>
-      </div>
+      <PageHeader title="Become a Provider" onBack={() => navigate('/login')} />
 
-      <div className="relative z-10 flex-1 px-6 pb-8">
+      <div className="relative z-10 flex-1 px-6 pb-8" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Logo + Title */}
         <motion.div initial={{ opacity: 0, y: -15 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
           <img src="/logo.svg" alt="Torc" className="w-32 h-auto mx-auto object-contain mb-2" />

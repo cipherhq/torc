@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
+import { PageHeader } from '../../components/PageHeader';
 import { User, Car, Bell, HelpCircle, ChevronRight, LogOut, CreditCard, History, Shield, BarChart3 } from 'lucide-react';
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { useTheme } from '../../context/ThemeContext';
@@ -117,11 +118,8 @@ export function Profile() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      {/* Header */}
-      <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-        <h1 className="text-3xl font-bold mb-1" style={{ color: textColor }}>Profile</h1>
-        <p style={{ color: subColor }}>Manage your account and preferences</p>
-      </div>
+      <PageHeader title="Profile" onBack={() => navigate('/customer/home')} />
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       <div className="px-6">
         {/* User Card */}

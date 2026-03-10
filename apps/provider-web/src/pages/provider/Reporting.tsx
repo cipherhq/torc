@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import {
-  ArrowLeft,
   BarChart3,
   CalendarDays,
   CheckCircle2,
@@ -13,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 
@@ -68,16 +68,31 @@ function normalizePayoutStatus(status: string | null | undefined) {
   return 'pending';
 }
 
+async function shareOrDownload(filename: string, content: string, mimeType: string) {
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      const file = new File([content], filename, { type: mimeType });
+      await navigator.share({ files: [file] });
+      return;
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+  const blob = new Blob([content], { type: mimeType });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
 function saveCsv(filename: string, rows: Array<Array<string | number>>) {
   const csv = rows
     .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(link.href);
+  void shareOrDownload(filename, csv, 'text/csv;charset=utf-8;');
 }
 
 export function ProviderReporting() {
@@ -251,24 +266,9 @@ export function ProviderReporting() {
 
   return (
     <div className="min-h-screen" style={{ background: pageBg , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/profile')}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEF2F7' }}
-            title="Back to profile"
-          >
-            <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold" style={{ color: textColor }}>Provider Reporting</h1>
-            <p className="text-sm" style={{ color: subColor }}>Jobs, earnings, and payout metrics</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="Reporting" onBack={() => navigate('/profile')} />
 
-      <div className="px-6 space-y-6">
+      <div className="px-6 space-y-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {loading ? (
           <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${borderColor}` }}>
             <p style={{ color: subColor }}>Loading your report...</p>

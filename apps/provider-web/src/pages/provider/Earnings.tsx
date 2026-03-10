@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import {
-  ArrowLeft, DollarSign, TrendingUp, Download, Clock, Calendar,
+  DollarSign, TrendingUp, Download, Clock, Calendar,
   Building2, ChevronRight, Receipt, Percent, Wallet, BadgeDollarSign,
   CreditCard, FileText, ChevronDown, ChevronUp, Info,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recha
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 
 interface Job {
@@ -277,18 +278,9 @@ export function ProviderEarnings() {
         />
       </div>
 
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textPrimary }} />
-        </motion.button>
-        <h1 className="text-2xl font-bold" style={{ color: textPrimary }}>Earnings</h1>
-      </div>
+      <PageHeader title="Earnings" onBack={() => navigate('/home')} />
+
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       {loading && (
         <div className="relative z-10 px-6 mb-6">

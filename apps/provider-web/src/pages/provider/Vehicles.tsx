@@ -1,9 +1,10 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Car, Plus, Trash2, Star, Calendar, Palette, Hash, Pencil } from 'lucide-react';
+import { Car, Plus, Trash2, Star, Pencil, ChevronDown } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 
 interface Vehicle {
@@ -19,12 +20,48 @@ interface Vehicle {
 type VehicleForm = {
   make: string;
   model: string;
+  customMake: string;
+  customModel: string;
   year: string;
   color: string;
   plate: string;
 };
 
-const emptyForm: VehicleForm = { make: '', model: '', year: '', color: '', plate: '' };
+const emptyForm: VehicleForm = { make: '', model: '', customMake: '', customModel: '', year: '', color: '', plate: '' };
+
+const CAR_DATA: Record<string, string[]> = {
+  'Acura': ['ILX', 'Integra', 'MDX', 'RDX', 'TLX'],
+  'Audi': ['A3', 'A4', 'A5', 'A6', 'Q3', 'Q5', 'Q7', 'Q8', 'e-tron'],
+  'BMW': ['2 Series', '3 Series', '4 Series', '5 Series', '7 Series', 'X1', 'X3', 'X5', 'X7'],
+  'Buick': ['Enclave', 'Encore', 'Envision'],
+  'Cadillac': ['CT4', 'CT5', 'Escalade', 'XT4', 'XT5', 'XT6'],
+  'Chevrolet': ['Blazer', 'Camaro', 'Colorado', 'Corvette', 'Equinox', 'Malibu', 'Silverado', 'Suburban', 'Tahoe', 'Trailblazer', 'Traverse'],
+  'Chrysler': ['300', 'Pacifica'],
+  'Dodge': ['Challenger', 'Charger', 'Durango', 'Hornet'],
+  'Ford': ['Bronco', 'Edge', 'Escape', 'Expedition', 'Explorer', 'F-150', 'Maverick', 'Mustang', 'Ranger'],
+  'Genesis': ['G70', 'G80', 'G90', 'GV70', 'GV80'],
+  'GMC': ['Acadia', 'Canyon', 'Sierra', 'Terrain', 'Yukon'],
+  'Honda': ['Accord', 'Civic', 'CR-V', 'HR-V', 'Odyssey', 'Passport', 'Pilot', 'Ridgeline'],
+  'Hyundai': ['Elantra', 'Ioniq', 'Kona', 'Palisade', 'Santa Fe', 'Sonata', 'Tucson', 'Venue'],
+  'Infiniti': ['Q50', 'Q60', 'QX50', 'QX55', 'QX60', 'QX80'],
+  'Jeep': ['Cherokee', 'Compass', 'Gladiator', 'Grand Cherokee', 'Renegade', 'Wagoneer', 'Wrangler'],
+  'Kia': ['EV6', 'Forte', 'K5', 'Niro', 'Seltos', 'Sorento', 'Soul', 'Sportage', 'Stinger', 'Telluride'],
+  'Lexus': ['ES', 'GX', 'IS', 'NX', 'RX', 'TX', 'UX'],
+  'Lincoln': ['Aviator', 'Corsair', 'Nautilus', 'Navigator'],
+  'Mazda': ['CX-30', 'CX-5', 'CX-50', 'CX-90', 'Mazda3'],
+  'Mercedes-Benz': ['A-Class', 'C-Class', 'E-Class', 'GLA', 'GLB', 'GLC', 'GLE', 'GLS', 'S-Class'],
+  'Mitsubishi': ['Eclipse Cross', 'Outlander', 'Outlander Sport'],
+  'Nissan': ['Altima', 'Frontier', 'Kicks', 'Maxima', 'Murano', 'Pathfinder', 'Rogue', 'Sentra', 'Titan', 'Versa'],
+  'Porsche': ['911', 'Cayenne', 'Macan', 'Panamera', 'Taycan'],
+  'Ram': ['1500', '2500', '3500'],
+  'Subaru': ['Ascent', 'Crosstrek', 'Forester', 'Impreza', 'Legacy', 'Outback', 'WRX'],
+  'Tesla': ['Model 3', 'Model S', 'Model X', 'Model Y', 'Cybertruck'],
+  'Toyota': ['4Runner', 'Camry', 'Corolla', 'GR86', 'Highlander', 'Prius', 'RAV4', 'Sequoia', 'Supra', 'Tacoma', 'Tundra', 'Venza'],
+  'Volkswagen': ['Atlas', 'Golf', 'ID.4', 'Jetta', 'Taos', 'Tiguan'],
+  'Volvo': ['S60', 'S90', 'XC40', 'XC60', 'XC90'],
+};
+
+const CAR_MAKES = Object.keys(CAR_DATA).sort();
 
 export function ProviderVehicles() {
   const navigate = useNavigate();
@@ -33,6 +70,7 @@ export function ProviderVehicles() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
@@ -46,8 +84,12 @@ export function ProviderVehicles() {
     border: `1px solid ${cardBorder}`,
     color: textColor,
     backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F5F9FF',
+    fontSize: 16,
   };
-  const hasRequiredFields = !!form.make.trim() && !!form.model.trim();
+  const effectiveMake = form.make === '__other__' ? form.customMake.trim() : form.make;
+  const effectiveModel = form.model === '__other__' ? form.customModel.trim() : form.model;
+  const modelsForMake = form.make && form.make !== '__other__' ? (CAR_DATA[form.make] || []) : [];
+  const hasRequiredFields = !!effectiveMake && !!effectiveModel;
 
   useEffect(() => {
     if (!user) {
@@ -90,9 +132,13 @@ export function ProviderVehicles() {
 
   function beginEdit(v: Vehicle) {
     setEditingVehicleId(v.id);
+    const makeInList = CAR_MAKES.includes(v.make || '');
+    const modelInList = makeInList && CAR_DATA[v.make]?.includes(v.model || '');
     setForm({
-      make: v.make || '',
-      model: v.model || '',
+      make: makeInList ? v.make : '__other__',
+      model: modelInList ? v.model : '__other__',
+      customMake: makeInList ? '' : (v.make || ''),
+      customModel: modelInList ? '' : (v.model || ''),
       year: v.year ? String(v.year) : '',
       color: v.color || '',
       plate: v.plate || '',
@@ -102,12 +148,12 @@ export function ProviderVehicles() {
 
   async function saveVehicle() {
     if (!user) return;
-    if (!form.make.trim() || !form.model.trim()) return;
+    if (!effectiveMake || !effectiveModel) return;
 
     setSaving(true);
     const payload = {
-      make: form.make.trim(),
-      model: form.model.trim(),
+      make: effectiveMake,
+      model: effectiveModel,
       year: form.year ? parseInt(form.year, 10) : null,
       color: form.color.trim() || null,
       plate: form.plate.trim() || null,
@@ -141,146 +187,197 @@ export function ProviderVehicles() {
   }
 
   async function deleteVehicle(id: string) {
-    if (!user) return;
-    const { error } = await supabase.from('vehicles').delete().eq('id', id).eq('user_id', user.id);
-    if (error) {
-      console.warn('Failed to delete vehicle:', error);
-      alert('Unable to delete vehicle right now.');
-      return;
+    if (!user || actionInProgress) return;
+    setActionInProgress(id);
+    try {
+      const { error } = await supabase.from('vehicles').delete().eq('id', id).eq('user_id', user.id);
+      if (error) throw error;
+      await fetchVehicles();
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setActionInProgress(null);
     }
-    await fetchVehicles();
   }
 
   async function setDefaultVehicle(id: string) {
-    if (!user) return;
-    const clearRes = await supabase.from('vehicles').update({ is_default: false }).eq('user_id', user.id);
-    if (clearRes.error) {
-      console.warn('Failed to clear default vehicle:', clearRes.error);
-      return;
+    if (!user || actionInProgress) return;
+    setActionInProgress(id);
+    try {
+      await supabase.from('vehicles').update({ is_default: false }).eq('user_id', user.id);
+      await supabase.from('vehicles').update({ is_default: true }).eq('id', id).eq('user_id', user.id);
+      await fetchVehicles();
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setActionInProgress(null);
     }
-    const setRes = await supabase.from('vehicles').update({ is_default: true }).eq('id', id).eq('user_id', user.id);
-    if (setRes.error) {
-      console.warn('Failed to set default vehicle:', setRes.error);
-      return;
-    }
-    await fetchVehicles();
   }
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Back to profile">
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-xl font-bold flex-1" style={{ color: textColor }}>Vehicles</h1>
-        <button onClick={beginAdd} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#008CE5] to-[#0070B8]" title="Add vehicle">
-          <Plus className="w-5 h-5 text-white" />
-        </button>
-      </div>
+      <PageHeader
+        title="Vehicles"
+        onBack={() => navigate('/profile')}
+        rightAction={
+          <button onClick={beginAdd} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#008CE5] to-[#0070B8]" title="Add vehicle">
+            <Plus className="w-5 h-5 text-white" />
+          </button>
+        }
+      />
 
-      <div className="px-6 pb-8">
+      <div className="px-6 pb-8" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {showForm && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="rounded-3xl p-5 mb-6"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl p-5 mb-6"
             style={{
               backgroundColor: cardBg,
               border: `1px solid ${cardBorder}`,
-              boxShadow: isDark ? 'none' : '0 8px 24px rgba(0,0,0,0.05)',
+              boxShadow: isDark ? 'none' : '0 4px 16px rgba(0,0,0,0.06)',
             }}
           >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.12)' }}>
-                <Car className="w-5 h-5" style={{ color: '#008CE5' }} />
-              </div>
+            <h3 className="font-bold text-base mb-4" style={{ color: textColor }}>
+              {editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}
+            </h3>
+
+            <div className="space-y-4">
+              {/* Make */}
               <div>
-                <h3 className="font-semibold" style={{ color: textColor }}>{editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}</h3>
-                <p className="text-xs" style={{ color: subColor }}>Make and model are required.</p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs font-medium mb-1" style={{ color: subColor }}>Make</p>
-                  <input
-                    type="text"
+                <label className="block text-xs font-medium mb-1.5" style={{ color: subColor }}>Make *</label>
+                <div className="relative">
+                  <select
                     value={form.make}
-                    onChange={(e) => setForm({ ...form, make: e.target.value })}
-                    placeholder="e.g. Toyota"
-                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    onChange={(e) => setForm({ ...form, make: e.target.value, model: '', customMake: '', customModel: '' })}
+                    className="w-full rounded-xl px-4 py-3 text-sm appearance-none outline-none"
                     style={inputStyle}
-                  />
+                  >
+                    <option value="">Select make...</option>
+                    {CAR_MAKES.map(make => (
+                      <option key={make} value={make}>{make}</option>
+                    ))}
+                    <option value="__other__">Other</option>
+                  </select>
+                  <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: subColor }} />
                 </div>
-                <div>
-                  <p className="text-xs font-medium mb-1" style={{ color: subColor }}>Model</p>
+                {form.make === '__other__' && (
                   <input
                     type="text"
-                    value={form.model}
-                    onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    placeholder="e.g. Camry"
-                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
+                    value={form.customMake}
+                    onChange={(e) => setForm({ ...form, customMake: e.target.value })}
+                    placeholder="Enter car make"
+                    className="w-full rounded-xl px-4 py-3 text-sm bg-transparent outline-none mt-2"
                     style={inputStyle}
+                    autoFocus
                   />
-                </div>
+                )}
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <p className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: subColor }}>
-                    <Calendar className="w-3.5 h-3.5" />
-                    Year
-                  </p>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={form.year}
-                    onChange={(e) => setForm({ ...form, year: e.target.value.slice(0, 4) })}
-                    placeholder="2025"
-                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <p className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: subColor }}>
-                    <Palette className="w-3.5 h-3.5" />
-                    Color
-                  </p>
+
+              {/* Model */}
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: subColor }}>Model *</label>
+                {form.make && form.make !== '__other__' && modelsForMake.length > 0 ? (
+                  <>
+                    <div className="relative">
+                      <select
+                        value={form.model}
+                        onChange={(e) => setForm({ ...form, model: e.target.value, customModel: '' })}
+                        className="w-full rounded-xl px-4 py-3 text-sm appearance-none outline-none"
+                        style={inputStyle}
+                      >
+                        <option value="">Select model...</option>
+                        {modelsForMake.map(model => (
+                          <option key={model} value={model}>{model}</option>
+                        ))}
+                        <option value="__other__">Other</option>
+                      </select>
+                      <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: subColor }} />
+                    </div>
+                    {form.model === '__other__' && (
+                      <input
+                        type="text"
+                        value={form.customModel}
+                        onChange={(e) => setForm({ ...form, customModel: e.target.value })}
+                        placeholder="Enter car model"
+                        className="w-full rounded-xl px-4 py-3 text-sm bg-transparent outline-none mt-2"
+                        style={inputStyle}
+                        autoFocus
+                      />
+                    )}
+                  </>
+                ) : (
                   <input
                     type="text"
-                    value={form.color}
-                    onChange={(e) => setForm({ ...form, color: e.target.value })}
-                    placeholder="Black"
-                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
-                    style={inputStyle}
+                    value={form.make === '__other__' ? form.customModel : form.model}
+                    onChange={(e) => form.make === '__other__'
+                      ? setForm({ ...form, customModel: e.target.value })
+                      : setForm({ ...form, model: e.target.value })
+                    }
+                    placeholder={form.make ? 'Enter model' : 'Select make first'}
+                    disabled={!form.make}
+                    className="w-full rounded-xl px-4 py-3 text-sm bg-transparent outline-none"
+                    style={{ ...inputStyle, opacity: form.make ? 1 : 0.5 }}
                   />
-                </div>
-                <div>
-                  <p className="text-xs font-medium mb-1 flex items-center gap-1" style={{ color: subColor }}>
-                    <Hash className="w-3.5 h-3.5" />
-                    Plate
-                  </p>
-                  <input
-                    type="text"
-                    value={form.plate}
-                    onChange={(e) => setForm({ ...form, plate: e.target.value.toUpperCase() })}
-                    placeholder="ABC1234"
-                    className="w-full rounded-xl px-3.5 py-2.5 text-sm bg-transparent outline-none"
-                    style={inputStyle}
-                  />
-                </div>
+                )}
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => { setShowForm(false); setEditingVehicleId(null); setForm(emptyForm); }} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E8F0FB', color: subColor }}>Cancel</button>
+
+              {/* Year */}
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: subColor }}>Year</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={form.year}
+                  onChange={(e) => setForm({ ...form, year: e.target.value.slice(0, 4) })}
+                  placeholder="e.g. 2025"
+                  className="w-full rounded-xl px-4 py-3 text-sm bg-transparent outline-none"
+                  style={inputStyle}
+                />
+              </div>
+
+              {/* Color */}
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: subColor }}>Color</label>
+                <input
+                  type="text"
+                  value={form.color}
+                  onChange={(e) => setForm({ ...form, color: e.target.value })}
+                  placeholder="e.g. Black"
+                  className="w-full rounded-xl px-4 py-3 text-sm bg-transparent outline-none"
+                  style={inputStyle}
+                />
+              </div>
+
+              {/* License Plate */}
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: subColor }}>License Plate</label>
+                <input
+                  type="text"
+                  value={form.plate}
+                  onChange={(e) => setForm({ ...form, plate: e.target.value.toUpperCase() })}
+                  placeholder="e.g. ABC1234"
+                  className="w-full rounded-xl px-4 py-3 text-sm bg-transparent outline-none"
+                  style={inputStyle}
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => { setShowForm(false); setEditingVehicleId(null); setForm(emptyForm); }}
+                  className="flex-1 rounded-xl py-3.5 font-medium text-sm"
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E8F0FB', color: subColor }}
+                >
+                  Cancel
+                </button>
                 <button
                   onClick={saveVehicle}
-                  disabled={saving}
-                  className="flex-1 rounded-xl py-3 font-bold text-sm text-white"
+                  disabled={saving || !hasRequiredFields}
+                  className="flex-1 rounded-xl py-3.5 font-bold text-sm text-white disabled:opacity-50"
                   style={{
-                    background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                    boxShadow: '0 8px 18px rgba(0,140,229,0.30)',
-                    opacity: hasRequiredFields ? 1 : 0.6,
-                    cursor: hasRequiredFields ? 'pointer' : 'not-allowed',
-                    border: '1px solid rgba(0,140,229,0.45)',
+                    background: hasRequiredFields ? 'linear-gradient(135deg, #008CE5, #0070B8)' : (isDark ? 'rgba(255,255,255,0.1)' : '#C5D5E8'),
+                    boxShadow: hasRequiredFields ? '0 6px 16px rgba(0,140,229,0.25)' : 'none',
                   }}
                 >
                   {saving ? 'Saving...' : editingVehicleId ? 'Update Vehicle' : 'Add Vehicle'}
@@ -317,14 +414,14 @@ export function ProviderVehicles() {
                 </div>
                 {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>Default</span>}
                 {!v.is_default && (
-                  <button onClick={() => setDefaultVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }} title="Set as default">
+                  <button onClick={() => setDefaultVehicle(v.id)} disabled={!!actionInProgress} className="p-2 rounded-lg disabled:opacity-40" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }} title="Set as default">
                     <Star className="w-4 h-4" style={{ color: subColor }} />
                   </button>
                 )}
                 <button onClick={() => beginEdit(v)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }} title="Edit vehicle">
                   <Pencil className="w-4 h-4" style={{ color: subColor }} />
                 </button>
-                <button onClick={() => deleteVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.08)' }} title="Delete vehicle">
+                <button onClick={() => deleteVehicle(v.id)} disabled={!!actionInProgress} className="p-2 rounded-lg disabled:opacity-40" style={{ backgroundColor: 'rgba(239,68,68,0.08)' }} title="Delete vehicle">
                   <Trash2 className="w-4 h-4 text-red-500" />
                 </button>
               </motion.div>

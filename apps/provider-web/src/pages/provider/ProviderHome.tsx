@@ -8,7 +8,9 @@ import { useTheme } from '../../context/ThemeContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { GoogleMap, Marker } from '@react-google-maps/api';
 import { supabase } from '../../lib/supabase';
+import { loadPlatformSettings } from '../../lib/platformSettings';
 import { initAudio, playRequestRingtone, stopRequestRingtone, requestNotificationPermission, showSystemNotification } from '../../utils/audio';
+import { Haptics } from '@capacitor/haptics';
 
 // ── Haversine distance in miles ───────────────────────────────────
 function calcDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -64,12 +66,12 @@ const lightMapStyle = [
 ];
 
 const mapContainerStyle = { width: '100%', height: '100%' };
-const INCOMING_REQUEST_TIMEOUT_SECONDS = 30;
+const INCOMING_REQUEST_TIMEOUT_SECONDS = 90;
 
 export function ProviderHome() {
   const navigate = useNavigate();
   const routerLocation = useLocation();
-  const { user, profile, isVerified } = useAuth() as any;
+  const { user, profile, isVerified, providerProfile, refreshProviderProfile, refreshProfile } = useAuth() as any;
   const { isDark } = useTheme();
   const { isLoaded } = useGoogleMaps();
   const [isOnline, setIsOnline] = useState(false);
@@ -84,10 +86,16 @@ export function ProviderHome() {
   const [tipToast, setTipToast] = useState<{ amount: number; service: string } | null>(null);
   const [providerServices, setProviderServices] = useState<string[]>([]);
   const providerServicesRef = useRef<string[]>([]);
+  const [activeJob, setActiveJob] = useState<{ id: string; status: string; service_name?: string; customer_name?: string } | null>(null);
+  const [expiredDocCount, setExpiredDocCount] = useState(0);
+  const [expiringSoonDocs, setExpiringSoonDocs] = useState<{ type: string; daysLeft: number }[]>([]);
+  const [revocationReason, setRevocationReason] = useState<string | null>(null);
+  const [graceInfo, setGraceInfo] = useState<{ daysLeft: number; expired: boolean; missingDocs: boolean } | null>(null);
 
   // Track dismissed jobs — backed by DB table provider_job_dismissals
   const dismissedJobIds = useRef<Set<string>>(new Set());
   const announcedJobIds = useRef<Set<string>>(new Set());
+  const dismissalsLoaded = useRef(false);
   const navigatingToJob = useRef(false);
   const incomingJobRef = useRef<any>(null);
   const incomingQueueRef = useRef<any[]>([]);
@@ -113,14 +121,15 @@ export function ProviderHome() {
     playRequestRingtone();
     // WebView can resume audio context a moment late; retry once.
     setTimeout(() => playRequestRingtone(), 220);
-    if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300, 100, 300]);
+    Haptics.vibrate({ duration: 500 }).catch(() => {});
+    navigator.vibrate?.([300, 100, 300, 100, 300, 100, 300]);
   }, []);
 
   const closeIncomingRequest = useCallback(() => {
     setIncomingJob(null);
     setIncomingCountdown(0);
     stopRequestRingtone();
-    if (navigator.vibrate) navigator.vibrate(0);
+    navigator.vibrate?.(0);
     clearIncomingTimers();
   }, [clearIncomingTimers]);
 
@@ -180,10 +189,14 @@ export function ProviderHome() {
     if (nextJob) openIncomingRequest(nextJob);
   }, [incomingJob, isOnline, openIncomingRequest]);
 
-  // Defensive fallback: if requests are visible but no popup is active, surface one.
+  // Defensive fallback: if requests are visible but no popup is active, surface a RECENT one.
+  // Only announce jobs created in the last 2 minutes — older ones sit quietly in the list.
   useEffect(() => {
     if (!isOnline || incomingJob || pendingRequests.length === 0) return;
-    const candidate = pendingRequests.find((j: any) => j?.id && !dismissedJobIds.current.has(j.id));
+    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const candidate = pendingRequests.find((j: any) =>
+      j?.id && !dismissedJobIds.current.has(j.id) && !announcedJobIds.current.has(j.id) && j.created_at >= twoMinAgo
+    );
     if (candidate) announceIncomingJob(candidate);
   }, [isOnline, incomingJob, pendingRequests, announceIncomingJob]);
 
@@ -208,7 +221,7 @@ export function ProviderHome() {
     return () => clearIncomingTimers();
   }, [incomingJob, clearIncomingTimers, closeIncomingRequest, dismissJob]);
 
-  // Load dismissed job IDs from DB on mount
+  // Load dismissed job IDs from DB on mount — must complete before polling starts
   useEffect(() => {
     if (!user) return;
     supabase
@@ -221,6 +234,7 @@ export function ProviderHome() {
           dismissedJobIds.current = new Set(ids);
           ids.forEach((id: string) => announcedJobIds.current.add(id));
         }
+        dismissalsLoaded.current = true;
       });
   }, [user]);
 
@@ -228,44 +242,35 @@ export function ProviderHome() {
     mapRef.current = map;
   }, []);
 
-  // Get provider's current location with proper permission handling
+  // Get provider's current location — uses Capacitor native API (never re-prompts)
   useEffect(() => {
-    if (!navigator.geolocation) return;
+    let watchId: string | null = null;
+    let cancelled = false;
 
-    const requestLocation = () => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setCurrentPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => {
-          console.warn('Geolocation error:', err.message);
-          setCurrentPos({ lat: 40.7128, lng: -74.006 });
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    };
+    async function start() {
+      const { safeWatchPosition, getSafePosition } = await import('../../utils/safeLocation');
+      if (cancelled) return;
 
-    if (navigator.permissions) {
-      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
-        if (result.state === 'prompt' || result.state === 'granted') {
-          requestLocation();
-        } else {
-          setCurrentPos({ lat: 40.7128, lng: -74.006 });
-        }
-      }).catch(() => requestLocation());
-    } else {
-      requestLocation();
+      // Start watching — returns null if permission not granted (no prompt)
+      watchId = await safeWatchPosition((pos) => {
+        setCurrentPos({ lat: pos.lat, lng: pos.lng });
+        if (mapRef.current) mapRef.current.panTo({ lat: pos.lat, lng: pos.lng });
+      });
+
+      // If watch didn't start (no permission), use a one-shot fallback
+      if (!watchId) {
+        const fallback = await getSafePosition();
+        if (!cancelled) setCurrentPos(fallback);
+      }
     }
+    start();
 
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const newPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setCurrentPos(newPos);
-        if (mapRef.current) mapRef.current.panTo(newPos);
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 10000 }
-    );
-
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => {
+      cancelled = true;
+      if (watchId) {
+        import('../../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchId));
+      }
+    };
   }, []);
 
   // Persist provider location to provider_locations table for tiered dispatch
@@ -292,8 +297,8 @@ export function ProviderHome() {
     // Immediate upsert when going online or position changes
     upsertLocation();
 
-    // Periodic upsert every 30 seconds
-    locationUpsertRef.current = setInterval(upsertLocation, 30000);
+    // Periodic upsert every 10 seconds for accurate dispatch matching
+    locationUpsertRef.current = setInterval(upsertLocation, 10000);
 
     return () => {
       if (locationUpsertRef.current) {
@@ -364,6 +369,169 @@ export function ProviderHome() {
     }
     loadStats();
   }, [user]);
+
+  // Check for active jobs — show banner so provider can return to ongoing session
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    async function checkActiveJob() {
+      try {
+        const { data } = await supabase
+          .from('jobs')
+          .select('id, status, service_id, services(name), customers:customer_id(first_name)')
+          .eq('provider_id', user.id)
+          .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+          .limit(1)
+          .maybeSingle();
+
+        if (cancelled) return;
+        if (data) {
+          setActiveJob({
+            id: data.id,
+            status: data.status,
+            service_name: (data as any).services?.name || undefined,
+            customer_name: (data as any).customers?.first_name || undefined,
+          });
+        } else {
+          setActiveJob(null);
+        }
+      } catch {
+        if (!cancelled) setActiveJob(null);
+      }
+    }
+
+    checkActiveJob();
+    const interval = setInterval(checkActiveJob, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [user]);
+
+  // Check for expired and expiring-soon documents
+  useEffect(() => {
+    if (!user) return;
+    const today = new Date().toISOString().split('T')[0];
+    const in30Days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    supabase
+      .from('documents')
+      .select('id, type, expires_at')
+      .eq('provider_id', user.id)
+      .not('expires_at', 'is', null)
+      .then(async ({ data }) => {
+        if (!data) return;
+
+        // Already expired
+        const expired = data.filter(d => d.expires_at < today);
+        setExpiredDocCount(expired.length);
+        if (expired.length > 0 && isOnline) {
+          setIsOnline(false);
+          supabase.from('provider_profiles').upsert({ id: user.id, is_online: false }).then(() => {});
+        }
+
+        // Expiring within 30 days (not yet expired)
+        const expiring = data
+          .filter(d => d.expires_at >= today && d.expires_at <= in30Days)
+          .map(d => {
+            const diff = Math.ceil((new Date(d.expires_at + 'T00:00:00').getTime() - new Date(today + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24));
+            return { type: d.type, daysLeft: diff };
+          })
+          .sort((a, b) => a.daysLeft - b.daysLeft);
+        setExpiringSoonDocs(expiring);
+
+        // Create notification reminders for expiring docs (once per document)
+        if (expiring.length > 0) {
+          for (const doc of expiring) {
+            const notifTitle = `Document Expiring Soon`;
+            const notifMessage = `Your ${doc.type.replace(/_/g, ' ')} expires in ${doc.daysLeft} day${doc.daysLeft !== 1 ? 's' : ''}. Please upload an updated version.`;
+            // Check if we already sent a reminder for this doc this week
+            const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: existing } = await supabase
+              .from('notifications')
+              .select('id')
+              .eq('user_id', user.id)
+              .eq('type', 'warning')
+              .ilike('message', `%${doc.type.replace(/_/g, ' ')}%expires%`)
+              .gte('created_at', weekAgo)
+              .limit(1);
+            if (!existing || existing.length === 0) {
+              await supabase.from('notifications').insert({
+                user_id: user.id,
+                type: 'warning',
+                title: notifTitle,
+                message: notifMessage,
+                read: false,
+              });
+            }
+          }
+        }
+      });
+  }, [user]);
+
+  // Check document grace period
+  useEffect(() => {
+    if (!user || !providerProfile?.created_at) return;
+    // Already fully verified — no grace period check needed
+    if (isVerified) { setGraceInfo(null); return; }
+
+    async function checkGrace() {
+      const settings = await loadPlatformSettings();
+      const graceDays = settings.document_grace_period_days || 30;
+      const createdAt = new Date(providerProfile.created_at);
+      const deadline = new Date(createdAt.getTime() + graceDays * 24 * 60 * 60 * 1000);
+      const now = new Date();
+      const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+      // Check if all required docs are submitted
+      const [docsRes, typesRes] = await Promise.all([
+        supabase.from('documents').select('type').eq('provider_id', user.id),
+        supabase.from('document_types').select('id').eq('is_required', true).eq('is_active', true),
+      ]);
+      const uploadedTypes = new Set((docsRes.data || []).map((d: any) => d.type));
+      const requiredTypes = (typesRes.data || []).map((t: any) => t.id);
+      const missingDocs = requiredTypes.some((t: string) => !uploadedTypes.has(t));
+
+      setGraceInfo({ daysLeft, expired: daysLeft <= 0, missingDocs });
+    }
+    checkGrace();
+  }, [user, providerProfile?.created_at, isVerified]);
+
+  // Poll verification status on Home when not yet verified
+  useEffect(() => {
+    if (!user || isVerified) return;
+    // Immediately refresh once, then poll every 10s
+    refreshProviderProfile?.();
+    refreshProfile?.();
+    const interval = setInterval(() => {
+      refreshProviderProfile?.();
+      refreshProfile?.();
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [user, isVerified, refreshProviderProfile, refreshProfile]);
+
+  // Force offline if account gets suspended while online
+  useEffect(() => {
+    if (!user || isVerified) return;
+    if (revocationReason && isOnline) {
+      setIsOnline(false);
+      supabase.from('provider_profiles').upsert({ id: user.id, is_online: false }).then(() => {});
+    }
+  }, [user, isVerified, revocationReason, isOnline]);
+
+  // Fetch latest revocation reason when not verified
+  useEffect(() => {
+    if (!user || isVerified) { setRevocationReason(null); return; }
+    supabase
+      .from('notifications')
+      .select('message')
+      .eq('user_id', user.id)
+      .eq('type', 'alert')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setRevocationReason(data?.message || null);
+      });
+  }, [user, isVerified]);
 
   // Capture declined/cancelled/timed-out job IDs passed via navigation state
   useEffect(() => {
@@ -461,13 +629,24 @@ export function ProviderHome() {
   }, [isOnline, user, navigate, announceIncomingJob]);
 
   // Poll for pending jobs (backup in case broadcast is missed)
+  // Only show jobs still pending, never accepted, and less than 2 hours old
   const loadPending = useCallback(async () => {
+    // Wait until dismissed IDs are loaded from DB to avoid showing dismissed jobs
+    if (!dismissalsLoaded.current) return;
+
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+
+    // Job expiry is handled server-side by the push worker (2-hour window).
+    // Here we just fetch pending jobs within that window.
     const { data } = await supabase
       .from('jobs')
       .select('id, service_id, pickup_address, pickup_latitude, pickup_longitude, total_amount, base_price, created_at')
       .eq('status', 'pending')
       .is('provider_id', null)
-      .order('created_at', { ascending: false });
+      .gte('created_at', twoHoursAgo)
+      .order('created_at', { ascending: false })
+      .limit(10);
     if (data) {
       // Filter out dismissed jobs and jobs for services we don't offer
       const myServices = providerServicesRef.current;
@@ -491,11 +670,16 @@ export function ProviderHome() {
         });
       }
 
-      // Announce newly seen jobs even if broadcast was missed
-      const unseen = filtered.filter((j: any) => !announcedJobIds.current.has(j.id));
+      // Only announce/ring for TRULY NEW jobs (created in last 2 minutes)
+      // Older pending jobs show quietly in the list without popup/sound
+      const unseen = filtered.filter((j: any) =>
+        !announcedJobIds.current.has(j.id) && j.created_at >= twoMinAgo
+      );
       if (isOnline && unseen.length > 0) {
         announceIncomingJob(unseen[0]);
       }
+      // Mark all loaded jobs as "seen" so they never re-announce
+      filtered.forEach((j: any) => announcedJobIds.current.add(j.id));
       setPendingRequests(filtered);
     }
   }, [announceIncomingJob, isOnline, currentPos]);
@@ -518,9 +702,24 @@ export function ProviderHome() {
 
     const newStatus = !isOnline;
 
+    // Block going online if account is suspended
+    if (newStatus && !isVerified && revocationReason) {
+      navigate('/verification-pending');
+      return;
+    }
     // Require at least one service selected before going online
     if (newStatus && providerServicesRef.current.length === 0) {
       navigate('/services');
+      return;
+    }
+    // Block going online if documents are expired
+    if (newStatus && expiredDocCount > 0) {
+      navigate('/documents');
+      return;
+    }
+    // Block going online if grace period expired and missing docs
+    if (newStatus && graceInfo?.expired && graceInfo?.missingDocs) {
+      navigate('/documents');
       return;
     }
     setIsOnline(newStatus);
@@ -546,9 +745,9 @@ export function ProviderHome() {
   };
 
   const stats = [
-    { label: 'Today', value: `$${todayEarnings.toFixed(2)}`, icon: DollarSign, color: '#008CE5' },
-    { label: 'Jobs', value: `${completedCount}`, icon: Clock, color: '#0070B8' },
-    { label: 'Rating', value: providerRating > 0 ? providerRating.toFixed(1) : '-', icon: Star, color: '#F59E0B' },
+    { label: 'Today', value: `$${todayEarnings.toFixed(2)}`, icon: DollarSign, color: '#008CE5', route: '/earnings' },
+    { label: 'Jobs', value: `${completedCount}`, icon: Clock, color: '#0070B8', route: '/reporting' },
+    { label: 'Rating', value: providerRating > 0 ? providerRating.toFixed(1) : '-', icon: Star, color: '#F59E0B', route: '/provider/ratings-reviews' },
   ];
 
   // Filter out dismissed jobs from the visible list
@@ -619,6 +818,9 @@ export function ProviderHome() {
 
       {/* Gradient overlay */}
       <div className="absolute inset-0 z-[1] pointer-events-none" style={{ background: overlayGradient }} />
+
+      {/* Note: status banners (active job, expired docs, expiring soon, grace period) are rendered
+           inside the bottom content panel below so they flow naturally and don't overlap the toggle */}
 
       {/* Incoming Request Full-screen Overlay */}
       {incomingJob && createPortal(
@@ -765,8 +967,151 @@ export function ProviderHome() {
 
         {/* Bottom content panel */}
         <div className="px-4 space-y-4">
-          {/* Verification required banner */}
-          {!isVerified && (
+          {/* Active job banner — return to ongoing session */}
+          {activeJob && (
+            <button
+              onClick={() => navigate(`/job/${activeJob.id}`)}
+              className="w-full rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                boxShadow: '0 8px 24px rgba(0,140,229,0.4)',
+              }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/20">
+                <Navigation className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-white font-bold text-sm">Active Job in Progress</p>
+                <p className="text-white/70 text-xs">
+                  {activeJob.service_name || 'Service'}{activeJob.customer_name ? ` · ${activeJob.customer_name}` : ''} · Tap to return
+                </p>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                <span className="text-white text-lg">→</span>
+              </div>
+            </button>
+          )}
+
+          {/* Expired documents warning banner */}
+          {expiredDocCount > 0 && !activeJob && (
+            <button
+              onClick={() => navigate('/documents')}
+              className="w-full rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, #EF4444, #DC2626)',
+                boxShadow: '0 8px 24px rgba(239,68,68,0.35)',
+              }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/20">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-white font-bold text-sm">Expired Documents</p>
+                <p className="text-white/70 text-xs">
+                  {expiredDocCount} document{expiredDocCount !== 1 ? 's' : ''} expired. Tap to update and avoid suspension.
+                </p>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                <span className="text-white text-lg">→</span>
+              </div>
+            </button>
+          )}
+
+          {/* Expiring soon documents warning banner */}
+          {expiringSoonDocs.length > 0 && expiredDocCount === 0 && !activeJob && (
+            <button
+              onClick={() => navigate('/documents')}
+              className="w-full rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+                boxShadow: '0 8px 24px rgba(245,158,11,0.35)',
+              }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/20">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-white font-bold text-sm">Documents Expiring Soon</p>
+                <p className="text-white/70 text-xs">
+                  {expiringSoonDocs.length === 1
+                    ? `Your ${expiringSoonDocs[0].type.replace(/_/g, ' ')} expires in ${expiringSoonDocs[0].daysLeft} day${expiringSoonDocs[0].daysLeft !== 1 ? 's' : ''}.`
+                    : `${expiringSoonDocs.length} documents expiring soon. Earliest in ${expiringSoonDocs[0].daysLeft} day${expiringSoonDocs[0].daysLeft !== 1 ? 's' : ''}.`}
+                </p>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                <span className="text-white text-lg">→</span>
+              </div>
+            </button>
+          )}
+
+          {/* Grace period banner */}
+          {graceInfo && graceInfo.missingDocs && !activeJob && expiredDocCount === 0 && (
+            <button
+              onClick={() => navigate('/documents')}
+              className="w-full rounded-2xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform shadow-lg"
+              style={{
+                background: graceInfo.expired
+                  ? 'linear-gradient(135deg, #EF4444, #DC2626)'
+                  : 'linear-gradient(135deg, #F59E0B, #D97706)',
+                boxShadow: graceInfo.expired
+                  ? '0 8px 24px rgba(239,68,68,0.35)'
+                  : '0 8px 24px rgba(245,158,11,0.35)',
+              }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/20">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-white font-bold text-sm">
+                  {graceInfo.expired ? 'Account Locked — Documents Required' : `${graceInfo.daysLeft} Day${graceInfo.daysLeft !== 1 ? 's' : ''} Left to Submit Documents`}
+                </p>
+                <p className="text-white/70 text-xs">
+                  {graceInfo.expired
+                    ? 'Your grace period has ended. Submit all required documents to unlock your account.'
+                    : 'Upload all required documents before your grace period expires.'}
+                </p>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                <span className="text-white text-lg">→</span>
+              </div>
+            </button>
+          )}
+
+          {/* Account suspended banner — admin revoked verification */}
+          {!isVerified && revocationReason && (
+            <div
+              className="rounded-[28px] p-5 flex items-start gap-4"
+              style={{
+                backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : '#FEF2F2',
+                border: `1px solid ${isDark ? 'rgba(239,68,68,0.2)' : '#FECACA'}`,
+              }}
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(239,68,68,0.15)' }}>
+                <AlertTriangle className="w-5 h-5" style={{ color: '#EF4444' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm mb-1" style={{ color: isDark ? '#EF4444' : '#B91C1C' }}>
+                  Account Suspended
+                </p>
+                <p className="text-xs mb-2 font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>
+                  {revocationReason}
+                </p>
+                <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
+                  Please contact support or check your application status for more details.
+                </p>
+                <button
+                  onClick={() => navigate('/verification-pending')}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full"
+                  style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#EF4444' }}
+                >
+                  View Application Status
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Verification pending banner — not yet approved, no revocation */}
+          {!isVerified && !revocationReason && (
             <div
               className="rounded-[28px] p-5 flex items-start gap-4"
               style={{
@@ -845,18 +1190,20 @@ export function ProviderHome() {
             {stats.map((stat, index) => {
               const Icon = stat.icon;
               return (
-                <motion.div
+                <motion.button
                   key={stat.label}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => navigate(stat.route)}
                   className="rounded-2xl p-3.5 text-center backdrop-blur-xl"
                   style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 2px 8px rgba(0,0,0,0.04)' }}
                 >
                   <Icon className="w-5 h-5 mx-auto mb-1.5" style={{ color: stat.color }} />
                   <p className="font-bold text-lg leading-tight" style={{ color: textColor }}>{stat.value}</p>
                   <p className="text-[11px]" style={{ color: subColor }}>{stat.label}</p>
-                </motion.div>
+                </motion.button>
               );
             })}
           </div>

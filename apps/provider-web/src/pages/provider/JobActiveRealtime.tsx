@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 import {
   Navigation,
   Navigation2 as RecenterIcon,
@@ -17,6 +18,8 @@ import {
   Wrench,
   Flag,
   AlertTriangle,
+  CalendarCheck,
+  Play,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -31,6 +34,7 @@ import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
 import { initAudio, playMessageSound, showSystemNotification } from '../../utils/audio';
+import { decryptMessage } from '../../lib/chatEncryption';
 
 type UiStatus = 'enroute' | 'arrived' | 'working' | 'photos';
 
@@ -92,12 +96,16 @@ export function JobActiveRealtime() {
   const { currentJob, fetchJob, updateJobStatus, cancelJob, subscribeToJobUpdates } = useJob();
 
   const [status, setStatusRaw] = useState<UiStatus>('enroute');
+  const [showScheduledScreen, setShowScheduledScreen] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [hasUnreadChat, setHasUnreadChat] = useState(false);
   const [isCallOpen, setIsCallOpen] = useState(false);
   const [isCallOutgoing, setIsCallOutgoing] = useState(true);
   const [shareToast, setShareToast] = useState(false);
+  const [showNavPicker, setShowNavPicker] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelCustomReason, setCancelCustomReason] = useState('');
@@ -128,6 +136,12 @@ export function JobActiveRealtime() {
     });
   }, []);
 
+  // Keep screen awake during active service
+  useEffect(() => {
+    KeepAwake.keepAwake().catch(() => {});
+    return () => { KeepAwake.allowSleep().catch(() => {}); };
+  }, []);
+
   // Provider device location (source of truth for real-time movement)
   const myPosition = useWatchPosition(true);
   const { broadcastLocation } = useRealtimeLocation({ jobId, role: 'provider', enabled: !!jobId });
@@ -141,6 +155,18 @@ export function JobActiveRealtime() {
     }
   }, [myPosition, broadcastLocation]);
 
+  // Re-broadcast fresh position immediately when app returns from background
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && myPosition) {
+        // Force immediate re-broadcast so customer gets fresh provider position
+        broadcastLocation(myPosition);
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [myPosition, broadcastLocation]);
+
   // Initial fetch — set status from DB
   useEffect(() => {
     if (!jobId) return;
@@ -148,6 +174,17 @@ export function JobActiveRealtime() {
       .then((job: any) => {
         setStatus(mapJobStatusToUi(job?.status));
         if (job?.customer_completed_at) setCustomerConfirmed(true);
+        // Show scheduled screen only for genuine scheduled requests (not instant)
+        // A real scheduled request has scheduled_for well after created_at AND in the future
+        if (job?.scheduled_for && job?.status === 'accepted') {
+          const scheduledTime = new Date(job.scheduled_for).getTime();
+          const createdTime = new Date(job.created_at).getTime();
+          const now = Date.now();
+          const isGenuinelyScheduled = (scheduledTime - createdTime > 30 * 60 * 1000) && (scheduledTime - now > 10 * 60 * 1000);
+          if (isGenuinelyScheduled) {
+            setShowScheduledScreen(true);
+          }
+        }
       })
       .catch(console.warn);
   }, [jobId, fetchJob, setStatus]);
@@ -239,6 +276,23 @@ export function JobActiveRealtime() {
       });
     }
   }, [jobId, setStatus, updateJobStatus]);
+
+  // Begin service for scheduled jobs — transitions to enroute state
+  const beginScheduledService = useCallback(async () => {
+    setShowScheduledScreen(false);
+    if (jobId) {
+      // Broadcast to customer that provider is heading their way
+      const bc = supabase.channel(`job-accepted-${jobId}`);
+      bc.subscribe((s) => {
+        if (s === 'SUBSCRIBED') {
+          bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'enroute' } }).catch(() => {});
+          setTimeout(() => supabase.removeChannel(bc), 2000);
+        }
+      });
+      // Update DB status
+      await updateJobStatus(jobId, 'enroute').catch(console.warn);
+    }
+  }, [jobId, updateJobStatus]);
 
   const customerName = currentJob?.customer
     ? `${currentJob.customer.first_name || ''} ${currentJob.customer.last_name || ''}`.trim()
@@ -444,17 +498,19 @@ export function JobActiveRealtime() {
       config: { broadcast: { self: false } },
     });
     channel
-      .on('broadcast', { event: 'new_message' }, (payload) => {
+      .on('broadcast', { event: 'new_message' }, async (payload) => {
         const msg = payload.payload;
         if (!msg || msg.sender_role === 'provider') return;
+        setHasUnreadChat(true);
         if (!isChatOpenRef.current) {
           initAudio();
           playMessageSound();
           if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
           const senderName = msg.sender_name || 'Customer';
+          const plainText = msg.text ? await decryptMessage(jobId!, msg.text) : '';
           showSystemNotification(
             `Message from ${senderName}`,
-            msg.text?.slice(0, 80) || 'Sent you a message',
+            plainText?.slice(0, 80) || 'Sent you a message',
             `chat-${jobId}`,
           );
         }
@@ -465,26 +521,27 @@ export function JobActiveRealtime() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const takePhoto = async () => {
+  const takePhoto = async (source: CameraSource = CameraSource.Prompt) => {
     try {
       const image = await CapCamera.getPhoto({
         quality: 80,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
-        source: CameraSource.Prompt, // let user choose camera or gallery
+        source,
+        promptLabelHeader: 'Add Photo',
+        promptLabelPhoto: 'Choose from Gallery',
+        promptLabelPicture: 'Take Photo',
       });
       if (image.dataUrl) {
         setPhotos((prev) => [...prev, image.dataUrl!]);
+        if (status === 'working') setStatus('photos');
       }
     } catch (e: any) {
-      // Fallback to native file input if Capacitor Camera fails (e.g. web browser)
-      if (e?.message?.includes?.('not implemented') || e?.message?.includes?.('not available')) {
-        fileInputRef.current?.click();
-      } else {
-        console.warn('Camera error:', e);
-        // Still try file input as fallback
-        fileInputRef.current?.click();
-      }
+      const msg = e?.message || '';
+      if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('User cancelled')) return;
+      console.warn('Camera error:', e);
+      // Fallback to native file input
+      fileInputRef.current?.click();
     }
   };
 
@@ -502,11 +559,46 @@ export function JobActiveRealtime() {
     e.target.value = '';
   };
 
-  const handleCall = () => {
-    setIsCallOutgoing(true);
-    setIsCallOpen(true);
+  const uploadPhotosAndComplete = async () => {
+    if (!jobId) return;
+    setUploadingPhotos(true);
+    try {
+      if (photos.length > 0) {
+        const urls: string[] = [];
+        for (const dataUrl of photos) {
+          try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+            const path = `jobs/${jobId}/provider_${Date.now()}_${urls.length}.${ext}`;
+            const { error } = await supabase.storage.from('job-photos').upload(path, blob, { contentType: blob.type, upsert: true });
+            if (!error) {
+              const { data: urlData } = supabase.storage.from('job-photos').getPublicUrl(path);
+              if (urlData?.publicUrl) urls.push(urlData.publicUrl);
+            }
+          } catch { /* skip failed individual photo */ }
+        }
+        // Save photo URLs to the job
+        if (urls.length > 0) {
+          await supabase.from('jobs').update({ provider_photo_urls: urls }).eq('id', jobId);
+        }
+      }
+      navigate(`/complete/${jobId}`);
+    } catch (e) {
+      console.warn('Photo upload failed:', e);
+      // Navigate anyway so provider isn't stuck
+      navigate(`/complete/${jobId}`);
+    } finally {
+      setUploadingPhotos(false);
+    }
   };
-  const handleMessage = () => setIsChatOpen(true);
+
+  const handleCall = () => {
+    if (job.customerPhone) {
+      callPhone(job.customerPhone);
+    }
+  };
+  const handleMessage = () => { setHasUnreadChat(false); setIsChatOpen(true); };
 
   // Listen for incoming VoIP calls from customer
   useEffect(() => {
@@ -536,23 +628,146 @@ export function JobActiveRealtime() {
     }
   };
 
-  function openExternalNavigation() {
+  function openNavApp(app: 'apple' | 'google' | 'waze') {
     if (!customerPos) return;
-    const destination = `${customerPos.lat},${customerPos.lng}`;
+    const dest = `${customerPos.lat},${customerPos.lng}`;
     const origin = providerPos ? `${providerPos.lat},${providerPos.lng}` : '';
-    const isAppleDevice = /iPad|iPhone|iPod|Macintosh/i.test(navigator.userAgent);
-
-    const url = isAppleDevice
-      ? `https://maps.apple.com/?daddr=${destination}&dirflg=d`
-      : `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
-
+    let url = '';
+    switch (app) {
+      case 'apple':
+        url = `https://maps.apple.com/?daddr=${dest}&dirflg=d`;
+        break;
+      case 'google':
+        url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
+        break;
+      case 'waze':
+        url = `https://waze.com/ul?ll=${dest}&navigate=yes`;
+        break;
+    }
     window.open(url, '_blank', 'noopener,noreferrer');
+    setShowNavPicker(false);
   }
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.55)' : '#6B7280';
   const cardBg = isDark ? 'rgba(26,31,46,0.95)' : 'rgba(255,255,255,0.95)';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
+
+  // Scheduled job pre-screen — show before the real-time active job page
+  if (showScheduledScreen) {
+    const scheduledDate = currentJob?.scheduled_for
+      ? new Date(currentJob.scheduled_for).toLocaleString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true,
+        })
+      : '';
+
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
+        {/* Header */}
+        <div className="flex items-center px-4 py-3">
+          <button onClick={() => navigate('/home')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
+            <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
+          </button>
+          <h1 className="flex-1 text-center font-bold text-lg" style={{ color: textColor }}>Scheduled Job</h1>
+          <div className="w-10" />
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-6 pb-12">
+          {/* Success icon */}
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+            className="mb-6"
+          >
+            <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto" style={{ boxShadow: '0 25px 60px -12px rgba(0,140,229,0.5)' }}>
+              <CalendarCheck className="w-14 h-14" style={{ color: isDark ? '#081427' : '#14263D' }} />
+            </div>
+          </motion.div>
+
+          <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-2xl font-bold mb-2 text-center" style={{ color: textColor }}>
+            Job Accepted
+          </motion.h1>
+          <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-base mb-8 text-center" style={{ color: subColor }}>
+            This is a scheduled service request
+          </motion.p>
+
+          {/* Job details card */}
+          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="w-full max-w-md rounded-2xl p-6 text-left" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
+            {/* Customer */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-lg font-bold text-white">
+                {job.customerInitials}
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold" style={{ color: textColor }}>{job.customer}</h3>
+                <p className="text-sm" style={{ color: subColor }}>{job.service}</p>
+              </div>
+            </div>
+
+            {/* Location */}
+            <div className="flex items-center gap-3 py-3" style={{ borderTop: `1px solid ${cardBorder}` }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.08)' }}>
+                <MapPin className="w-5 h-5 text-[#008CE5]" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs" style={{ color: subColor }}>Pickup Location</p>
+                <p className="text-sm font-medium" style={{ color: textColor }}>{job.location}</p>
+              </div>
+            </div>
+
+            {/* Scheduled time */}
+            <div className="flex items-center gap-3 py-3" style={{ borderTop: `1px solid ${cardBorder}` }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.08)' }}>
+                <Clock className="w-5 h-5 text-[#008CE5]" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs" style={{ color: subColor }}>Scheduled For</p>
+                <p className="text-[#008CE5] font-bold">{scheduledDate}</p>
+              </div>
+            </div>
+
+            {/* Payout */}
+            <div className="flex items-center gap-3 py-3" style={{ borderTop: `1px solid ${cardBorder}` }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.08)' }}>
+                <Flag className="w-5 h-5 text-[#008CE5]" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs" style={{ color: subColor }}>Payout</p>
+                <p className="font-bold" style={{ color: textColor }}>{job.payout}</p>
+              </div>
+            </div>
+
+            {job.notes && (
+              <div className="rounded-xl p-3 mt-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }}>
+                <p className="text-xs" style={{ color: subColor }}>Customer Notes: {job.notes}</p>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Action buttons */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="w-full max-w-md mt-8 space-y-3">
+            <button
+              onClick={beginScheduledService}
+              className="w-full py-4 rounded-2xl font-bold text-white flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', boxShadow: '0 10px 24px rgba(0,140,229,0.34)' }}
+            >
+              <Play className="w-5 h-5" />
+              Start Heading to Customer
+            </button>
+            <button
+              onClick={() => navigate('/home')}
+              className="w-full py-4 rounded-2xl font-semibold"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+            >
+              Go Home
+            </button>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative overflow-hidden pb-28" style={{ background: isDark ? '#0A1626' : '#E8EAED' }}>
@@ -706,59 +921,33 @@ export function JobActiveRealtime() {
             </div>
           )}
 
-          <div className="grid grid-cols-4 gap-2 mb-3">
-            <button
-              onClick={handleCall}
-              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
-              style={{
-                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
-                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
-              }}
-            >
-              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
-                <Phone className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Call</span>
-            </button>
-            <button
-              onClick={handleMessage}
-              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
-              style={{
-                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
-                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
-              }}
-            >
-              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
-                <MessageCircle className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Message</span>
-            </button>
-            <button
-              onClick={handleShare}
-              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
-              style={{
-                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
-                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
-              }}
-            >
-              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
-                <Share2 className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Share</span>
-            </button>
-            <button
-              onClick={openExternalNavigation}
-              className="rounded-xl py-2.5 flex flex-col items-center gap-1 transition-all active:scale-95"
-              style={{
-                backgroundColor: isDark ? 'rgba(0,140,229,0.12)' : '#EAF4FD',
-                border: `1.5px solid ${isDark ? 'rgba(0,140,229,0.3)' : '#B8D9F2'}`,
-              }}
-            >
-              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
-                <MapPinned className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-[11px] font-semibold" style={{ color: isDark ? '#93C5FD' : '#0070B8' }}>Navigate</span>
-            </button>
+          <div className="grid grid-cols-4 gap-3 mb-3">
+            {[
+              { label: 'Call', icon: Phone, onClick: handleCall },
+              { label: 'Message', icon: MessageCircle, onClick: handleMessage },
+              { label: 'Share', icon: Share2, onClick: handleShare },
+              { label: 'Navigate', icon: MapPinned, onClick: () => setShowNavPicker(true) },
+            ].map((btn) => {
+              const BtnIcon = btn.icon;
+              return (
+                <button
+                  key={btn.label}
+                  onClick={btn.onClick}
+                  className="flex flex-col items-center gap-1.5 py-2 active:scale-95 transition-transform"
+                >
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center relative"
+                    style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : '#EAF4FD' }}
+                  >
+                    <BtnIcon className="w-5 h-5" style={{ color: '#008CE5' }} />
+                    {btn.label === 'Message' && hasUnreadChat && !isChatOpen && (
+                      <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
+                    )}
+                  </div>
+                  <span className="text-xs font-medium" style={{ color: subColor }}>{btn.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Step Progress Buttons */}
@@ -908,25 +1097,48 @@ export function JobActiveRealtime() {
           )}
 
           {status === 'working' && (
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setStatus('photos')}
-              className="w-full flex items-center justify-center gap-2"
-              style={{
-                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
-                color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: '16px',
-                padding: '16px 0',
-                borderRadius: '16px',
-                marginBottom: '8px',
-              }}
-            >
-              <Camera className="w-5 h-5" />
-              <span>Take Completion Photos</span>
-            </motion.button>
+            <>
+              <motion.button
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={uploadPhotosAndComplete}
+                disabled={uploadingPhotos}
+                className="w-full flex items-center justify-center gap-2"
+                style={{
+                  background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                  boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
+                  color: '#FFFFFF',
+                  fontWeight: 700,
+                  fontSize: '16px',
+                  padding: '16px 0',
+                  borderRadius: '16px',
+                  marginBottom: '8px',
+                }}
+              >
+                <Flag className="w-5 h-5" />
+                <span>Complete Job</span>
+              </motion.button>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => takePhoto(CameraSource.Camera)}
+                  className="flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm"
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Take Picture</span>
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => takePhoto(CameraSource.Photos)}
+                  className="flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm"
+                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+                >
+                  <ImagePlus className="w-4 h-4" />
+                  <span>Upload Image</span>
+                </motion.button>
+              </div>
+            </>
           )}
 
           {status === 'photos' && (
@@ -978,25 +1190,33 @@ export function JobActiveRealtime() {
               <motion.button
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => navigate(`/complete/${jobId}`)}
-                disabled={photos.length === 0}
+                onClick={uploadPhotosAndComplete}
+                disabled={uploadingPhotos}
                 className="w-full flex items-center justify-center gap-2"
                 style={{
-                  background: photos.length > 0
-                    ? 'linear-gradient(135deg, #008CE5, #0070B8)'
-                    : (isDark ? 'rgba(255,255,255,0.12)' : '#D1D5DB'),
-                  boxShadow: photos.length > 0 ? '0 10px 24px rgba(0,140,229,0.34)' : 'none',
-                  color: photos.length > 0 ? '#FFFFFF' : '#6B7280',
+                  background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+                  boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
+                  color: '#FFFFFF',
                   fontWeight: 700,
                   fontSize: '16px',
                   padding: '16px 0',
                   borderRadius: '16px',
                   marginBottom: '8px',
-                  cursor: photos.length === 0 ? 'not-allowed' : 'pointer',
+                  cursor: uploadingPhotos ? 'not-allowed' : 'pointer',
+                  opacity: uploadingPhotos ? 0.7 : 1,
                 }}
               >
-                <Flag className="w-5 h-5" />
-                <span>Complete Job</span>
+                {uploadingPhotos ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Uploading Photos...</span>
+                  </>
+                ) : (
+                  <>
+                    <Flag className="w-5 h-5" />
+                    <span>{photos.length > 0 ? 'Upload & Complete Job' : 'Complete Job'}</span>
+                  </>
+                )}
               </motion.button>
             </>
           )}
@@ -1093,15 +1313,22 @@ export function JobActiveRealtime() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setShowProximityWarning(false)}
-                className="rounded-2xl py-3.5 font-semibold text-sm"
-                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+                className="h-12 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform"
+                style={{
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB',
+                  color: textColor,
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#D3E0F2'}`,
+                }}
               >
                 Go Back
               </button>
               <button
                 onClick={() => confirmArrival()}
-                className="rounded-2xl py-3.5 font-bold text-sm text-white"
-                style={{ background: 'linear-gradient(135deg, #F59E0B, #D97706)' }}
+                className="h-12 rounded-2xl font-bold text-sm text-white active:scale-[0.98] transition-transform"
+                style={{
+                  background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+                  boxShadow: '0 6px 16px rgba(245,158,11,0.35)',
+                }}
               >
                 Confirm Anyway
               </button>
@@ -1109,6 +1336,72 @@ export function JobActiveRealtime() {
           </motion.div>
         </div>,
         document.body,
+      )}
+
+      {/* Navigation app picker */}
+      {showNavPicker && createPortal(
+        <div
+          className="fixed inset-0 flex items-end justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2147483647 }}
+          onClick={() => setShowNavPicker(false)}
+        >
+          <motion.div
+            initial={{ y: 300, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full max-w-lg rounded-t-[28px] p-6"
+            style={{
+              backgroundColor: isDark ? '#14263D' : '#FFFFFF',
+              border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)',
+            }}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-lg mb-1" style={{ color: textColor }}>Navigate with</h3>
+            <p className="text-sm mb-5" style={{ color: subColor }}>Choose your preferred navigation app</p>
+
+            <div className="space-y-2 mb-4">
+              <button
+                onClick={() => openNavApp('apple')}
+                className="w-full rounded-xl px-4 py-4 flex items-center gap-4 transition-all active:scale-[0.98]"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}
+              >
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #34C759, #28A745)' }}>
+                  <Navigation className="w-5 h-5 text-white" />
+                </div>
+                <span className="font-semibold text-sm" style={{ color: textColor }}>Apple Maps</span>
+              </button>
+              <button
+                onClick={() => openNavApp('google')}
+                className="w-full rounded-xl px-4 py-4 flex items-center gap-4 transition-all active:scale-[0.98]"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}
+              >
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #4285F4, #1A73E8)' }}>
+                  <MapPinned className="w-5 h-5 text-white" />
+                </div>
+                <span className="font-semibold text-sm" style={{ color: textColor }}>Google Maps</span>
+              </button>
+              <button
+                onClick={() => openNavApp('waze')}
+                className="w-full rounded-xl px-4 py-4 flex items-center gap-4 transition-all active:scale-[0.98]"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}` }}
+              >
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #33CCFF, #05C8F0)' }}>
+                  <Navigation className="w-5 h-5 text-white" />
+                </div>
+                <span className="font-semibold text-sm" style={{ color: textColor }}>Waze</span>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowNavPicker(false)}
+              className="w-full rounded-2xl py-3 font-semibold text-sm"
+              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+            >
+              Cancel
+            </button>
+          </motion.div>
+        </div>,
+        document.body
       )}
 
       {/* Cancel reason modal */}

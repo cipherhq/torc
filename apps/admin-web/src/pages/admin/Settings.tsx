@@ -17,6 +17,7 @@ interface PlatformSettings {
   email_notifications: boolean;
   sms_notifications: boolean;
   auto_approve_providers: boolean;
+  document_grace_period_days: number;
   maintenance_mode: boolean;
   chat_max_message_length: number;
   chat_messages_per_page: number;
@@ -45,6 +46,7 @@ const DEFAULTS: PlatformSettings = {
   email_notifications: true,
   sms_notifications: true,
   auto_approve_providers: false,
+  document_grace_period_days: 30,
   maintenance_mode: false,
   chat_max_message_length: 1000,
   chat_messages_per_page: 30,
@@ -259,6 +261,13 @@ export function AdminSettings() {
           description: 'Automatically verify new providers',
           type: 'toggle' as const,
           key: 'auto_approve_providers' as keyof PlatformSettings,
+        },
+        {
+          label: 'Document Grace Period',
+          description: 'Days new providers have to submit all documents before account locks',
+          type: 'number' as const,
+          key: 'document_grace_period_days' as keyof PlatformSettings,
+          suffix: 'days',
         },
         {
           label: 'Provider Response Timeout',

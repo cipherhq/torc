@@ -1,10 +1,11 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Wrench, Plus, Loader2 } from 'lucide-react';
+import { Wrench, Plus, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import * as LucideIcons from 'lucide-react';
 
 interface Service {
@@ -81,8 +82,9 @@ export function ProviderServices() {
 
   return (
     <div
-      className="min-h-screen relative overflow-hidden pb-36"
+      className="min-h-screen relative overflow-hidden"
       style={{
+        paddingBottom: 'calc(180px + env(safe-area-inset-bottom, 0px))',
         background: isDark
           ? 'linear-gradient(180deg, #091524 0%, #11263D 55%, #0E1D30 100%)'
           : 'linear-gradient(180deg, #F8FBFF 0%, #EEF5FF 50%, #E8F1FC 100%)',
@@ -106,36 +108,10 @@ export function ProviderServices() {
         />
       </div>
 
-      {/* Header */}
-      <div
-        className="relative z-10 p-6 flex items-center justify-between border-b"
-        style={{
-          paddingTop: 'var(--safe-top)',
-          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(20,38,61,0.08)',
-        }}
-      >
-        <div className="flex items-center gap-4">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => navigate('/profile')}
-            className="rounded-full p-3"
-            style={{
-              backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
-              border: `1px solid ${isDark ? 'rgba(255,255,255,0.16)' : '#D5E2F2'}`,
-            }}
-          >
-            <ArrowLeft className="w-6 h-6" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-          </motion.button>
-          <div>
-            <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>My Services</h1>
-            <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : '#6B7280' }}>Manage your service offerings</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="My Services" onBack={() => navigate('/profile')} />
 
       {/* Stats banner */}
-      <div className="relative z-10 p-6">
+      <div className="relative z-10 p-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         <div
           className="rounded-[30px] p-6"
           style={{
@@ -308,7 +284,7 @@ export function ProviderServices() {
       </div>
 
       {/* Fixed bottom save button */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 px-6 pt-4" style={{ backgroundColor: isDark ? '#091524' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D7E5F5'}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
+      <div className="fixed left-0 right-0 z-20 px-6 pt-4 pb-3" style={{ bottom: 'calc(70px + env(safe-area-inset-bottom, 0px))', backgroundColor: isDark ? 'rgba(9,21,36,0.95)' : 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D7E5F5'}` }}>
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}

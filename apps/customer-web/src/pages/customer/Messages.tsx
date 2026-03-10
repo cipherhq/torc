@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, MessageCircle, Search, Loader2 } from 'lucide-react';
+import { MessageCircle, Search, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { ChatModal } from '../../components/ChatModal';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
+import { PageHeader } from '../../components/PageHeader';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import { formatPrivacyName, getInitials, relativeTime } from '../../lib/nameFormat';
+import { decryptMessage } from '../../lib/chatEncryption';
 
 interface JobRow {
   id: string;
@@ -123,10 +125,20 @@ export function CustomerMessages() {
             : 'Provider',
       }));
 
+      // Decrypt message previews
+      const decrypted = await Promise.all(
+        mapped.map(async (row) => ({
+          ...row,
+          last_message_preview: row.last_message_preview
+            ? await decryptMessage(row.id, row.last_message_preview)
+            : row.last_message_preview,
+        })),
+      );
+
       if (append) {
-        setJobs((prev) => [...prev, ...mapped]);
+        setJobs((prev) => [...prev, ...decrypted]);
       } else {
-        setJobs(mapped);
+        setJobs(decrypted);
       }
       setHasMore(rows.length === perPage);
       setPage(pageNum);
@@ -182,17 +194,8 @@ export function CustomerMessages() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button
-          onClick={() => navigate('/customer/home')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2' }}
-          title="Back to home"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Messages</h1>
-      </div>
+      <PageHeader title="Messages" onBack={() => navigate('/customer/home')} />
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       {/* Search bar */}
       <div className="px-6 mb-3">

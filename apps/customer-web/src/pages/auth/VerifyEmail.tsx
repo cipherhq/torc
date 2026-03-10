@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Mail, ArrowLeft, RefreshCw, CheckCircle } from 'lucide-react';
+import { Mail, RefreshCw, CheckCircle } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
@@ -48,8 +49,10 @@ export function VerifyEmail() {
       }
       setResent(true);
       setTimeout(() => setResent(false), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Resend error:', error);
+      setResent(false);
+      alert(error?.message || 'Failed to resend email. Please try again.');
     } finally {
       setResending(false);
     }
@@ -57,7 +60,7 @@ export function VerifyEmail() {
 
   return (
     <div className="min-h-screen flex flex-col p-6 relative overflow-hidden"
-      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
+      style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       {/* Background */}
       <div className="absolute inset-0">
         <motion.div
@@ -73,22 +76,10 @@ export function VerifyEmail() {
         />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 flex items-center gap-4 mb-8">
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/login')}
-          className="rounded-full p-3"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-6 h-6" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-        </motion.button>
-        <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Verify Email</h1>
-      </div>
+      <PageHeader title="Verify Email" onBack={() => navigate('/login')} />
 
       {/* Content */}
-      <div className="relative z-10 flex-1 flex flex-col justify-center items-center max-w-md mx-auto w-full text-center">
+      <div className="relative z-10 flex-1 flex flex-col justify-center items-center max-w-md mx-auto w-full text-center" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {alreadyVerified ? (
           <>
             <motion.div

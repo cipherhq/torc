@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Bell, Check, Trash2, Settings, MapPin, DollarSign, Star, Gift, AlertCircle, Loader2 } from 'lucide-react';
+import { Bell, Check, Trash2, Settings, MapPin, DollarSign, Star, Gift, AlertCircle, Loader2 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -38,6 +39,7 @@ export function Notifications() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [loading, setLoading] = useState(true);
+  const [markingAll, setMarkingAll] = useState(false);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
@@ -102,10 +104,13 @@ export function Notifications() {
   };
 
   const markAllAsRead = async () => {
+    if (markingAll) return;
+    setMarkingAll(true);
     setNotifications(notifications.map(n => ({ ...n, read: true })));
     if (user) {
       await supabase.from('notifications').update({ read: true }).eq('user_id', user.id);
     }
+    setMarkingAll(false);
   };
 
   const deleteNotification = async (id: string) => {
@@ -122,37 +127,21 @@ export function Notifications() {
   return (
     <div className="min-h-screen"
       style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      {/* Header */}
-      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
-        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-          <div className="flex items-center gap-4 mb-2">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-            >
-              <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-            </motion.button>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Notifications</h1>
-              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>
-                {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up!'}
-              </p>
-            </div>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => navigate('/customer/notification-settings')}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-            >
-              <Settings className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-            </motion.button>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Notifications"
+        onBack={() => navigate('/profile')}
+        rightAction={
+          <button
+            onClick={() => navigate('/customer/notification-settings')}
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}
+          >
+            <Settings className="w-5 h-5 text-white" />
+          </button>
+        }
+      />
 
-      <div className="max-w-2xl mx-auto p-6 space-y-6">
+      <div className="max-w-2xl mx-auto p-6 space-y-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Quick Actions */}
         <div className="flex gap-2">
           <motion.button
@@ -183,11 +172,12 @@ export function Notifications() {
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={markAllAsRead}
-              className="px-4 py-3 rounded-[16px] font-semibold text-sm flex items-center gap-2"
+              disabled={markingAll}
+              className="px-4 py-3 rounded-[16px] font-semibold text-sm flex items-center gap-2 disabled:opacity-40"
               style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: subColor }}
             >
               <Check className="w-4 h-4" />
-              Mark All
+              {markingAll ? 'Marking...' : 'Mark All'}
             </motion.button>
           )}
         </div>

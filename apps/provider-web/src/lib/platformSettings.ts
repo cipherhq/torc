@@ -11,6 +11,7 @@ export type PlatformSettingsMap = {
   providerTimeout: number;
   urgentSlaHours: number;
   standardSlaHours: number;
+  document_grace_period_days: number;
   chat_max_message_length: number;
   chat_messages_per_page: number;
   chat_history_retention_days: number;
@@ -30,6 +31,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
   providerTimeout: 5,
   urgentSlaHours: 2,
   standardSlaHours: 24,
+  document_grace_period_days: 30,
   chat_max_message_length: 1000,
   chat_messages_per_page: 30,
   chat_history_retention_days: 90,

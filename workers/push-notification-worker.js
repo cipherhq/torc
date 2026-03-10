@@ -526,69 +526,276 @@ async function sendViaApns(pushToken, notification, userRole) {
 }
 
 /**
- * Main worker loop
+ * Main worker loop — uses Supabase Realtime instead of direct pg connection.
+ * No DATABASE_URL required; only SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
  */
 async function main() {
   console.log('🚀 Starting push notification worker...');
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 
-  // Connect to Postgres
-  const pgClient = new Client({
-    connectionString: process.env.DATABASE_URL,
-    // SSL config for production (Supabase requires SSL)
-    ssl: process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
-      : false,
-  });
-
   try {
-    await pgClient.connect();
-    console.log('✅ Connected to Postgres');
+    // Subscribe to job changes via Supabase Realtime (INSERT + UPDATE)
+    const channel = supabase
+      .channel('job-status-changes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'jobs' },
+        async (payload) => {
+          try {
+            const newRow = payload.new;
+            if (newRow.status === 'pending') {
+              console.log(`📬 New job created: ${newRow.id} (pending)`);
+              await handleNewJobRequest(newRow);
+            }
+          } catch (error) {
+            console.error('❌ Error handling new job INSERT:', error);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'jobs' },
+        async (payload) => {
+          try {
+            const oldRow = payload.old;
+            const newRow = payload.new;
+            const oldStatus = oldRow?.status;
+            const newStatus = newRow?.status;
 
-    // Listen to job event channels
-    await pgClient.query('LISTEN job_accepted');
-    await pgClient.query('LISTEN job_cancelled');
-    await pgClient.query('LISTEN job_completed');
-    await pgClient.query('LISTEN provider_arrived');
+            // Only react to actual status changes
+            if (!newStatus || oldStatus === newStatus) return;
 
-    console.log('🎧 Listening for job events...\n');
+            const eventData = {
+              job_id: newRow.id,
+              customer_id: newRow.customer_id,
+              provider_id: newRow.provider_id,
+            };
 
-    // Handle incoming notifications
-    pgClient.on('notification', async (msg) => {
-      try {
-        const data = JSON.parse(msg.payload);
-        console.log(`📬 Received ${msg.channel}:`, data);
+            console.log(`📬 Job ${newRow.id}: ${oldStatus} -> ${newStatus}`);
 
-        await handleJobEvent(msg.channel, data);
-      } catch (error) {
-        console.error(`❌ Error handling ${msg.channel}:`, error);
-      }
-    });
+            if (newStatus === 'accepted') {
+              await handleJobEvent('job_accepted', eventData);
+            } else if (newStatus === 'enroute' || newStatus === 'en_route') {
+              await handleJobEvent('provider_enroute', eventData);
+            } else if (newStatus === 'arrived') {
+              await handleJobEvent('provider_arrived', eventData);
+            } else if (newStatus === 'in_progress' || newStatus === 'inprogress') {
+              await handleJobEvent('service_started', eventData);
+            } else if (newStatus === 'completed') {
+              await handleJobEvent('job_completed', eventData);
+            } else if (newStatus === 'cancelled') {
+              // Use cancelled_by field to determine who actually cancelled
+              let actorType = 'customer';
+              if (newRow.cancelled_by && newRow.provider_id && newRow.cancelled_by === newRow.provider_id) {
+                actorType = 'provider';
+              }
+              await handleJobEvent('job_cancelled', {
+                ...eventData,
+                actor_type: actorType,
+                reason: newRow.cancellation_reason || '',
+              });
+            }
+          } catch (error) {
+            console.error('❌ Error handling realtime event:', error);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        async (payload) => {
+          try {
+            const msg = payload.new;
+            if (msg) {
+              await handleNewChatMessage(msg);
+            }
+          } catch (error) {
+            console.error('❌ Error handling chat message INSERT:', error);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Connected to Supabase Realtime');
+          console.log('🎧 Listening for new jobs, status changes, and messages...\n');
+        } else {
+          console.log(`Realtime status: ${status}`);
+        }
+      });
 
     // Periodically check ticket receipts (every 15 minutes)
     setInterval(checkTicketReceipts, 15 * 60 * 1000);
+
+    // Periodically expire stale pending jobs (every 5 minutes)
+    setInterval(expireStaleJobs, 5 * 60 * 1000);
+    // Run once on startup after a short delay
+    setTimeout(expireStaleJobs, 10 * 1000);
 
     // Keep alive - log heartbeat every 5 minutes
     setInterval(() => {
       console.log(`💓 Worker alive - ${new Date().toISOString()}`);
     }, 5 * 60 * 1000);
+
+    // Handle graceful shutdown
+    const shutdown = async () => {
+      console.log('\n🛑 Shutting down gracefully...');
+      await supabase.removeChannel(channel);
+      process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   } catch (error) {
     console.error('❌ Fatal error:', error);
     process.exit(1);
   }
+}
 
-  // Handle graceful shutdown
-  process.on('SIGINT', async () => {
-    console.log('\n🛑 Shutting down gracefully...');
-    await pgClient.end();
-    process.exit(0);
-  });
+/**
+ * Send push notifications to nearby providers when a new job is created.
+ * This ensures providers receive alerts even when the app is backgrounded.
+ */
+async function handleNewJobRequest(job) {
+  try {
+    const pickupLat = job.pickup_latitude;
+    const pickupLng = job.pickup_longitude;
 
-  process.on('SIGTERM', async () => {
-    console.log('\n🛑 Shutting down gracefully...');
-    await pgClient.end();
-    process.exit(0);
-  });
+    if (!pickupLat || !pickupLng) {
+      console.warn(`⚠️ Job ${job.id} has no pickup coordinates, skipping provider push.`);
+      return;
+    }
+
+    // Get customer name for notification
+    const { data: customer } = await supabase
+      .from('profiles')
+      .select('first_name, last_name')
+      .eq('id', job.customer_id)
+      .maybeSingle();
+
+    const customerFirst = customer?.first_name || '';
+    const customerLastInitial = customer?.last_name ? ` ${customer.last_name.charAt(0)}.` : '';
+    const customerName = `${customerFirst}${customerLastInitial}`.trim() || 'A customer';
+
+    // Get service name
+    const { data: service } = await supabase
+      .from('services')
+      .select('name')
+      .eq('id', job.service_id)
+      .maybeSingle();
+
+    const serviceName = service?.name || 'roadside assistance';
+    const address = job.pickup_address || 'nearby';
+
+    // Load providers who already declined/dismissed this job
+    const { data: dismissals } = await supabase
+      .from('provider_job_dismissals')
+      .select('provider_id')
+      .eq('job_id', job.id);
+    const dismissedSet = new Set((dismissals || []).map((d) => d.provider_id));
+
+    const { data: declines } = await supabase
+      .from('job_declines')
+      .select('provider_id')
+      .eq('job_id', job.id);
+    (declines || []).forEach((d) => dismissedSet.add(d.provider_id));
+
+    // Query nearby providers using relaxed location freshness for push notifications.
+    // The RPC (get_nearby_providers) requires location updated within 5 min, which
+    // excludes providers who are offline/backgrounded — exactly who we need to push to.
+    // Instead, query provider_locations directly with a 24-hour window.
+    const radii = [15, 30, 50];
+    const notifiedProviders = new Set();
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    for (const radius of radii) {
+      // Direct query: find online providers with a known location in the last 24 hours
+      const { data: locations, error: locError } = await supabase
+        .from('provider_locations')
+        .select('provider_id, latitude, longitude')
+        .eq('is_online', true)
+        .gte('updated_at', twentyFourHoursAgo);
+
+      if (locError) {
+        console.error(`❌ Error querying provider_locations:`, locError.message);
+        break;
+      }
+
+      if (!locations || locations.length === 0) break;
+
+      // Filter by distance (Haversine) and service eligibility
+      const toRad = (deg) => (deg * Math.PI) / 180;
+      const haversine = (lat1, lng1, lat2, lng2) => {
+        const dLat = toRad(lat2 - lat1);
+        const dLng = toRad(lng2 - lng1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+        return 3958.8 * 2 * Math.asin(Math.sqrt(a));
+      };
+
+      const nearby = locations
+        .map((loc) => ({
+          ...loc,
+          distance_miles: haversine(pickupLat, pickupLng, loc.latitude, loc.longitude),
+        }))
+        .filter((loc) => loc.distance_miles <= radius)
+        .sort((a, b) => a.distance_miles - b.distance_miles);
+
+      if (nearby.length === 0) continue;
+
+      // Check service eligibility and online status in provider_profiles
+      const providerIds = nearby.map((p) => p.provider_id);
+      const { data: ppRows } = await supabase
+        .from('provider_profiles')
+        .select('id, is_online, services')
+        .in('id', providerIds)
+        .eq('is_online', true);
+
+      const eligibleSet = new Set();
+      (ppRows || []).forEach((pp) => {
+        // If service filter applies, check it
+        if (job.service_id && Array.isArray(pp.services) && !pp.services.includes(job.service_id)) return;
+        eligibleSet.add(pp.id);
+      });
+
+      // Also skip providers who already have an active job
+      const { data: activeJobs } = await supabase
+        .from('jobs')
+        .select('provider_id')
+        .in('provider_id', providerIds)
+        .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress']);
+      const busySet = new Set((activeJobs || []).map((j) => j.provider_id));
+
+      for (const provider of nearby) {
+        if (notifiedProviders.has(provider.provider_id)) continue;
+        if (dismissedSet.has(provider.provider_id)) continue;
+        if (!eligibleSet.has(provider.provider_id)) continue;
+        if (busySet.has(provider.provider_id)) continue;
+        notifiedProviders.add(provider.provider_id);
+
+        const distStr = provider.distance_miles < 1
+          ? 'less than a mile away'
+          : `${Math.round(provider.distance_miles)} mi away`;
+
+        await sendPushToUser(provider.provider_id, {
+          notificationType: 'new_job_request',
+          title: 'New Job Request!',
+          body: `${customerName} needs ${serviceName} — ${distStr} at ${address}`,
+          data: {
+            screen: 'JobRequest',
+            jobId: job.id,
+            notificationType: 'new_job_request',
+          },
+          sound: 'incoming.wav',
+          priority: 'high',
+        });
+      }
+
+      // If we found providers, no need to widen the radius
+      if (notifiedProviders.size > 0) break;
+    }
+
+    console.log(`📤 Notified ${notifiedProviders.size} provider(s) for job ${job.id}`);
+  } catch (error) {
+    console.error(`❌ Error in handleNewJobRequest for job ${job.id}:`, error);
+  }
 }
 
 /**
@@ -608,12 +815,77 @@ async function handleJobEvent(channel, data) {
       await handleJobCompleted(data);
       break;
 
+    case 'provider_enroute':
+      await handleProviderEnroute(data);
+      break;
+
     case 'provider_arrived':
       await handleProviderArrived(data);
       break;
 
+    case 'service_started':
+      await handleServiceStarted(data);
+      break;
+
     default:
       console.warn(`Unknown channel: ${channel}`);
+  }
+}
+
+/**
+ * Send push notification when a new chat message is received.
+ * Notifies the other party (customer or provider) if they're not in the app.
+ */
+async function handleNewChatMessage(msg) {
+  try {
+    const senderRole = msg.sender_role;
+    const jobId = msg.job_id;
+
+    if (!jobId || !senderRole || senderRole === 'system') return;
+
+    // Look up the job to find customer_id and provider_id
+    const { data: job, error: jobErr } = await supabase
+      .from('jobs')
+      .select('customer_id, provider_id')
+      .eq('id', jobId)
+      .maybeSingle();
+
+    if (jobErr || !job) return;
+
+    // Determine recipient (the other party)
+    const recipientId = senderRole === 'customer' ? job.provider_id : job.customer_id;
+    if (!recipientId) return;
+
+    // Get sender name
+    const { data: sender } = await supabase
+      .from('profiles')
+      .select('first_name, last_name')
+      .eq('id', msg.sender_id)
+      .maybeSingle();
+
+    const senderFirst = sender?.first_name || '';
+    const senderLastInitial = sender?.last_name ? ` ${sender.last_name.charAt(0)}.` : '';
+    const senderName = `${senderFirst}${senderLastInitial}`.trim() || 'Someone';
+
+    // Use preview text (already stored on the message, truncated)
+    const preview = msg.message ? msg.message.slice(0, 80) : 'Sent you a message';
+
+    console.log(`💬 Chat message in job ${jobId}: ${senderRole} -> ${senderRole === 'customer' ? 'provider' : 'customer'}`);
+
+    await sendPushToUser(recipientId, {
+      notificationType: 'new_message',
+      title: `Message from ${senderName}`,
+      body: preview,
+      data: {
+        screen: senderRole === 'customer' ? 'ActiveJob' : 'LiveTracking',
+        jobId: jobId,
+        notificationType: 'new_message',
+      },
+      sound: 'default',
+      priority: 'high',
+    });
+  } catch (error) {
+    console.error('❌ Error in handleNewChatMessage:', error);
   }
 }
 
@@ -705,6 +977,26 @@ async function handleJobCompleted(data) {
 }
 
 /**
+ * Send push when provider is en route
+ */
+async function handleProviderEnroute(data) {
+  const { job_id, customer_id } = data;
+
+  await sendPushToUser(customer_id, {
+    notificationType: 'provider_enroute',
+    title: 'Provider On The Way',
+    body: 'Your provider is heading to your location now.',
+    data: {
+      screen: 'LiveTracking',
+      jobId: job_id,
+      notificationType: 'provider_enroute',
+    },
+    sound: 'default',
+    priority: 'high',
+  });
+}
+
+/**
  * Send push when provider arrives at location
  */
 async function handleProviderArrived(data) {
@@ -721,6 +1013,25 @@ async function handleProviderArrived(data) {
     },
     sound: 'default',
     priority: 'high',
+  });
+}
+
+/**
+ * Send push when service has started (in progress)
+ */
+async function handleServiceStarted(data) {
+  const { job_id, customer_id } = data;
+
+  await sendPushToUser(customer_id, {
+    notificationType: 'service_started',
+    title: 'Service Started',
+    body: 'Your provider has begun working on your vehicle.',
+    data: {
+      screen: 'LiveTracking',
+      jobId: job_id,
+      notificationType: 'service_started',
+    },
+    sound: 'default',
   });
 }
 
@@ -963,6 +1274,78 @@ async function sendPushToUser(userId, notification) {
     }
   } catch (error) {
     console.error(`❌ Error in sendPushToUser for ${userId}:`, error);
+  }
+}
+
+/**
+ * Expire pending jobs older than 2 hours that no provider accepted.
+ * Cancels the job and sends a push notification to the customer.
+ */
+async function expireStaleJobs() {
+  try {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+    // Find pending jobs older than 2 hours with no provider assigned
+    const { data: staleJobs, error } = await supabase
+      .from('jobs')
+      .select('id, customer_id')
+      .eq('status', 'pending')
+      .is('provider_id', null)
+      .lt('created_at', twoHoursAgo)
+      .limit(50);
+
+    if (error) {
+      console.error('❌ Error querying stale jobs:', error.message);
+      return;
+    }
+
+    if (!staleJobs || staleJobs.length === 0) return;
+
+    console.log(`⏰ Expiring ${staleJobs.length} stale pending job(s)...`);
+
+    for (const job of staleJobs) {
+      // Cancel the job
+      const { error: updateErr } = await supabase
+        .from('jobs')
+        .update({
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: 'request_expired',
+        })
+        .eq('id', job.id)
+        .eq('status', 'pending'); // guard against race
+
+      if (updateErr) {
+        console.error(`❌ Failed to expire job ${job.id}:`, updateErr.message);
+        continue;
+      }
+
+      // Notify the customer
+      await sendPushToUser(job.customer_id, {
+        notificationType: 'request_expired',
+        title: 'Request Expired',
+        body: 'No providers were available for your request. Please try again.',
+        data: {
+          screen: 'Home',
+          jobId: job.id,
+          notificationType: 'request_expired',
+        },
+        sound: 'default',
+      });
+
+      // Insert in-app notification
+      await supabase.from('notifications').insert({
+        user_id: job.customer_id,
+        type: 'service',
+        title: 'Request Expired',
+        message: 'No providers were available for your request. You were not charged. Please try again when you\'re ready.',
+        action_url: '/customer/home',
+      });
+
+      console.log(`⏰ Expired job ${job.id} and notified customer ${job.customer_id}`);
+    }
+  } catch (error) {
+    console.error('❌ Error in expireStaleJobs:', error);
   }
 }
 

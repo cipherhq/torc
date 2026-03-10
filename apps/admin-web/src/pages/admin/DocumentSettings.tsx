@@ -195,7 +195,7 @@ export function DocumentSettings() {
     try {
       const { data, error: fetchError } = await supabase
         .from('documents')
-        .select('id, provider_id, type, file_name, file_path, file_url, mime_type, file_size, status, rejection_reason, reviewed_by, reviewed_at, created_at, updated_at')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;

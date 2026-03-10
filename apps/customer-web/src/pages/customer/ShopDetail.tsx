@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, MapPin, Phone, Navigation, Clock, Star, Wrench } from 'lucide-react';
+import { MapPin, Phone, Navigation, Clock, Star, Wrench } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect } from 'react';
 import { MapBackground } from '../../components/MapBackground';
@@ -36,18 +37,8 @@ export function ShopDetail() {
     return (
       <div className="min-h-screen relative overflow-hidden">
         <MapBackground />
-        <div className="relative z-20 p-6 flex items-center gap-4">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => navigate('/explore')}
-            className="glass rounded-full p-3"
-          >
-            <ArrowLeft className="w-6 h-6 text-white" />
-          </motion.button>
-          <h1 className="text-2xl font-bold text-white">Shop Details</h1>
-        </div>
-        <div className="relative z-10 px-6 py-12">
+        <PageHeader title="Shop Details" onBack={() => navigate('/explore')} />
+        <div className="relative z-10 px-6 py-12" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
           <div className="glass rounded-[32px] p-8 text-center">
             <p className="text-white/60">Provider not found</p>
           </div>
@@ -60,21 +51,10 @@ export function ShopDetail() {
     <div className="min-h-screen relative overflow-hidden">
       <MapBackground />
 
-      {/* Header */}
-      <div className="relative z-20 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/explore')}
-          className="glass rounded-full p-3"
-        >
-          <ArrowLeft className="w-6 h-6 text-white" />
-        </motion.button>
-        <h1 className="text-2xl font-bold text-white">Shop Details</h1>
-      </div>
+      <PageHeader title="Shop Details" onBack={() => navigate('/explore')} />
 
       {/* Map preview */}
-      <div className="relative z-10 flex items-center justify-center mt-12">
+      <div className="relative z-10 flex items-center justify-center mt-12" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}

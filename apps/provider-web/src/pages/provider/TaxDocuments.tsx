@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router';
-import { ArrowLeft, FileText, Download, Calendar, DollarSign, Info, TrendingUp } from 'lucide-react';
+import { FileText, Download, Calendar, DollarSign, Info, TrendingUp } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import { useEffect, useMemo, useState } from 'react';
@@ -49,11 +50,24 @@ function generateTaxCsv(summary: YearlySummary, providerName: string, providerEm
   const csv = rows
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     .join('\n');
+
+  // Use Web Share API for Capacitor WebView compatibility
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      const file = new File([csv], `torc-tax-summary-${summary.year}.csv`, { type: 'text/csv;charset=utf-8;' });
+      navigator.share({ files: [file] }).catch(() => {});
+      return;
+    } catch {
+      // fall through to blob download
+    }
+  }
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = `torc-tax-summary-${summary.year}.csv`;
+  document.body.appendChild(link);
   link.click();
+  document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
 }
 
@@ -124,7 +138,8 @@ export function TaxDocuments() {
           isComplete: year < currentYear,
         };
       })
-      .sort((a, b) => b.year - a.year);
+      .sort((a, b) => b.year - a.year)
+      .slice(0, 4); // Current year + last 3 completed years max
 
     return summaries;
   }, [jobs, platformFee]);
@@ -143,19 +158,9 @@ export function TaxDocuments() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button
-          onClick={() => navigate('/profile')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-          title="Back to profile"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Tax Documents</h1>
-      </div>
+      <PageHeader title="Tax Documents" onBack={() => navigate('/profile')} />
 
-      <div className="px-6 space-y-5">
+      <div className="px-6 space-y-5" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {loading ? (
           <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
             <div className="w-8 h-8 border-2 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -258,15 +263,21 @@ export function TaxDocuments() {
                         </div>
                       </div>
 
-                      {/* Download button */}
-                      <button
-                        onClick={() => generateTaxCsv(summary, providerName, providerEmail)}
-                        className="w-full mt-4 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
-                        style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', boxShadow: '0 4px 12px rgba(0,140,229,0.25)', color: '#FFFFFF' }}
-                      >
-                        <Download className="w-4 h-4" />
-                        Download {summary.year} Tax Summary
-                      </button>
+                      {/* Download button — only for completed years */}
+                      {summary.isComplete ? (
+                        <button
+                          onClick={() => generateTaxCsv(summary, providerName, providerEmail)}
+                          className="w-full mt-4 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
+                          style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', boxShadow: '0 4px 12px rgba(0,140,229,0.25)', color: '#FFFFFF' }}
+                        >
+                          <Download className="w-4 h-4" />
+                          Download {summary.year} Tax Summary
+                        </button>
+                      ) : (
+                        <p className="w-full mt-4 py-3 rounded-xl text-sm text-center" style={{ color: subColor, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F3F4F6' }}>
+                          Available for download after Dec 31, {summary.year}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

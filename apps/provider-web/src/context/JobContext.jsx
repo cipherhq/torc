@@ -81,7 +81,8 @@ export function JobProvider({ children }) {
         insertData.service_fee = Math.round(svc.base_price * 0.1 * 100) / 100;
         const subtotal = svc.base_price + hazardFee + schedulingFee;
         insertData.tax = Math.round(subtotal * 0.08 * 100) / 100;
-        insertData.total_amount = subtotal + insertData.service_fee + insertData.tax;
+        // total_amount = what the customer pays (service_fee is deducted from provider earnings, not charged to customer)
+        insertData.total_amount = subtotal + insertData.tax;
       }
     }
 

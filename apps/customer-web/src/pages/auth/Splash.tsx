@@ -3,34 +3,63 @@ import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 const INTRO_KEY = 'torc_user_intro_seen_v1';
 
 export function Splash() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
-  const { isAuthenticated, loading, profile } = useAuth();
+  const { isAuthenticated, loading, profile, user } = useAuth();
 
   useEffect(() => {
     // Wait for auth to finish loading before deciding where to go
     if (loading) return;
 
-    const timer = setTimeout(() => {
-      if (isAuthenticated) {
-        // Already logged in — go straight to home
+    const timer = setTimeout(async () => {
+      if (isAuthenticated && user) {
         const role = profile?.role;
         if (role === 'admin') {
           navigate('/admin', { replace: true });
-        } else {
-          navigate('/customer/home', { replace: true });
+          return;
         }
+
+        // Check for active in-progress jobs (crash recovery)
+        try {
+          const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+
+          // Auto-cancel stale jobs older than 12 hours
+          await supabase
+            .from('jobs')
+            .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
+            .eq('customer_id', user.id)
+            .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress', 'pending', 'matching'])
+            .lt('created_at', twelveHoursAgo);
+
+          const { data } = await supabase
+            .from('jobs')
+            .select('id')
+            .eq('customer_id', user.id)
+            .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress', 'pending', 'matching'])
+            .gte('created_at', twelveHoursAgo)
+            .limit(1)
+            .maybeSingle();
+          if (data) {
+            navigate(`/tracking/${data.id}`, { replace: true });
+            return;
+          }
+        } catch {
+          // Fall through to home on error
+        }
+
+        navigate('/customer/home', { replace: true });
       } else {
         const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
         navigate(hasSeenIntro ? '/login' : '/intro/user', { replace: true });
       }
-    }, isAuthenticated ? 500 : 3000); // Shorter delay if already authenticated
+    }, isAuthenticated ? 500 : 3000);
     return () => clearTimeout(timer);
-  }, [navigate, loading, isAuthenticated, profile]);
+  }, [navigate, loading, isAuthenticated, profile, user]);
 
   return (
     <div

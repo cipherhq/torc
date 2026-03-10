@@ -3,19 +3,39 @@ import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 const INTRO_KEY = 'torc_provider_intro_seen_v1';
 
 export function Splash() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
 
   useEffect(() => {
     if (loading) return;
 
-    const timer = setTimeout(() => {
-      if (isAuthenticated) {
+    const timer = setTimeout(async () => {
+      if (isAuthenticated && user) {
+        // Check for active in-progress jobs first (crash recovery)
+        // Only consider recent jobs (last 12h) — older stuck jobs are stale
+        try {
+          const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+          const { data } = await supabase
+            .from('jobs')
+            .select('id')
+            .eq('provider_id', user.id)
+            .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+            .gte('created_at', twelveHoursAgo)
+            .limit(1)
+            .maybeSingle();
+          if (data) {
+            navigate(`/job/${data.id}`, { replace: true });
+            return;
+          }
+        } catch {
+          // Fall through to home on error
+        }
         navigate('/home', { replace: true });
       } else {
         const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
@@ -23,7 +43,7 @@ export function Splash() {
       }
     }, isAuthenticated ? 500 : 3000);
     return () => clearTimeout(timer);
-  }, [navigate, loading, isAuthenticated]);
+  }, [navigate, loading, isAuthenticated, user]);
 
   return (
     <div

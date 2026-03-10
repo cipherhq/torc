@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import {
-  ArrowLeft,
   BarChart3,
   CalendarDays,
   CheckCircle2,
@@ -11,10 +10,12 @@ import {
   DollarSign,
   XCircle,
 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
+import { saveCsv } from '../../utils/downloadReceipt';
 
 interface CustomerJobRow {
   id: string;
@@ -36,18 +37,6 @@ function toCurrency(value: number) {
 function toDurationMinutes(startedAt: string | null, completedAt: string | null) {
   if (!startedAt || !completedAt) return null;
   return Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 60000));
-}
-
-function saveCsv(filename: string, rows: Array<Array<string | number>>) {
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(link.href);
 }
 
 export function CustomerReporting() {
@@ -193,24 +182,9 @@ export function CustomerReporting() {
 
   return (
     <div className="min-h-screen" style={{ background: pageBg , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/customer/profile')}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEF2F7' }}
-            title="Back to profile"
-          >
-            <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold" style={{ color: textColor }}>My Reporting</h1>
-            <p className="text-sm" style={{ color: subColor }}>Service, spend, and completion metrics</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="My Reporting" onBack={() => navigate('/customer/profile')} />
 
-      <div className="px-6 space-y-6">
+      <div className="px-6 space-y-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {loading ? (
           <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${borderColor}` }}>
             <p style={{ color: subColor }}>Loading your report...</p>

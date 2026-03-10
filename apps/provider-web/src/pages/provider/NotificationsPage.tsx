@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Bell, Check } from 'lucide-react';
+import { Bell, Check } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -47,19 +48,10 @@ export function NotificationsPage() {
   }
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={() => navigate('/profile')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2' }}
-          title="Back to profile"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-        </button>
-        <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Notifications</h1>
-      </div>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
+      <PageHeader title="Notifications" onBack={() => navigate('/profile')} />
 
+      <div className="px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
       <div className="rounded-2xl p-6" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -93,6 +85,7 @@ export function NotificationsPage() {
             ))}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

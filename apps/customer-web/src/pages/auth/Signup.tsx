@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Mail, Phone, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { User, Mail, Phone, Lock, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -134,19 +135,12 @@ export function Signup() {
         />
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col px-6 pb-8 overflow-auto" style={{ paddingTop: 'var(--safe-top)' }}>
-        {/* Back button */}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate('/login')}
-          className="w-10 h-10 rounded-full flex items-center justify-center mb-4 self-start"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </motion.button>
+      <PageHeader title="Create Account" onBack={() => navigate('/login')} />
 
+      <div className="relative z-10 flex-1 flex flex-col px-6 pb-8 overflow-auto" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Logo + Title */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-8">
           <img src="/logo.svg" alt="Torc" className="w-32 h-auto mx-auto object-contain mb-2" />
-          <h1 className="text-3xl font-bold" style={{ color: textColor }}>Create Account</h1>
           <p className="mt-2" style={{ color: subColor }}>Get roadside help when you need it</p>
         </motion.div>
 

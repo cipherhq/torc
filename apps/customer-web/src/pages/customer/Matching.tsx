@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Loader, MapPin, CheckCircle, Star, Navigation, User, ArrowLeft } from 'lucide-react';
+import { Loader, MapPin, CheckCircle, Star, Clock, Navigation, User, ArrowLeft, CalendarCheck } from 'lucide-react';
 import { getRequestContext } from '../../data/requestContext';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -8,6 +8,7 @@ import { useJob } from '../../context/JobContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
+import { useGoogleMaps } from '../../context/GoogleMapsContext';
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3959; // miles
@@ -25,8 +26,12 @@ export function Matching() {
   const { createJob, updateJobDetails, cancelJob, subscribeToJobUpdates } = useJob();
   const { user, profile } = useAuth() as any;
   const { isDark } = useTheme();
+  const { isLoaded: mapsLoaded } = useGoogleMaps();
+  const isScheduled = !!context.scheduledFor;
   const jobCreated = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
+  const etaMinutesRef = useRef<number | null>(null);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -62,10 +67,8 @@ export function Matching() {
               ? { latitude: context.location.lat, longitude: context.location.lng }
               : null,
             pickupAddress: context.location?.address || '',
-            destinationLocation: context.destination
-              ? { latitude: context.destination.lat, longitude: context.destination.lng }
-              : null,
-            destinationAddress: context.destination?.address || '',
+            destinationLocation: null,
+            destinationAddress: context.destinationAddress || '',
             isHazardLocation: !!context.isHazardous,
             requesterType: context.whoNeedsHelp === 'new' ? 'other' : 'self',
             requesterName: context.personName || '',
@@ -100,6 +103,8 @@ export function Matching() {
               base_price: job.base_price,
               service_id: job.service_id,
               created_at: job.created_at,
+              scheduled_for: job.scheduled_for,
+              customer_notes: job.customer_notes,
               customer_first_name: customerFirst,
               customer_last_name: customerLast ? customerLast.charAt(0) + '.' : '',
             };
@@ -205,9 +210,73 @@ export function Matching() {
     return () => unsubscribe();
   }, [createdJobId, subscribeToJobUpdates]);
 
-  // Step 2: Listen for provider acceptance via broadcast + postgres_changes
+  // Step 2a: For scheduled jobs, listen for provider acceptance + enroute status
+  const [scheduledAccepted, setScheduledAccepted] = useState(false);
+  const [scheduledProviderName, setScheduledProviderName] = useState('');
+  useEffect(() => {
+    if (!createdJobId || !isScheduled) return;
+    // Listen on same channel provider broadcasts on
+    const ch = supabase
+      .channel(`scheduled-listen-${createdJobId}`)
+      .on('broadcast', { event: 'job_accepted' }, (payload) => {
+        if (payload.payload?.job_id === createdJobId) {
+          setScheduledAccepted(true);
+          setScheduledProviderName(payload.payload?.provider_name || 'A provider');
+        }
+      })
+      .on('broadcast', { event: 'status_update' }, (payload) => {
+        if (payload.payload?.job_id === createdJobId && (payload.payload?.status === 'enroute' || payload.payload?.status === 'en_route')) {
+          navigate(`/tracking/${createdJobId}`);
+        }
+      })
+      .subscribe();
+
+    // Also listen on the provider's broadcast channel for acceptance
+    const acceptCh = supabase
+      .channel(`job-accepted-${createdJobId}`)
+      .on('broadcast', { event: 'job_accepted' }, (payload) => {
+        if (payload.payload?.job_id === createdJobId) {
+          setScheduledAccepted(true);
+          setScheduledProviderName(payload.payload?.provider_name || 'A provider');
+        }
+      })
+      .on('broadcast', { event: 'status_update' }, (payload) => {
+        if (payload.payload?.job_id === createdJobId && (payload.payload?.status === 'enroute' || payload.payload?.status === 'en_route')) {
+          navigate(`/tracking/${createdJobId}`);
+        }
+      })
+      .subscribe();
+
+    // DB fallback: listen for status changes via postgres_changes
+    const dbCh = supabase
+      .channel(`scheduled-db-${createdJobId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'jobs',
+        filter: `id=eq.${createdJobId}`,
+      }, (payload) => {
+        const updated = payload.new as any;
+        if (updated.status === 'accepted' && !scheduledAccepted) {
+          setScheduledAccepted(true);
+        }
+        if (updated.status === 'enroute' || updated.status === 'en_route') {
+          navigate(`/tracking/${createdJobId}`);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+      supabase.removeChannel(acceptCh);
+      supabase.removeChannel(dbCh);
+    };
+  }, [createdJobId, isScheduled, navigate]);
+
+  // Step 2b: Listen for provider acceptance via broadcast + postgres_changes (immediate requests)
   useEffect(() => {
     if (!createdJobId) return;
+    if (isScheduled) return; // Scheduled jobs use step 2a above
 
     function handleProviderAccepted(data: any) {
       if (providerFoundRef.current) return;
@@ -223,6 +292,37 @@ export function Matching() {
       if (provLat && provLng && pickupCoords) {
         const d = haversineDistance(pickupCoords.lat, pickupCoords.lng, provLat, provLng);
         distStr = d < 0.1 ? 'Less than 0.1 mi away' : `${d.toFixed(1)} mi away`;
+
+        // Calculate actual driving ETA
+        const fallbackEta = Math.max(1, Math.ceil((d / 30) * 60));
+        if (mapsLoaded) {
+          try {
+            const service = new google.maps.DirectionsService();
+            service.route({
+              origin: { lat: provLat, lng: provLng },
+              destination: pickupCoords,
+              travelMode: google.maps.TravelMode.DRIVING,
+            }, (result, routeStatus) => {
+              if (String(routeStatus) === 'OK' && result) {
+                const leg = result.routes[0]?.legs[0];
+                if (leg?.duration) {
+                  const mins = Math.ceil(leg.duration.value / 60);
+                  setEtaMinutes(mins);
+                  etaMinutesRef.current = mins;
+                  return;
+                }
+              }
+              setEtaMinutes(fallbackEta);
+              etaMinutesRef.current = fallbackEta;
+            });
+          } catch {
+            setEtaMinutes(fallbackEta);
+            etaMinutesRef.current = fallbackEta;
+          }
+        } else {
+          setEtaMinutes(fallbackEta);
+          etaMinutesRef.current = fallbackEta;
+        }
       }
 
       setProviderFound({
@@ -231,6 +331,47 @@ export function Matching() {
         rating: provRating,
         photo: provPhoto,
       });
+
+      // Notify 3rd party via SMS with provider phone number
+      if (context.whoNeedsHelp === 'new' && context.personPhone && data?.provider_id) {
+        (async () => {
+          try {
+            // Format phone to E.164 (+1XXXXXXXXXX)
+            let phone = context.personPhone!.replace(/\D/g, '');
+            if (phone.length === 10) phone = '1' + phone;
+            if (!phone.startsWith('+')) phone = '+' + phone;
+
+            const { data: provProfile } = await supabase.from('profiles').select('phone').eq('id', data.provider_id).single();
+            const customerName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Someone';
+            const providerPhone = provProfile?.phone ? ` You can reach them at ${provProfile.phone}.` : '';
+            const smsMessage = `Hi ${context.personName || 'there'}! ${customerName} has requested TORC roadside assistance for you. ${provName} is on the way to ${context.location?.address || 'your location'}.${providerPhone} — TORC`;
+
+            // Get fresh token for the SMS function call
+            const { data: refreshData } = await supabase.auth.refreshSession();
+            let token = refreshData?.session?.access_token;
+            if (!token) {
+              const { data: { session } } = await supabase.auth.getSession();
+              token = session?.access_token;
+            }
+
+            // Direct fetch to guarantee fresh token is used
+            await fetch(
+              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-sms`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                  apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                },
+                body: JSON.stringify({ to: phone, message: smsMessage }),
+              }
+            );
+          } catch (err) {
+            console.warn('3rd party SMS failed (non-blocking):', err);
+          }
+        })();
+      }
 
       // Show provider info for 3.5 seconds, then navigate to tracking
       setTimeout(() => {
@@ -244,6 +385,7 @@ export function Matching() {
               provider_lng: provLng,
               provider_rating: provRating,
               provider_photo: provPhoto,
+              eta_minutes: etaMinutesRef.current,
             },
           },
         });
@@ -358,14 +500,16 @@ export function Matching() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)' }}>
-      {/* Back / Cancel button */}
-      <button
-        onClick={() => setShowCancelReason(true)}
-        className="absolute top-0 left-0 z-20 m-6 w-10 h-10 rounded-full flex items-center justify-center"
-        style={{ marginTop: 'calc(var(--safe-top) + 8px)', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-      >
-        <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-      </button>
+      {/* Back / Cancel button — hide when showing scheduled confirmation */}
+      {!(isScheduled && createdJobId && !providerFound) && (
+        <button
+          onClick={() => setShowCancelReason(true)}
+          className="absolute top-0 left-0 z-20 m-6 w-10 h-10 rounded-full flex items-center justify-center"
+          style={{ marginTop: 'calc(var(--safe-top) + 8px)', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
+        >
+          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
+        </button>
+      )}
 
       {/* Background effects */}
       <div className="absolute inset-0">
@@ -470,19 +614,175 @@ export function Matching() {
                 </div>
               </div>
 
-              {providerFound.distance && (
+              {(etaMinutes !== null || providerFound.distance) && (
                 <div className="flex items-center gap-3 rounded-2xl p-4" style={{ backgroundColor: 'rgba(0,140,229,0.08)', border: '1px solid rgba(0,140,229,0.15)' }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
-                    <Navigation className="w-5 h-5 text-[#008CE5]" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-xs" style={{ color: subColor }}>Distance</p>
-                    <p className="text-[#008CE5] font-bold text-base">{providerFound.distance}</p>
-                  </div>
+                  {etaMinutes !== null ? (
+                    <>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
+                        <Clock className="w-5 h-5 text-[#008CE5]" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="text-xs" style={{ color: subColor }}>Estimated arrival</p>
+                        <p className="text-[#008CE5] font-bold text-lg">{etaMinutes} min</p>
+                      </div>
+                      {providerFound.distance && (
+                        <div className="text-right">
+                          <p className="text-xs" style={{ color: subColor }}>Distance</p>
+                          <p className="text-sm font-semibold" style={{ color: textColor }}>{providerFound.distance}</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.15)' }}>
+                        <Navigation className="w-5 h-5 text-[#008CE5]" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="text-xs" style={{ color: subColor }}>Distance</p>
+                        <p className="text-[#008CE5] font-bold text-base">{providerFound.distance}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
               <p className="text-sm mt-4" style={{ color: subColor }}>Redirecting to live tracking...</p>
+            </motion.div>
+          </motion.div>
+        ) : isScheduled && createdJobId ? (
+          /* Scheduled Confirmation State */
+          <motion.div
+            key="scheduled"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.1 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+            className="relative z-10 text-center max-w-md"
+          >
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 15, delay: 0.1 }}
+              className="mb-6"
+            >
+              <div
+                className="w-28 h-28 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mx-auto"
+                style={{ boxShadow: '0 25px 60px -12px rgba(0,140,229,0.5)' }}
+              >
+                {scheduledAccepted
+                  ? <CheckCircle className="w-14 h-14" style={{ color: isDark ? '#081427' : '#14263D' }} />
+                  : <CalendarCheck className="w-14 h-14" style={{ color: isDark ? '#081427' : '#14263D' }} />
+                }
+              </div>
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="text-3xl font-bold mb-2"
+              style={{ color: textColor }}
+            >
+              {scheduledAccepted ? 'Provider Accepted!' : 'Providers Notified'}
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="text-base mb-8"
+              style={{ color: subColor }}
+            >
+              {scheduledAccepted
+                ? `${scheduledProviderName} will head to you at the scheduled time`
+                : 'Your scheduled request has been sent to nearby providers'}
+            </motion.p>
+
+            {/* Job summary card */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="rounded-2xl p-6 text-left"
+              style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(to bottom right, rgba(0,140,229,0.2), rgba(0,112,184,0.2))' }}>
+                  <MapPin className="w-6 h-6 text-[#008CE5]" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold" style={{ color: textColor }}>{context.serviceName || 'Roadside Service'}</h3>
+                  <p className="text-sm" style={{ color: subColor }}>{context.location?.address}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-4 mb-4" style={{ borderTop: '1px solid ' + cardBorder }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(0,140,229,0.08)' }}>
+                  <Clock className="w-5 h-5 text-[#008CE5]" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs" style={{ color: subColor }}>Scheduled For</p>
+                  <p className="text-[#008CE5] font-bold text-base">
+                    {context.scheduledFor
+                      ? new Date(context.scheduledFor).toLocaleString('en-US', {
+                          weekday: 'short', month: 'short', day: 'numeric',
+                          hour: 'numeric', minute: '2-digit', hour12: true,
+                        })
+                      : ''}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-4" style={{ borderTop: '1px solid ' + cardBorder }}>
+                <div>
+                  <p className="text-xs" style={{ color: subColor }}>Estimated Cost</p>
+                  <p className="text-[#008CE5] font-bold text-sm mt-1">${context.estimatedPrice.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs" style={{ color: subColor }}>Status</p>
+                  <p className="font-semibold text-sm mt-1" style={{ color: scheduledAccepted ? '#008CE5' : '#F59E0B' }}>
+                    {scheduledAccepted ? 'Provider Accepted' : 'Awaiting Provider'}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Info note */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              className="mt-6 rounded-2xl p-4"
+              style={{ background: 'linear-gradient(135deg, rgba(0,140,229,0.08), rgba(0,112,184,0.08))', border: '1px solid rgba(0,140,229,0.15)' }}
+            >
+              <p className="text-sm" style={{ color: scheduledAccepted ? '#008CE5' : subColor }}>
+                {scheduledAccepted
+                  ? `${scheduledProviderName} has accepted your request! You'll be notified when they start heading your way.`
+                  : "You'll receive a notification when a provider accepts your request."}
+              </p>
+            </motion.div>
+
+            {/* Action buttons */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7 }}
+              className="mt-8 space-y-3"
+            >
+              <button
+                onClick={() => navigate('/activity')}
+                className="w-full py-4 rounded-2xl font-bold text-white"
+                style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}
+              >
+                View Activity
+              </button>
+              <button
+                onClick={() => navigate('/home')}
+                className="w-full py-4 rounded-2xl font-semibold"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
+              >
+                Go Home
+              </button>
             </motion.div>
           </motion.div>
         ) : (

@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Save } from 'lucide-react';
+import { User, Save } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 
 export function PersonalInformation() {
   const navigate = useNavigate();
@@ -69,19 +70,10 @@ export function PersonalInformation() {
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
   return (
-    <div className="min-h-screen p-6" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingTop: 'var(--safe-top)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={() => navigate('/profile')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2' }}
-          title="Back to profile"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Personal Information</h1>
-      </div>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
+      <PageHeader title="Personal Info" onBack={() => navigate('/profile')} />
 
+      <div className="px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
       <div className="rounded-3xl p-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, boxShadow: isDark ? 'none' : '0 4px 20px rgba(0,0,0,0.05)' }}>
         <div className="flex items-center gap-3 mb-4">
           <User className="w-5 h-5" style={{ color: '#008CE5' }} />
@@ -147,6 +139,7 @@ export function PersonalInformation() {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

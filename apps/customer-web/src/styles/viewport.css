@@ -30,6 +30,10 @@ body,
   min-height: var(--app-height);
 }
 
+html, body {
+  overscroll-behavior-y: none;
+}
+
 body {
   overflow-x: hidden;
   background: linear-gradient(180deg, var(--torc-surface-light) 0%, #eaf2ff 100%);
@@ -47,4 +51,10 @@ html.dark body {
 
 .min-h-screen {
   min-height: var(--app-height) !important;
+}
+
+/* Prevent iOS auto-zoom on input focus (triggers when font-size < 16px) */
+input, textarea, select {
+  font-size: 16px !important;
+  touch-action: manipulation;
 }

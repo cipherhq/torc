@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
+import { PageHeader } from '../../components/PageHeader';
 import { Search, MapPin, Phone, Navigation, Star, SlidersHorizontal, Wrench, Car } from 'lucide-react';
 import { useLocation as useLocationCtx } from '../../context/LocationContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
@@ -204,10 +205,13 @@ export function Explore() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="p-6 pb-2" style={{ paddingTop: 'var(--safe-top)' }}>
+      <PageHeader title="Explore" onBack={() => navigate('/customer/home')} />
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
+
+      {/* Search & Filters */}
+      <div className="p-6 pt-3 pb-2">
         <div className="flex items-center gap-3 mb-4">
-          <h1 className="text-2xl font-bold flex-1" style={{ color: textColor }}>Explore</h1>
+          <div className="flex-1" />
           <button onClick={() => setShowFilter(!showFilter)} className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: showFilter ? 'rgba(0,140,229,0.15)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)') }}>
             <SlidersHorizontal className="w-5 h-5" style={{ color: showFilter ? '#008CE5' : subColor }} />
           </button>

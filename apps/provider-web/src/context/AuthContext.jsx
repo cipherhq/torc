@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
 import { registerNativePushForUser, deactivateNativePushToken } from '../utils/nativePush';
 import { getAuthCallbackUrl } from '../lib/authRedirectUrl';
+import { LoadingScreen } from '../components/LoadingScreen';
 
 const AuthContext = createContext({});
 
@@ -30,6 +31,7 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
+        setLoading(true);
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
@@ -79,10 +81,61 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!isNative || !user?.id) return;
-    registerNativePushForUser({ userId: user.id, role: 'provider' }).catch((error) => {
-      console.warn('Native push setup failed:', error);
-    });
+    // Delay push registration so iOS has time to present the permission dialog
+    const timer = setTimeout(() => {
+      registerNativePushForUser({ userId: user.id, role: 'provider' }).catch((error) => {
+        console.warn('Native push setup failed:', error);
+      });
+    }, 1500);
+    return () => clearTimeout(timer);
   }, [user?.id]);
+
+  const fetchProviderProfile = useCallback(async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('provider_profiles')
+        .select('id, is_verified, created_at')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setProviderProfile(data || null);
+      return data || null;
+    } catch (error) {
+      console.warn('Error fetching provider profile:', error);
+      return null;
+    }
+  }, []);
+
+  // Real-time: auto-refresh provider profile when admin changes verification
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel('auth-provider-profile')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'provider_profiles',
+        filter: `id=eq.${user.id}`,
+      }, () => {
+        fetchProviderProfile(user.id);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, fetchProviderProfile]);
+
+  // Re-fetch profile data when app comes back to foreground
+  useEffect(() => {
+    if (!user?.id) return;
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        fetchProviderProfile(user.id);
+        fetchProfile(user.id);
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [user?.id, fetchProviderProfile]);
 
   async function fetchProfile(userId) {
     try {
@@ -128,23 +181,6 @@ export function AuthProvider({ children }) {
       });
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function fetchProviderProfile(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('provider_profiles')
-        .select('id, is_verified, status, created_at')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      setProviderProfile(data || null);
-      return data || null;
-    } catch (error) {
-      console.warn('Error fetching provider profile:', error);
-      return null;
     }
   }
 
@@ -220,6 +256,12 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const refreshProfile = useCallback(() => user && fetchProfile(user.id), [user]);
+  const refreshProviderProfile = useCallback(
+    () => (user ? fetchProviderProfile(user.id) : Promise.resolve(null)),
+    [user, fetchProviderProfile],
+  );
+
   const value = {
     user,
     profile,
@@ -233,8 +275,8 @@ export function AuthProvider({ children }) {
     signOut,
     resetPasswordForEmail,
     updateProfile,
-    refreshProfile: () => user && fetchProfile(user.id),
-    refreshProviderProfile: () => (user ? fetchProviderProfile(user.id) : Promise.resolve(null)),
+    refreshProfile,
+    refreshProviderProfile,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -260,14 +302,7 @@ export function ProtectedRoute({ children }) {
   }, [isAuthenticated, loading, navigate]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/60">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return isAuthenticated ? children : null;
@@ -288,14 +323,7 @@ export function ProviderProtectedRoute({ children }) {
   }, [isAuthenticated, loading, isAuthorized, navigate]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/60">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return isAuthenticated && isAuthorized ? children : null;

@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
-import { Clock, CheckCircle, Calendar, ChevronRight } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { PageHeader } from '../../components/PageHeader';
+import { Clock, CheckCircle, Calendar, ChevronRight, DollarSign } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
@@ -12,8 +13,16 @@ export function Activity() {
   const { user } = useAuth();
   const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
-  const [jobs, setJobs] = useState([]);
+  const [upcomingJobs, setUpcomingJobs] = useState([]);
+  const [pastJobs, setPastJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [upcomingHasMore, setUpcomingHasMore] = useState(true);
+  const [pastHasMore, setPastHasMore] = useState(true);
+
+  const PAGE_SIZE = 10;
+  const UPCOMING_STATUSES = ['pending', 'matching', 'accepted', 'enroute', 'en_route', 'arrived', 'in_progress', 'inprogress'];
+  const PAST_STATUSES = ['completed', 'cancelled'];
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -25,25 +34,91 @@ export function Activity() {
       setLoading(false);
       return;
     }
-    async function loadJobs() {
+    async function loadInitial() {
       try {
-        const { data, error } = await supabase
-          .from('jobs')
-          .select('*, service:services(*)')
-          .eq('customer_id', user.id)
-          .order('created_at', { ascending: false });
-        if (!error && data) setJobs(data);
+        const [upcoming, past] = await Promise.all([
+          supabase.from('jobs').select('*, service:services(*)')
+            .eq('customer_id', user.id).in('status', UPCOMING_STATUSES)
+            .order('created_at', { ascending: false }).limit(PAGE_SIZE),
+          supabase.from('jobs').select('*, service:services(*)')
+            .eq('customer_id', user.id).in('status', PAST_STATUSES)
+            .order('created_at', { ascending: false }).limit(PAGE_SIZE),
+        ]);
+        if (upcoming.data) {
+          setUpcomingJobs(upcoming.data);
+          setUpcomingHasMore(upcoming.data.length === PAGE_SIZE);
+        }
+        if (past.data) {
+          setPastJobs(past.data);
+          setPastHasMore(past.data.length === PAGE_SIZE);
+        }
       } catch (e) {
         console.warn('Failed to load jobs:', e);
       } finally {
         setLoading(false);
       }
     }
-    loadJobs();
+    loadInitial();
   }, [user]);
 
-  const upcomingJobs = jobs.filter(j => ['pending', 'matching', 'accepted', 'enroute'].includes(j.status));
-  const pastJobs = jobs.filter(j => ['completed', 'cancelled'].includes(j.status));
+  // Real-time: listen for job status changes (accepted, enroute, etc.)
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel('activity-job-updates')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'jobs',
+        filter: `customer_id=eq.${user.id}`,
+      }, (payload) => {
+        const updated = payload.new as any;
+        if (!updated?.id) return;
+
+        // If provider started heading (enroute), navigate to live tracking
+        if (updated.status === 'enroute' || updated.status === 'en_route') {
+          navigate(`/tracking/${updated.id}`);
+          return;
+        }
+
+        // Update job in the list
+        setUpcomingJobs((prev: any[]) =>
+          prev.map((j: any) => j.id === updated.id ? { ...j, ...updated } : j)
+        );
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user, navigate]);
+
+  const loadMore = async () => {
+    if (!user || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const isUpcoming = activeTab === 'upcoming';
+      const currentJobs = isUpcoming ? upcomingJobs : pastJobs;
+      const statuses = isUpcoming ? UPCOMING_STATUSES : PAST_STATUSES;
+      const offset = currentJobs.length;
+
+      const { data } = await supabase.from('jobs').select('*, service:services(*)')
+        .eq('customer_id', user.id).in('status', statuses)
+        .order('created_at', { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
+
+      if (data) {
+        if (isUpcoming) {
+          setUpcomingJobs(prev => [...prev, ...data]);
+          setUpcomingHasMore(data.length === PAGE_SIZE);
+        } else {
+          setPastJobs(prev => [...prev, ...data]);
+          setPastHasMore(data.length === PAGE_SIZE);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load more:', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const tabs = [
     { id: 'upcoming' as const, label: 'Upcoming', count: upcomingJobs.length },
@@ -51,6 +126,7 @@ export function Activity() {
   ];
 
   const displayJobs = activeTab === 'upcoming' ? upcomingJobs : pastJobs;
+  const hasMore = activeTab === 'upcoming' ? upcomingHasMore : pastHasMore;
 
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
@@ -59,11 +135,8 @@ export function Activity() {
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-        <h1 className="text-3xl font-bold mb-2" style={{ color: textColor }}>Activity</h1>
-        <p style={{ color: subColor }}>Your rescue history and upcoming services</p>
-      </div>
+      <PageHeader title="Activity" onBack={() => navigate('/customer/home')} />
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       {/* Tabs */}
       <div className="relative z-10 px-6 mb-6">
@@ -149,7 +222,7 @@ export function Activity() {
                 key={job.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                transition={{ delay: Math.min(index, 5) * 0.1 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => navigate(`/job/${job.id}`)}
@@ -184,7 +257,7 @@ export function Activity() {
 
                     <p className="text-sm mb-3 truncate" style={{ color: subColor }}>{job.pickup_address || 'No location'}</p>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-wrap">
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-[#008CE5]" />
                         <span className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.8)' : '#374151' }}>
@@ -198,14 +271,51 @@ export function Activity() {
                       <div className="flex items-center gap-2">
                         <DollarSign className="w-4 h-4 text-[#008CE5]" />
                         <span className="text-[#008CE5] font-semibold text-sm">
-                          ${job.total_price || job.base_price || '-'}
+                          ${job.total_amount || job.total_price || job.base_price || '-'}
                         </span>
                       </div>
                     </div>
+                    {/* Status badge */}
+                    {activeTab === 'upcoming' && (
+                      <div className="mt-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full" style={{
+                          backgroundColor: job.status === 'accepted' ? 'rgba(0,140,229,0.1)' : job.status === 'pending' ? 'rgba(245,158,11,0.1)' : 'rgba(0,140,229,0.1)',
+                          color: job.status === 'accepted' ? '#008CE5' : job.status === 'pending' ? '#F59E0B' : '#008CE5',
+                        }}>
+                          {job.status === 'pending' && 'Awaiting Provider'}
+                          {job.status === 'accepted' && 'Provider Accepted'}
+                          {(job.status === 'enroute' || job.status === 'en_route') && 'Provider En Route'}
+                          {job.status === 'arrived' && 'Provider Arrived'}
+                          {(job.status === 'inprogress' || job.status === 'in_progress') && 'Service In Progress'}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </motion.button>
             ))}
+
+            {/* Load More */}
+            {hasMore && displayJobs.length > 0 && (
+              <motion.button
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="w-full rounded-2xl py-4 font-semibold text-center"
+                style={{ backgroundColor: cardBg, border: '1px solid ' + cardBorder, color: '#008CE5' }}
+              >
+                {loadingMore ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-[#008CE5] border-t-transparent rounded-full animate-spin" />
+                    Loading...
+                  </span>
+                ) : (
+                  'Load More'
+                )}
+              </motion.button>
+            )}
           </div>
         )}
       </div>

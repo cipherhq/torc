@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Mail, AlertCircle, CheckCircle, KeyRound } from 'lucide-react';
+import { Mail, AlertCircle, CheckCircle, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { getAuthCallbackUrl } from '../../lib/authRedirectUrl';
 
@@ -54,19 +55,9 @@ export function ForgotPassword() {
         />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'max(calc(16px + env(safe-area-inset-top, 0px)), 60px)' }}>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/login')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </motion.button>
-      </div>
+      <PageHeader title="Reset Password" onBack={() => navigate('/login')} />
 
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pb-8">
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pb-8" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {sent ? (
           /* Success state */
           <motion.div

@@ -21,6 +21,7 @@ import {
   Mail,
   Calendar,
   Hash,
+  Eye,
 } from 'lucide-react';
 import { Pagination } from '../../components/Pagination';
 
@@ -32,8 +33,12 @@ interface ProviderDoc {
   id: string;
   type: string;
   file_name: string;
+  file_url: string | null;
+  mime_type: string | null;
   status: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
   created_at: string;
+  expires_at: string | null;
 }
 
 interface PendingProvider {
@@ -74,6 +79,18 @@ function docStatusBadge(status: string) {
   }
 }
 
+function getDocExpiryLabel(expiresAt: string | null): { label: string; color: string } | null {
+  if (!expiresAt) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(expiresAt + 'T00:00:00');
+  const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { label: `Expired ${Math.abs(diffDays)}d ago`, color: '#EF4444' };
+  if (diffDays === 0) return { label: 'Expires today', color: '#EF4444' };
+  if (diffDays <= 30) return { label: `Expires in ${diffDays}d`, color: '#F59E0B' };
+  return { label: `Exp ${expiry.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`, color: '#9CA3AF' };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -91,6 +108,11 @@ export function ProviderApproval() {
   /* Deny modal state */
   const [denyModalId, setDenyModalId] = useState<string | null>(null);
   const [denyReason, setDenyReason] = useState('');
+
+  /* Per-document action state */
+  const [docActionLoading, setDocActionLoading] = useState<string | null>(null);
+  const [rejectingDocId, setRejectingDocId] = useState<string | null>(null);
+  const [docRejectReason, setDocRejectReason] = useState('');
 
   /* ---- data fetching ---- */
 
@@ -150,7 +172,7 @@ export function ProviderApproval() {
       // 3. Documents for these providers
       const { data: docData, error: docErr } = await supabase
         .from('documents')
-        .select('id, provider_id, type, file_name, status, created_at')
+        .select('id, provider_id, type, file_name, file_url, mime_type, status, rejection_reason, created_at, expires_at')
         .in('provider_id', pendingIds)
         .order('created_at', { ascending: true });
 
@@ -163,8 +185,12 @@ export function ProviderApproval() {
           id: d.id,
           type: d.type,
           file_name: d.file_name,
+          file_url: d.file_url || null,
+          mime_type: d.mime_type || null,
           status: d.status,
+          rejection_reason: d.rejection_reason || null,
           created_at: d.created_at,
+          expires_at: d.expires_at || null,
         });
         docMap.set(d.provider_id, existing);
       });
@@ -215,12 +241,137 @@ export function ProviderApproval() {
     }
   };
 
+  const handleUpdateDocExpiry = async (docId: string, expiryDate: string | null) => {
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ expires_at: expiryDate || null })
+        .eq('id', docId);
+      if (error) throw error;
+      setProviders(prev => prev.map(p => ({
+        ...p,
+        documents: p.documents.map(d =>
+          d.id === docId ? { ...d, expires_at: expiryDate } : d
+        ),
+      })));
+    } catch (e: any) {
+      console.error('Failed to update document expiry:', e);
+      alert('Failed to update expiry date');
+    }
+  };
+
+  const handleApproveDoc = async (docId: string) => {
+    setDocActionLoading(docId);
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ status: 'approved', rejection_reason: null, reviewed_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+      setProviders(prev => prev.map(p => ({
+        ...p,
+        documents: p.documents.map(d =>
+          d.id === docId ? { ...d, status: 'approved' as const, rejection_reason: null } : d
+        ),
+      })));
+    } catch (e: any) {
+      alert('Failed to approve document: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDocActionLoading(null);
+    }
+  };
+
+  const handleRejectDoc = async (docId: string, reason: string) => {
+    setDocActionLoading(docId);
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ status: 'rejected', rejection_reason: reason || 'Rejected by admin', reviewed_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+
+      // Find the provider who owns this document and send notification email
+      const ownerProvider = providers.find(p => p.documents.some(d => d.id === docId));
+      const rejectedDoc = ownerProvider?.documents.find(d => d.id === docId);
+      if (ownerProvider?.email && rejectedDoc) {
+        sendEmail(ownerProvider.email, 'document_request', {
+          name: ownerProvider.full_name || 'Provider',
+          reason: `Your ${rejectedDoc.type.replace(/_/g, ' ')} was rejected: ${reason || 'Please upload an updated document.'}`,
+        });
+      }
+
+      setProviders(prev => prev.map(p => ({
+        ...p,
+        documents: p.documents.map(d =>
+          d.id === docId ? { ...d, status: 'rejected' as const, rejection_reason: reason || 'Rejected by admin' } : d
+        ),
+      })));
+      setRejectingDocId(null);
+      setDocRejectReason('');
+    } catch (e: any) {
+      alert('Failed to reject document: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDocActionLoading(null);
+    }
+  };
+
+  const handleRequestDocUpdate = async (providerId: string, docId: string, docType: string, reason: string) => {
+    setDocActionLoading(docId);
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ status: 'rejected', rejection_reason: reason || 'Please upload an updated document.', reviewed_at: new Date().toISOString() })
+        .eq('id', docId);
+      if (error) throw error;
+
+      // Update local state
+      setProviders(prev => prev.map(p => ({
+        ...p,
+        documents: p.documents.map(d =>
+          d.id === docId ? { ...d, status: 'rejected' as const, rejection_reason: reason || 'Please upload an updated document.' } : d
+        ),
+      })));
+
+      // Send notification to provider
+      await supabase.from('notifications').insert({
+        user_id: providerId,
+        type: 'alert',
+        title: 'Document Update Required',
+        message: `Your ${docType.replace(/_/g, ' ')} needs to be updated: ${reason || 'Please upload an updated document.'}`,
+        action_url: '/documents',
+      });
+
+      // Send email
+      const provider = providers.find(p => p.id === providerId);
+      if (provider?.email) {
+        sendEmail(provider.email, 'document_request', {
+          name: provider.full_name || 'Provider',
+          reason: `Your ${docType.replace(/_/g, ' ')} needs to be updated: ${reason || 'Please upload an updated document.'}`,
+        });
+      }
+
+      setRejectingDocId(null);
+      setDocRejectReason('');
+    } catch (e: any) {
+      alert('Failed to request document update: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDocActionLoading(null);
+    }
+  };
+
   const handleApprove = async (providerId: string) => {
     setActionLoading(providerId);
     try {
       const admin = await requireAdminSession();
       const provider = providers.find((p) => p.id === providerId);
       const nowIso = new Date().toISOString();
+
+      // Mark all documents as approved
+      const { error: docsErr } = await supabase
+        .from('documents')
+        .update({ status: 'approved', rejection_reason: null, reviewed_at: nowIso })
+        .eq('provider_id', providerId);
+      if (docsErr) throw docsErr;
 
       const { error: updateErr } = await supabase
         .from('provider_profiles')
@@ -614,17 +765,143 @@ export function ProviderApproval() {
                             {provider.documents.map((doc) => (
                               <div
                                 key={doc.id}
-                                className="bg-gray-50 rounded-xl p-3 flex items-center justify-between"
+                                className="bg-gray-50 rounded-xl p-4"
                               >
-                                <div className="min-w-0">
-                                  <p className="text-gray-900 text-sm font-medium truncate">{doc.type}</p>
-                                  <p className="text-gray-400 text-xs truncate">{doc.file_name}</p>
+                                {/* Document preview */}
+                                {doc.file_url && (
+                                  <div className="mb-3">
+                                    {(doc.mime_type || '').startsWith('image/') ? (
+                                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="block">
+                                        <img src={doc.file_url} alt={doc.type} className="w-full h-40 object-cover rounded-lg hover:opacity-90 transition-opacity" />
+                                      </a>
+                                    ) : (
+                                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
+                                        className="flex items-center gap-2 text-[#008CE5] text-sm font-semibold hover:underline py-2">
+                                        <Eye className="w-4 h-4" />
+                                        View Document
+                                      </a>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Info row */}
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="min-w-0">
+                                    <p className="text-gray-900 text-sm font-medium truncate">{doc.type}</p>
+                                    <p className="text-gray-400 text-xs truncate">{doc.file_name}</p>
+                                  </div>
+                                  <span
+                                    className={`flex-shrink-0 ml-3 px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${docStatusBadge(doc.status)}`}
+                                  >
+                                    {doc.status}
+                                  </span>
                                 </div>
-                                <span
-                                  className={`flex-shrink-0 ml-3 px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${docStatusBadge(doc.status)}`}
+
+                                {/* Rejection reason display */}
+                                {doc.status === 'rejected' && doc.rejection_reason && (
+                                  <p className="text-xs text-red-500 mb-2">Reason: {doc.rejection_reason}</p>
+                                )}
+
+                                {/* Per-document action buttons */}
+                                <div className="flex gap-2 mb-2">
+                                  <button
+                                    onClick={() => handleApproveDoc(doc.id)}
+                                    disabled={doc.status === 'approved' || docActionLoading === doc.id}
+                                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors ${
+                                      doc.status === 'approved'
+                                        ? 'bg-green-50 text-green-600 border border-green-200'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-green-50 hover:text-green-600 border border-gray-200 hover:border-green-200'
+                                    } disabled:opacity-50`}
+                                  >
+                                    {docActionLoading === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (rejectingDocId === doc.id) {
+                                        setRejectingDocId(null);
+                                        setDocRejectReason('');
+                                      } else {
+                                        setRejectingDocId(doc.id);
+                                        setDocRejectReason(doc.rejection_reason || '');
+                                      }
+                                    }}
+                                    disabled={docActionLoading === doc.id}
+                                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-colors ${
+                                      doc.status === 'rejected'
+                                        ? 'bg-red-50 text-red-600 border border-red-200'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600 border border-gray-200 hover:border-red-200'
+                                    } disabled:opacity-50`}
+                                  >
+                                    <XCircle className="w-3 h-3" />
+                                    Reject
+                                  </button>
+                                </div>
+
+                                {/* Inline reject/request-update reason input */}
+                                {rejectingDocId === doc.id && (
+                                  <div className="mb-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Reason (sent to provider)..."
+                                      value={docRejectReason}
+                                      onChange={(e) => setDocRejectReason(e.target.value)}
+                                      className="w-full text-xs bg-white border border-red-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:border-red-400 mb-1.5"
+                                    />
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => handleRequestDocUpdate(provider.id, doc.id, doc.type, docRejectReason)}
+                                        disabled={!docRejectReason.trim() || docActionLoading === doc.id}
+                                        className="flex-1 py-1.5 rounded-lg text-xs font-semibold bg-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
+                                      >
+                                        {docActionLoading === doc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />}
+                                        Send Update Request
+                                      </button>
+                                      <button
+                                        onClick={() => { setRejectingDocId(null); setDocRejectReason(''); }}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Expiry date */}
+                                <div className="pt-2 border-t border-gray-100">
+                                  {(() => {
+                                    const expiryInfo = getDocExpiryLabel(doc.expires_at);
+                                    return expiryInfo ? (
+                                      <p className="text-xs font-semibold mb-1.5" style={{ color: expiryInfo.color }}>
+                                        {expiryInfo.label}
+                                      </p>
+                                    ) : null;
+                                  })()}
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                                    <span className="text-gray-400 text-xs whitespace-nowrap">Expires:</span>
+                                    <input
+                                      type="date"
+                                      value={doc.expires_at || ''}
+                                      onChange={(e) => handleUpdateDocExpiry(doc.id, e.target.value || null)}
+                                      className="flex-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 focus:outline-none focus:border-[#008CE5] min-w-0"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Request Update button */}
+                                <button
+                                  onClick={() => {
+                                    setRejectingDocId(doc.id);
+                                    setDocRejectReason(doc.expires_at && new Date(doc.expires_at + 'T00:00:00') < new Date(new Date().toDateString())
+                                      ? 'Document has expired. Please upload a current version.'
+                                      : '');
+                                  }}
+                                  className="w-full mt-2 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 transition-colors"
                                 >
-                                  {doc.status}
-                                </span>
+                                  <AlertTriangle className="w-3 h-3" />
+                                  Request Update
+                                </button>
                               </div>
                             ))}
                           </div>

@@ -2,6 +2,7 @@
  * Open the phone dialer with the given number.
  */
 export function callPhone(phoneNumber: string) {
+  if (!phoneNumber || typeof phoneNumber !== 'string') return;
   window.location.href = `tel:${phoneNumber.replace(/\s/g, '')}`;
 }
 

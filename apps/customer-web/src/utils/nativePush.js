@@ -6,6 +6,7 @@ let registrationInFlight = null;
 let currentUserId = null;
 let currentRole = 'customer';
 let currentToken = null;
+let visibilityListenerAttached = false;
 
 function isCapacitorNative() {
   return Capacitor.isNativePlatform();
@@ -24,10 +25,10 @@ function resolveRouteFromPayload(data, role) {
     return null;
   }
 
-  if (jobId && (screen === 'livetracking' || type === 'job_accepted' || type === 'provider_arrived' || type === 'job_completed')) {
+  if (jobId && (screen === 'livetracking' || type === 'job_accepted' || type === 'provider_enroute' || type === 'provider_arrived' || type === 'service_started' || type === 'job_completed' || type === 'new_message')) {
     return `/tracking/${jobId}`;
   }
-  if (screen === 'home' || type === 'job_cancelled') return '/customer/home';
+  if (screen === 'home' || type === 'job_cancelled' || type === 'request_expired') return '/customer/home';
   return null;
 }
 
@@ -52,7 +53,9 @@ async function upsertPushToken(pushToken, userId) {
   });
 
   if (error) {
-    console.warn('Failed to upsert native push token:', error);
+    console.warn('[Push] Failed to upsert token:', error);
+  } else {
+    console.log('[Push] Token saved successfully');
   }
 }
 
@@ -63,6 +66,7 @@ async function attachListeners() {
   await PushNotifications.removeAllListeners().catch(() => {});
 
   await PushNotifications.addListener('registration', async (token) => {
+    console.log('[Push] Registration token received:', token?.value?.slice(0, 20) + '...');
     currentToken = token?.value || null;
     if (currentToken && currentUserId) {
       await upsertPushToken(currentToken, currentUserId);
@@ -70,7 +74,12 @@ async function attachListeners() {
   });
 
   await PushNotifications.addListener('registrationError', (error) => {
-    console.warn('Native push registration error:', error);
+    console.warn('[Push] Registration error:', error);
+  });
+
+  // Show banner when notification arrives while app is in the foreground
+  await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+    console.log('[Push] Received in foreground:', notification);
   });
 
   await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
@@ -85,7 +94,16 @@ async function attachListeners() {
 }
 
 export async function registerNativePushForUser({ userId, role = 'customer' } = {}) {
-  if (!isCapacitorNative() || !userId) return null;
+  if (!isCapacitorNative()) {
+    console.log('[Push] Not native platform, skipping');
+    return null;
+  }
+  if (!userId) {
+    console.log('[Push] No userId, skipping');
+    return null;
+  }
+
+  console.log('[Push] Registering for user:', userId.slice(0, 8) + '...', 'role:', role);
 
   currentUserId = userId;
   currentRole = role;
@@ -93,25 +111,53 @@ export async function registerNativePushForUser({ userId, role = 'customer' } = 
   await attachListeners();
 
   const { PushNotifications } = await import('@capacitor/push-notifications');
-  const permStatus = await PushNotifications.checkPermissions();
 
-  if (permStatus.receive === 'denied') {
-    console.warn('Native push permission denied');
+  let permStatus;
+  try {
+    permStatus = await PushNotifications.checkPermissions();
+    console.log('[Push] Permission status:', permStatus.receive);
+  } catch (err) {
+    console.warn('[Push] checkPermissions failed:', err);
     return null;
   }
 
-  if (permStatus.receive === 'prompt') {
-    const request = await PushNotifications.requestPermissions();
-    if (request.receive !== 'granted') {
-      console.warn('Native push permission not granted');
+  if (permStatus.receive === 'denied') {
+    console.warn('[Push] Permission denied — opening Settings');
+    try {
+      const { NativeSettings, IOSSettings, AndroidSettings } = await import('capacitor-native-settings');
+      await NativeSettings.open({
+        optionAndroid: AndroidSettings.AppNotification,
+        optionIOS: IOSSettings.App,
+      }).catch(() => {});
+    } catch (err) {
+      console.warn('[Push] Could not open settings:', err);
+    }
+    return null;
+  }
+
+  if (permStatus.receive !== 'granted') {
+    console.log('[Push] Requesting permissions...');
+    try {
+      const request = await PushNotifications.requestPermissions();
+      console.log('[Push] Permission request result:', request.receive);
+      if (request.receive !== 'granted') {
+        console.warn('[Push] Permission not granted');
+        return null;
+      }
+    } catch (err) {
+      console.warn('[Push] requestPermissions failed:', err);
       return null;
     }
   }
 
+  console.log('[Push] Calling register()...');
   if (!registrationInFlight) {
     registrationInFlight = PushNotifications.register()
+      .then(() => {
+        console.log('[Push] register() succeeded');
+      })
       .catch((error) => {
-        console.warn('Native push register failed:', error);
+        console.warn('[Push] register() failed:', error);
       })
       .finally(() => {
         registrationInFlight = null;
@@ -124,18 +170,36 @@ export async function registerNativePushForUser({ userId, role = 'customer' } = 
     await upsertPushToken(currentToken, userId);
   }
 
+  // Re-check when app returns from background (user may enable in Settings)
+  if (!visibilityListenerAttached) {
+    visibilityListenerAttached = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && currentUserId && !currentToken) {
+        console.log('[Push] App resumed without token — retrying registration');
+        registerNativePushForUser({ userId: currentUserId, role: currentRole }).catch(() => {});
+      }
+    });
+  }
+
   return currentToken;
 }
 
 export async function deactivateNativePushToken(userId = currentUserId) {
-  if (!isCapacitorNative() || !currentToken || !userId) return;
+  const tokenToDeactivate = currentToken;
+  const userToDeactivate = userId;
+
+  // Reset module state immediately so next login starts clean
+  currentUserId = null;
+  currentToken = null;
+
+  if (!isCapacitorNative() || !tokenToDeactivate || !userToDeactivate) return;
   const { error } = await supabase
     .from('device_tokens')
     .update({ is_active: false })
-    .eq('user_id', userId)
-    .eq('push_token', currentToken);
+    .eq('user_id', userToDeactivate)
+    .eq('push_token', tokenToDeactivate);
 
   if (error) {
-    console.warn('Failed to deactivate native push token:', error);
+    console.warn('[Push] Failed to deactivate token:', error);
   }
 }

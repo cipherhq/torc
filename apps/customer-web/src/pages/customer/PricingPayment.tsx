@@ -1,10 +1,12 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, CreditCard, Plus, Check, DollarSign, AlertCircle, Shield, X } from 'lucide-react';
+import { CreditCard, Plus, Check, DollarSign, AlertCircle, Shield, X } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { getRequestContext, updateRequestContext } from '../../data/requestContext';
+import { loadPlatformSettings } from '../../lib/platformSettings';
 import { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useElements, useStripe } from '@stripe/react-stripe-js';
@@ -179,6 +181,7 @@ export function PricingPayment() {
   const [showAddCard, setShowAddCard] = useState(false);
   const [saving, setSaving] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [taxRate, setTaxRate] = useState(8);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -190,6 +193,7 @@ export function PricingPayment() {
   useEffect(() => {
     if (!user) return;
     fetchPaymentMethods();
+    loadPlatformSettings().then(s => setTaxRate(s.tax_rate)).catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -235,10 +239,10 @@ export function PricingPayment() {
   };
 
   const basePrice = Number(context.serviceBasePrice || 0);
-  const hazardFee = context.isHazardLocation ? 15 : 0;
+  const hazardFee = context.isHazardous ? 15 : 0;
   const schedulingFee = context.scheduledFor ? 5 : 0;
   const subtotal = basePrice + hazardFee + schedulingFee;
-  const tax = subtotal * 0.08;
+  const tax = subtotal * (taxRate / 100);
   const total = subtotal + tax;
 
   const handleInlineCard = async (paymentMethod: PaymentMethod) => {
@@ -266,24 +270,40 @@ export function PricingPayment() {
       setProcessingPayment(true);
       setErrors([]);
 
-      const { data, error } = await supabase.functions.invoke('create-payment-intent', {
-        body: {
-          amount: Number(total.toFixed(2)),
-          currency: 'usd',
-          paymentMethodId: stripePaymentMethodId,
-          savePaymentMethod: saveCard,
-          metadata: {
-            service_id: context.serviceId,
-            flow: 'customer_checkout',
-          },
-        },
-      });
-      if (error) {
-        const ctx = error.context;
-        const msg = ctx?.error || ctx?.message || data?.error || error.message;
-        throw new Error(msg);
+      // Get a fresh token via refresh, fallback to current session
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      let token = refreshData?.session?.access_token;
+      if (!token) {
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token;
       }
-      if (!data?.clientSecret) throw new Error('Missing client secret from payment intent.');
+      if (!token) throw new Error('Please sign in again to continue.');
+
+      // Direct fetch to guarantee the fresh token is used (--no-verify-jwt deployed)
+      const fnRes = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            amount: Number(total.toFixed(2)),
+            currency: 'usd',
+            paymentMethodId: stripePaymentMethodId,
+            savePaymentMethod: saveCard,
+            metadata: {
+              service_id: context.serviceId,
+              flow: 'customer_checkout',
+            },
+          }),
+        }
+      );
+      const data = await fnRes.json();
+      if (!fnRes.ok) throw new Error(data?.error || `Payment failed (${fnRes.status})`);
+      if (!data?.clientSecret) throw new Error(data?.error || 'Missing client secret from payment intent.');
 
       const stripe = await stripePromise;
       if (!stripe) throw new Error('Stripe is not available right now.');
@@ -326,22 +346,15 @@ export function PricingPayment() {
       navigate('/matching');
     } catch (e: any) {
       setErrors([e?.message || 'Could not process payment right now.']);
-    } finally {
       setProcessingPayment(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-xl font-bold" style={{ color: textColor }}>Review & Pay</h1>
-      </div>
+    <div className="h-screen flex flex-col relative" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+      <PageHeader title="Review & Pay" />
 
-      <div className="relative z-10 flex-1 px-6 pb-36 overflow-y-auto">
+      <div className="relative z-10 flex-1 px-6 overflow-y-auto overscroll-contain" style={{ paddingTop: 'calc(var(--safe-top) + 64px)', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 0px))' }}>
         {/* Price breakdown */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
@@ -463,6 +476,20 @@ export function PricingPayment() {
                       <p className="font-semibold" style={{ color: textColor }}>{method.brand || 'Card'} •••• {method.last4 || '****'}</p>
                       {method.is_default && <p className="text-xs mt-0.5 font-medium" style={{ color: '#008CE5' }}>Default</p>}
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        (async () => {
+                          await supabase.from('payment_methods').delete().eq('id', method.id);
+                          await fetchPaymentMethods();
+                          if (selectedPayment === method.id) setSelectedPayment(null);
+                        })();
+                      }}
+                      className="text-xs font-semibold px-2 py-1 rounded-lg mr-2"
+                      style={{ color: '#EF4444', backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.1)' }}
+                    >
+                      Remove
+                    </button>
                     <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center" style={{
                       borderColor: isSelected ? '#008CE5' : (isDark ? 'rgba(255,255,255,0.25)' : '#D1D5DB'),
                       backgroundColor: isSelected ? '#008CE5' : 'transparent',
@@ -495,12 +522,10 @@ export function PricingPayment() {
             <p className="font-semibold text-sm flex-1 text-left" style={{ color: textColor }}>Save card for future use</p>
           </button>
         )}
-      </div>
 
-      {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
+        {/* Inline errors */}
         {errors.length > 0 && (
-          <div className="mb-3 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
+          <div className="mb-4 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
             {errors.map((err, i) => (
               <div key={i} className="flex items-center gap-2">
                 <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
@@ -509,6 +534,10 @@ export function PricingPayment() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Fixed bottom */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 px-6 py-4" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm" style={{ color: subColor }}>Total Amount</span>
           <span className="font-bold text-xl" style={{ color: '#008CE5' }}>${total.toFixed(2)}</span>
@@ -516,6 +545,7 @@ export function PricingPayment() {
         <button onClick={handleConfirm}
           disabled={processingPayment}
           className="torc-btn-primary"
+          style={processingPayment ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
         >
           {processingPayment ? 'Processing Payment...' : 'Confirm & Request'}
         </button>

@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Search, MessageCircle, Phone, Mail, ChevronDown, ChevronRight, HelpCircle, Shield, CreditCard, MapPin, Users, FileText, Zap, Send } from 'lucide-react';
+import { Search, MessageCircle, Phone, Mail, ChevronDown, ChevronRight, HelpCircle, Shield, CreditCard, MapPin, Users, FileText, Zap, Send } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -234,40 +235,21 @@ export function HelpCenter() {
   return (
     <div className="min-h-screen"
       style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      {/* Header */}
-      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}` }}>
-        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-          <div className="flex items-center gap-4 mb-4">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-            >
-              <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#FFFFFF' : '#14263D' }} />
-            </motion.button>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Help Center</h1>
-              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6B7280' }}>We're here to help 24/7</p>
-            </div>
-          </div>
+      <PageHeader title="Help Center" onBack={() => navigate('/profile')} />
 
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for help..."
-              className="w-full pl-12 pr-4 py-3 rounded-[20px] focus:outline-none focus:border-[#008CE5]/50"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
-            />
-          </div>
+      <div className="max-w-2xl mx-auto px-6 space-y-8" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search for help..."
+            className="w-full pl-12 pr-4 py-3 rounded-[20px] focus:outline-none focus:border-[#008CE5]/50"
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`, color: isDark ? '#FFFFFF' : '#14263D' }}
+          />
         </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto p-6 space-y-8">
         {/* Quick Actions */}
         <div>
           <h2 className="font-bold text-lg mb-4" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>Contact Support</h2>

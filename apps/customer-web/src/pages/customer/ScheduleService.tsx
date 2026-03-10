@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Clock, Calendar, Zap } from 'lucide-react';
+import { Clock, Zap } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { updateRequestContext } from '../../data/requestContext';
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
@@ -9,46 +10,53 @@ export function ScheduleService() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
   const [timing, setTiming] = useState<'now' | 'scheduled'>('now');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedTime, setSelectedTime] = useState('');
+  const [dateTime, setDateTime] = useState('');
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
+  // Minimum datetime = now (rounded to next hour)
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  now.setHours(now.getHours() + 1);
+  const minDateTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:00`;
+
   const handleContinue = () => {
     let scheduledFor = null;
-    if (timing === 'scheduled' && selectedDate && selectedTime) {
-      scheduledFor = new Date(`${selectedDate}T${selectedTime}`);
+    if (timing === 'scheduled' && dateTime) {
+      // Parse manually to avoid UTC offset issues
+      const [datePart, timePart] = dateTime.split('T');
+      const [yr, mo, dy] = datePart.split('-').map(Number);
+      const [hr, mn] = timePart.split(':').map(Number);
+      scheduledFor = new Date(yr, mo - 1, dy, hr, mn);
     }
-
     updateRequestContext({ scheduledFor });
     navigate('/pricing');
   };
 
-  const timeSlots = [
-    '08:00 AM', '09:00 AM', '10:00 AM', '11:00 AM',
-    '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM',
-    '04:00 PM', '05:00 PM', '06:00 PM', '07:00 PM',
-  ];
+  // Format "2026-03-30T20:00" to readable string — parse manually to avoid UTC offset
+  const formatDateTime = (dt: string) => {
+    if (!dt) return '';
+    // dt is "YYYY-MM-DDTHH:MM" from datetime-local input — parse parts directly
+    const [datePart, timePart] = dt.split('T');
+    const [yr, mo, dy] = datePart.split('-').map(Number);
+    const [hr, mn] = timePart.split(':').map(Number);
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    // Use local date constructor to get correct weekday
+    const d = new Date(yr, mo - 1, dy);
+    const period = hr >= 12 ? 'PM' : 'AM';
+    const h12 = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+    return `${weekdays[d.getDay()]}, ${months[mo - 1]} ${dy} at ${h12}:${String(mn).padStart(2, '0')} ${period}`;
+  };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </motion.button>
-        <h1 className="text-xl font-bold" style={{ color: textColor }}>When do you need help?</h1>
-      </div>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 0px))' }}>
+      <PageHeader title="When do you need help?" />
 
-      <div className="relative z-10 flex-1 px-6 pb-32 overflow-y-auto">
+      <div className="relative z-10 px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Timing options */}
         <div className="space-y-4 mb-8">
           {/* Now */}
@@ -124,50 +132,36 @@ export function ScheduleService() {
           </motion.button>
         </div>
 
-        {/* Schedule picker */}
+        {/* Schedule picker - single datetime input */}
         {timing === 'scheduled' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-            {/* Date */}
-            <div>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+            <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
               <div className="flex items-center gap-3 mb-3">
-                <Calendar className="w-5 h-5" style={{ color: '#008CE5' }} />
-                <p className="font-semibold" style={{ color: textColor }}>Select Date</p>
+                <Clock className="w-5 h-5" style={{ color: '#008CE5' }} />
+                <p className="font-semibold" style={{ color: textColor }}>Pick Date & Time</p>
               </div>
               <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                className="w-full rounded-2xl px-4 py-4"
-                style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}`, color: textColor }}
+                type="datetime-local"
+                value={dateTime}
+                onChange={(e) => setDateTime(e.target.value)}
+                min={minDateTime}
+                className="w-full rounded-xl px-4 py-4"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${cardBorder}`, color: textColor }}
               />
             </div>
 
-            {/* Time */}
-            {selectedDate && (
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-                <div className="flex items-center gap-3 mb-3">
-                  <Clock className="w-5 h-5" style={{ color: '#008CE5' }} />
-                  <p className="font-semibold" style={{ color: textColor }}>Select Time</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {timeSlots.map((time) => (
-                    <motion.button
-                      key={time}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setSelectedTime(time)}
-                      className="py-3 rounded-2xl font-semibold text-sm transition-all active:opacity-80"
-                      style={{
-                        background: selectedTime === time ? 'linear-gradient(135deg, #008CE5, #0070B8)' : cardBg,
-                        color: selectedTime === time ? '#0A1626' : textColor,
-                        border: `1px solid ${selectedTime === time ? '#008CE5' : cardBorder}`,
-                        boxShadow: selectedTime === time ? '0 4px 12px rgba(78,205,196,0.3)' : 'none',
-                      }}
-                    >
-                      {time}
-                    </motion.button>
-                  ))}
-                </div>
+            {/* Summary */}
+            {dateTime && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl p-5 text-center"
+                style={{ background: 'linear-gradient(135deg, rgba(0,140,229,0.08), rgba(0,112,184,0.08))', border: '1px solid rgba(0,140,229,0.2)' }}
+              >
+                <p className="text-sm" style={{ color: subColor }}>Your service is scheduled for</p>
+                <p className="text-lg font-bold mt-1" style={{ color: '#008CE5' }}>
+                  {formatDateTime(dateTime)}
+                </p>
               </motion.div>
             )}
           </motion.div>
@@ -178,7 +172,7 @@ export function ScheduleService() {
       <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         <button
           onClick={handleContinue}
-          disabled={timing === 'scheduled' && (!selectedDate || !selectedTime)}
+          disabled={timing === 'scheduled' && !dateTime}
           className="torc-btn-primary"
         >
           Continue to Payment

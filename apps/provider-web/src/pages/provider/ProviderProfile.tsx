@@ -1,10 +1,12 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Star, FileText, CreditCard, Bell, HelpCircle, LogOut, ChevronRight, Wrench, Building2, Sun, Moon, Car, Shield, Camera, BarChart3 } from 'lucide-react';
+import { User, Star, FileText, CreditCard, Bell, HelpCircle, LogOut, ChevronRight, Wrench, Building2, Sun, Moon, Car, Shield, Camera, BarChart3 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect, useRef } from 'react';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { PageHeader } from '../../components/PageHeader';
 
 export function ProviderProfile() {
   const navigate = useNavigate();
@@ -26,16 +28,15 @@ export function ProviderProfile() {
       });
   }, [user]);
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
+  const uploadAvatarFile = async (file: File) => {
+    if (!user) return;
     if (file.size > 5 * 1024 * 1024) {
       alert('Image must be under 5MB');
       return;
     }
     setUploading(true);
     try {
-      const ext = file.name.split('.').pop();
+      const ext = file.name.split('.').pop() || 'jpg';
       const filePath = `${user.id}/avatar.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('provider-documents')
@@ -54,6 +55,42 @@ export function ProviderProfile() {
       alert('Failed to upload photo. Please try again.');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadAvatarFile(file);
+  };
+
+  const handleAvatarTap = async () => {
+    if (uploading) return;
+    try {
+      const perms = await CapCamera.requestPermissions({ permissions: ['camera', 'photos'] });
+      if (perms.camera === 'denied' && perms.photos === 'denied') {
+        alert('Camera and photo permissions are required. Please enable them in Settings.');
+        return;
+      }
+      const image = await CapCamera.getPhoto({
+        quality: 80,
+        allowEditing: true,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Prompt,
+        promptLabelHeader: 'Profile Photo',
+        promptLabelPhoto: 'Choose from Gallery',
+        promptLabelPicture: 'Take Photo',
+      });
+      if (image.dataUrl) {
+        const blob = await fetch(image.dataUrl).then(r => r.blob());
+        const file = new File([blob], `avatar-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        await uploadAvatarFile(file);
+      }
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('User cancelled')) return;
+      console.warn('Camera error:', err);
+      fileInputRef.current?.click();
     }
   };
 
@@ -109,18 +146,8 @@ export function ProviderProfile() {
 
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'max(calc(24px + env(safe-area-inset-top, 0px)), 60px)' }}>
-        <button
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-          title="Go back"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Profile</h1>
-      </div>
+      <PageHeader title="Profile" onBack={() => navigate('/home')} />
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       {/* Profile card */}
       <div className="relative z-10 px-6 mb-6">
@@ -138,7 +165,7 @@ export function ProviderProfile() {
             onChange={handleAvatarUpload}
           />
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleAvatarTap}
             disabled={uploading}
             className="relative w-28 h-28 rounded-full mx-auto mb-3"
           >

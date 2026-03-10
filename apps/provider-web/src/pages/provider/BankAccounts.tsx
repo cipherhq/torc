@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Plus, CreditCard, Check, Trash2, Building2, Shield, User, Hash, KeyRound, X, Landmark, Wallet } from 'lucide-react';
+import { Plus, CreditCard, Check, Trash2, Building2, Shield, User, Hash, KeyRound, X, Landmark, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 
 function IconBadge({ children, color = '#008CE5' }: { children: React.ReactNode; color?: string }) {
   return (
@@ -96,27 +97,9 @@ export function ProviderBankAccounts() {
   return (
     <div className="min-h-screen"
       style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      {/* Header */}
-      <div className="sticky top-0 z-10" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${cardBorder}` }}>
-        <div className="max-w-2xl mx-auto p-6" style={{ paddingTop: 'var(--safe-top)' }}>
-          <div className="flex items-center gap-4 mb-2">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => navigate('/profile')}
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-            >
-              <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-            </motion.button>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold" style={{ color: textColor }}>Bank Accounts</h1>
-              <p className="text-sm" style={{ color: subColor }}>Manage payout destinations</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="Bank Accounts" onBack={() => navigate('/profile')} />
 
-      <div className="max-w-2xl mx-auto p-6 space-y-6">
+      <div className="max-w-2xl mx-auto p-6 space-y-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Info Banner */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

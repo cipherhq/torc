@@ -83,6 +83,7 @@ export function HomeMap() {
     : user?.email?.split('@')[0] || 'there';
 
   const [totalSaves, setTotalSaves] = useState(0);
+  const [activeJob, setActiveJob] = useState<{ id: string; status: string; service_name?: string } | null>(null);
   const rating = profile?.rating ?? '-';
 
   // Count completed jobs for this customer
@@ -96,6 +97,47 @@ export function HomeMap() {
       .then(({ count }) => {
         if (count !== null) setTotalSaves(count);
       });
+  }, [user?.id]);
+
+  // Check for active in-progress jobs (crash recovery banner)
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    const hasCleaned = { current: false };
+    async function check() {
+      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+
+      // One-time cleanup of stale jobs older than 12 hours
+      if (!hasCleaned.current) {
+        hasCleaned.current = true;
+        supabase
+          .from('jobs')
+          .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
+          .eq('customer_id', user!.id)
+          .in('status', ['pending', 'matching', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+          .lt('created_at', twelveHoursAgo)
+          .then(() => {});
+      }
+
+      const { data } = await supabase
+        .from('jobs')
+        .select('id, status, services(name)')
+        .eq('customer_id', user!.id)
+        .in('status', ['pending', 'matching', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+        .gte('created_at', twelveHoursAgo)
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled && data) {
+        setActiveJob({ id: data.id, status: data.status, service_name: (data as any).services?.name });
+      } else if (!cancelled) {
+        setActiveJob(null);
+      }
+    }
+    check();
+    const interval = setInterval(check, 8000);
+    const handleVis = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', handleVis);
+    return () => { cancelled = true; clearInterval(interval); document.removeEventListener('visibilitychange', handleVis); };
   }, [user?.id]);
 
   // Calculate "Member Since" from user's created_at or profile created_at
@@ -148,7 +190,7 @@ export function HomeMap() {
       </div>
 
       {/* Map area */}
-      <div className="flex-1 relative z-10 mx-4 mb-3 rounded-[24px] overflow-hidden">
+      <div className="flex-1 min-h-0 relative z-10 mx-4 mb-3 rounded-[24px] overflow-hidden">
         {isLoaded && !loadError ? (
           <GoogleMap
             mapContainerStyle={mapContainerStyle}
@@ -210,58 +252,65 @@ export function HomeMap() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={recenterMap}
-          className="absolute bottom-4 right-4 z-20 glass rounded-full p-3 shadow-lg"
+          className="absolute bottom-16 right-4 z-20 glass rounded-full p-3 shadow-lg"
         >
           <Navigation2 className="w-5 h-5 text-[#008CE5]" />
         </motion.button>
-      </div>
 
-      {/* Current location card */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="relative z-10 px-4">
-        <div className="rounded-2xl p-4 text-center" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-          <p className="text-sm mb-1" style={{ color: subColor }}>
-            {locationLoading ? 'Finding your location...' : 'Current Location'}
-          </p>
-          {address ? (
-            <>
-              <p className="font-semibold" style={{ color: textColor }}>{address.split(',')[0]}</p>
-              <p className="text-sm" style={{ color: subColor }}>{address.split(',').slice(1).join(',').trim()}</p>
-            </>
-          ) : (
-            <p className="text-sm" style={{ color: subColor }}>
-              {locationLoading ? 'Locating...' : 'Location unavailable'}
+        {/* Current location card — overlaid on map */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="absolute bottom-3 left-3 right-3 z-20">
+          <div className="rounded-2xl p-3 text-center backdrop-blur-md" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(255,255,255,0.92)', border: `1px solid ${cardBorder}` }}>
+            <p className="text-xs mb-0.5" style={{ color: subColor }}>
+              {locationLoading ? 'Finding your location...' : 'Current Location'}
             </p>
-          )}
-        </div>
-      </motion.div>
-
-      {/* Quick stats */}
-      <div className="relative z-10 px-4 mt-3 mb-3">
-        <div className="rounded-2xl p-4 grid grid-cols-3 gap-4" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-          <div className="text-center">
-            <p className="text-xl font-bold" style={{ color: '#008CE5' }}>{totalSaves}</p>
-            <p className="text-xs mt-0.5" style={{ color: subColor }}>Total Saves</p>
+            {address ? (
+              <>
+                <p className="font-semibold text-sm" style={{ color: textColor }}>{address.split(',')[0]}</p>
+                <p className="text-xs" style={{ color: subColor }}>{address.split(',').slice(1).join(',').trim()}</p>
+              </>
+            ) : (
+              <p className="text-xs" style={{ color: subColor }}>
+                {locationLoading ? 'Locating...' : 'Location unavailable'}
+              </p>
+            )}
           </div>
-          <div className="text-center border-x" style={{ borderColor: cardBorder }}>
-            <p className="text-base font-bold" style={{ color: '#0070B8' }}>{memberSince}</p>
-            <p className="text-xs mt-0.5" style={{ color: subColor }}>Member Since</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xl font-bold" style={{ color: '#008CE5' }}>{rating}</p>
-            <p className="text-xs mt-0.5" style={{ color: subColor }}>Your Rating</p>
-          </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Request help button */}
-      <div className="relative z-10 px-4" style={{ paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-        <button
-          onClick={() => navigate('/who-needs-help')}
-          className="torc-btn-primary"
-        >
-          Request Assistance
-        </button>
-      </div>
+      {!activeJob && (
+        <div className="relative z-10 px-4 mb-2 flex-shrink-0" style={{ paddingBottom: 'calc(70px + var(--safe-bottom, 0px))' }}>
+          <button
+            onClick={() => navigate('/who-needs-help')}
+            className="torc-btn-primary"
+          >
+            Request Assistance
+          </button>
+        </div>
+      )}
+
+      {/* Bottom spacer when active job is showing (button hidden) */}
+      {activeJob && (
+        <div style={{ height: 'calc(70px + var(--safe-bottom, 0px))' }} />
+      )}
+
+      {/* Active job banner — crash recovery */}
+      {activeJob && (
+        <div className="fixed left-0 right-0 z-40" style={{ bottom: 'calc(75px + env(safe-area-inset-bottom, 0px))' }}>
+          <button
+            onClick={() => navigate(`/tracking/${activeJob.id}`)}
+            className="mx-4 rounded-2xl px-4 py-3 flex items-center gap-3 active:scale-[0.98] transition-transform shadow-xl"
+            style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', boxShadow: '0 8px 24px rgba(0,140,229,0.5)' }}
+          >
+            <div className="w-3 h-3 rounded-full bg-white animate-pulse flex-shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-white font-bold text-sm">Active Service — Tap to Track</p>
+              <p className="text-white/70 text-xs">{activeJob.service_name || 'Roadside Assistance'}</p>
+            </div>
+            <span className="text-white text-lg font-bold">&rarr;</span>
+          </button>
+        </div>
+      )}
 
       <CustomerBottomNav />
     </div>

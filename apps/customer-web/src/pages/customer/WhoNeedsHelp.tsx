@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, UserPlus, ChevronRight } from 'lucide-react';
+import { User, UserPlus, ChevronRight } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { updateRequestContext } from '../../data/requestContext';
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
@@ -42,21 +43,9 @@ export function WhoNeedsHelp() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/home')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-6 h-6" style={{ color: textColor }} />
-        </motion.button>
-        <h1 className="text-2xl font-bold" style={{ color: textColor }}>Who needs help?</h1>
-      </div>
+      <PageHeader title="Who needs help?" onBack={() => navigate('/home')} />
 
-      <div className="relative z-10 flex-1 px-6 pb-6">
+      <div className="relative z-10 flex-1 px-6 pb-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

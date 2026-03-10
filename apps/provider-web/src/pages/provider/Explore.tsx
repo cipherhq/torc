@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { MapPin, Star, Clock, Navigation, Search, Filter, ChevronRight, Phone, ExternalLink } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { GoogleMap, Marker, InfoWindow } from '@react-google-maps/api';
+import { PageHeader } from '../../components/PageHeader';
 
 interface Shop {
   place_id: string;
@@ -37,6 +39,7 @@ const darkMapStyle = [
 ];
 
 export function Explore() {
+  const navigate = useNavigate();
   const { isDark } = useTheme();
   const { isLoaded } = useGoogleMaps();
   const [shops, setShops] = useState<Shop[]>([]);
@@ -52,17 +55,11 @@ export function Explore() {
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
-  // Get provider location
+  // Get provider location — uses Capacitor native API (never re-prompts)
   useEffect(() => {
-    if (!navigator.geolocation) {
-      setCurrentPos({ lat: 40.7128, lng: -74.006 });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setCurrentPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setCurrentPos({ lat: 40.7128, lng: -74.006 }),
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+    import('../../utils/safeLocation').then(({ getSafePosition }) => {
+      getSafePosition().then(setCurrentPos);
+    });
   }, []);
 
   // Search for auto shops nearby
@@ -120,9 +117,11 @@ export function Explore() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      {/* Header */}
-      <div className="p-6 pb-3" style={{ paddingTop: 'var(--safe-top)' }}>
-        <h1 className="text-2xl font-bold mb-4" style={{ color: textColor }}>Explore Shops</h1>
+      <PageHeader title="Explore Shops" onBack={() => navigate('/home')} />
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
+
+      {/* Search */}
+      <div className="p-6 pt-3 pb-3">
 
         {/* Search bar */}
         <div className="flex items-center gap-3 rounded-2xl px-4 py-3"

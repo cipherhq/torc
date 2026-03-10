@@ -113,7 +113,7 @@ export function JobProvider({ children }) {
       requester_type: details.requesterType,
       requester_name: details.requesterName,
       requester_phone: details.requesterPhone,
-      scheduled_for: details.scheduledFor || new Date().toISOString(),
+      scheduled_for: details.scheduledFor || null,
       customer_notes: details.customerNotes,
       status: 'pending',
       payment_method_id: paymentMethodId || null,
@@ -135,7 +135,8 @@ export function JobProvider({ children }) {
         insertData.service_fee = Math.round(svc.base_price * (ps.service_fee_pct / 100) * 100) / 100;
         const subtotal = svc.base_price + hazardFee + schedulingFee;
         insertData.tax = Math.round(subtotal * (ps.tax_rate_pct / 100) * 100) / 100;
-        insertData.total_amount = subtotal + insertData.service_fee + insertData.tax;
+        // total_amount = what the customer pays (service_fee is deducted from provider earnings, not charged to customer)
+        insertData.total_amount = subtotal + insertData.tax;
       }
     }
 

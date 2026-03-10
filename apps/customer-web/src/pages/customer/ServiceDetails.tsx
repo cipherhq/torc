@@ -1,6 +1,8 @@
 import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router';
-import { ArrowLeft, Camera, Car, Plus, MapPin, X, Check, Loader2 } from 'lucide-react';
+import { Camera, Car, Plus, MapPin, X, Check, Loader2 } from 'lucide-react';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
@@ -175,16 +177,10 @@ export function ServiceDetails() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button onClick={() => navigate('/service-selection')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-xl font-bold" style={{ color: textColor }}>{service.name}</h1>
-      </div>
+    <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 0px))' }}>
+      <PageHeader title={service.name} onBack={() => navigate('/service-selection')} />
 
-      <div className="relative z-10 flex-1 px-6 pb-32 overflow-y-auto">
+      <div className="relative z-10 px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Service info card */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
@@ -331,17 +327,43 @@ export function ServiceDetails() {
                 <img src={photo} alt="" className="w-full h-full object-cover" />
               </div>
             ))}
-            <label className="aspect-square rounded-xl flex flex-col items-center justify-center gap-1 border-2 border-dashed cursor-pointer" style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}>
+            <button
+              type="button"
+              className="aspect-square rounded-xl flex flex-col items-center justify-center gap-1 border-2 border-dashed cursor-pointer"
+              style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#D1D5DB' }}
+              onClick={async () => {
+                try {
+                  const perms = await CapCamera.requestPermissions({ permissions: ['camera', 'photos'] });
+                  if (perms.camera === 'denied' && perms.photos === 'denied') {
+                    alert('Camera and photo permissions are required. Please enable them in Settings.');
+                    return;
+                  }
+                  const image = await CapCamera.getPhoto({
+                    quality: 80,
+                    allowEditing: false,
+                    resultType: CameraResultType.DataUrl,
+                    source: CameraSource.Prompt,
+                    promptLabelHeader: 'Add Photo',
+                    promptLabelPhoto: 'Choose from Gallery',
+                    promptLabelPicture: 'Take Photo',
+                    width: 1600,
+                    height: 1600,
+                  });
+                  if (image.dataUrl) {
+                    setPhotos(prev => [...prev, image.dataUrl!]);
+                  }
+                } catch (err: any) {
+                  const msg = err?.message || '';
+                  if (msg !== 'User cancelled photos app' && !msg.includes('cancelled')) {
+                    console.warn('Camera error:', err);
+                    alert('Could not access camera. Please check app permissions in Settings.');
+                  }
+                }
+              }}
+            >
               <Camera className="w-5 h-5" style={{ color: subColor }} />
               <span className="text-[10px]" style={{ color: subColor }}>Add Photo</span>
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onloadend = () => setPhotos(prev => [...prev, reader.result as string]);
-                reader.readAsDataURL(file);
-              }} />
-            </label>
+            </button>
           </div>
         </div>
 

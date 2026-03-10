@@ -2,12 +2,12 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import {
   ArrowLeft, DollarSign, Plus, Trash2, Pencil, CheckCircle2, Building2,
-  Mail, AtSign, X, User, Hash, Landmark, KeyRound, Download, Clock,
-  Calendar, Info, Save, ChevronDown, ChevronUp,
+  Mail, AtSign, Clock, Calendar, Info, Save, ChevronDown, ChevronUp,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 
@@ -69,24 +69,21 @@ function deriveBasePrice(job: { base_price?: number | null; total_amount?: numbe
   return Math.max((Number(job.total_amount) || 0) - (Number(job.tip) || 0), 0);
 }
 
-function IconField({
-  icon: Icon, value, onChange, placeholder, isDark, type = 'text',
+function FormField({
+  label, value, onChange, placeholder, isDark, type = 'text',
 }: {
-  icon: ComponentType<{ className?: string; style?: CSSProperties }>;
-  value: string; onChange: (value: string) => void;
+  label: string; value: string; onChange: (value: string) => void;
   placeholder: string; isDark: boolean; type?: string;
 }) {
+  const borderColor = isDark ? 'rgba(255,255,255,0.12)' : '#D3E0F2';
+  const bgColor = isDark ? 'rgba(255,255,255,0.04)' : '#F5F9FF';
+  const labelColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   return (
-    <div className="w-full rounded-xl px-3 py-2 flex items-center gap-2.5"
-      style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : '#D3E0F2'}`, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F5F9FF' }}
-    >
-      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.14)' : 'rgba(0,140,229,0.12)' }}
-      >
-        <Icon className="w-4 h-4" style={{ color: '#008CE5' }} />
-      </div>
+    <div>
+      <label className="block text-xs font-medium mb-1.5" style={{ color: labelColor }}>{label}</label>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full bg-transparent outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}
+        className="w-full rounded-xl px-4 py-3 bg-transparent outline-none"
+        style={{ border: `1px solid ${borderColor}`, backgroundColor: bgColor, color: isDark ? '#FFFFFF' : '#14263D', fontSize: 16 }}
       />
     </div>
   );
@@ -103,6 +100,7 @@ export function PayoutSetup() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showAllPayouts, setShowAllPayouts] = useState(false);
   const [platformFee, setPlatformFee] = useState(15);
@@ -240,17 +238,31 @@ export function PayoutSetup() {
   }
 
   async function removeMethod(id: string) {
-    if (!user) return;
-    const { error } = await supabase.from('provider_payout_methods').delete().eq('id', id).eq('provider_id', user.id);
-    if (error) { console.warn('Failed to delete payout method:', error); alert('Unable to delete payout method right now.'); return; }
-    await loadAll();
+    if (!user || actionInProgress) return;
+    setActionInProgress(id);
+    try {
+      const { error } = await supabase.from('provider_payout_methods').delete().eq('id', id).eq('provider_id', user.id);
+      if (error) throw error;
+      await loadAll();
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setActionInProgress(null);
+    }
   }
 
   async function setDefaultMethod(id: string) {
-    if (!user) return;
-    await supabase.from('provider_payout_methods').update({ is_default: false }).eq('provider_id', user.id);
-    await supabase.from('provider_payout_methods').update({ is_default: true }).eq('id', id).eq('provider_id', user.id);
-    await loadAll();
+    if (!user || actionInProgress) return;
+    setActionInProgress(id);
+    try {
+      await supabase.from('provider_payout_methods').update({ is_default: false }).eq('provider_id', user.id);
+      await supabase.from('provider_payout_methods').update({ is_default: true }).eq('id', id).eq('provider_id', user.id);
+      await loadAll();
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setActionInProgress(null);
+    }
   }
 
   function methodLabel(method: PayoutMethod) {
@@ -292,7 +304,7 @@ export function PayoutSetup() {
         {/* Header */}
         <div className="flex items-center gap-4 p-6 pb-4 flex-shrink-0">
           <button onClick={() => setShowModal(false)} className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Close">
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#FFFFFF', border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : '#D3E0F2'}` }} title="Close">
             <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
           </button>
           <h2 className="font-bold text-xl" style={{ color: textColor }}>
@@ -325,41 +337,41 @@ export function PayoutSetup() {
           </div>
 
           {/* Form fields */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {form.methodType === 'bank' && (
               <>
-                <IconField icon={User} value={form.accountHolderName} onChange={(v) => setForm({ ...form, accountHolderName: v })} placeholder="Account holder name" isDark={isDark} />
-                <IconField icon={Landmark} value={form.bankName} onChange={(v) => setForm({ ...form, bankName: v })} placeholder="Bank name" isDark={isDark} />
-                <IconField icon={Hash} value={form.accountNumber} onChange={(v) => setForm({ ...form, accountNumber: v })} placeholder={editingId ? 'Account number (enter to replace)' : 'Account number'} isDark={isDark} />
-                <IconField icon={Hash} value={form.confirmAccountNumber} onChange={(v) => setForm({ ...form, confirmAccountNumber: v })} placeholder="Confirm account number" isDark={isDark} />
+                <FormField label="Account Holder Name *" value={form.accountHolderName} onChange={(v) => setForm({ ...form, accountHolderName: v })} placeholder="Full legal name" isDark={isDark} />
+                <FormField label="Bank Name *" value={form.bankName} onChange={(v) => setForm({ ...form, bankName: v })} placeholder="e.g. Chase, Bank of America" isDark={isDark} />
+                <FormField label="Account Number *" value={form.accountNumber} onChange={(v) => setForm({ ...form, accountNumber: v })} placeholder={editingId ? 'Enter to replace' : 'Account number'} isDark={isDark} />
+                <FormField label="Confirm Account Number *" value={form.confirmAccountNumber} onChange={(v) => setForm({ ...form, confirmAccountNumber: v })} placeholder="Re-enter account number" isDark={isDark} />
                 {form.accountNumber && form.confirmAccountNumber && form.accountNumber !== form.confirmAccountNumber && (
-                  <p className="text-xs text-red-400 px-1">Account numbers do not match</p>
+                  <p className="text-xs text-red-400 px-1 -mt-2">Account numbers do not match</p>
                 )}
-                <IconField icon={KeyRound} value={form.routingNumber} onChange={(v) => setForm({ ...form, routingNumber: v })} placeholder={editingId ? 'Routing number (enter to replace)' : 'Routing number'} isDark={isDark} />
+                <FormField label="Routing Number" value={form.routingNumber} onChange={(v) => setForm({ ...form, routingNumber: v })} placeholder={editingId ? 'Enter to replace' : 'Routing number'} isDark={isDark} />
               </>
             )}
 
             {form.methodType === 'paypal' && (
               <>
-                <IconField icon={Mail} value={form.paypalEmail} onChange={(v) => setForm({ ...form, paypalEmail: v })} placeholder="PayPal email" isDark={isDark} type="email" />
-                <IconField icon={Mail} value={form.confirmPaypalEmail} onChange={(v) => setForm({ ...form, confirmPaypalEmail: v })} placeholder="Confirm PayPal email" isDark={isDark} type="email" />
+                <FormField label="PayPal Email *" value={form.paypalEmail} onChange={(v) => setForm({ ...form, paypalEmail: v })} placeholder="you@example.com" isDark={isDark} type="email" />
+                <FormField label="Confirm PayPal Email *" value={form.confirmPaypalEmail} onChange={(v) => setForm({ ...form, confirmPaypalEmail: v })} placeholder="Re-enter email" isDark={isDark} type="email" />
                 {form.paypalEmail && form.confirmPaypalEmail && form.paypalEmail !== form.confirmPaypalEmail && (
-                  <p className="text-xs text-red-400 px-1">Email addresses do not match</p>
+                  <p className="text-xs text-red-400 px-1 -mt-2">Email addresses do not match</p>
                 )}
               </>
             )}
 
             {form.methodType === 'venmo' && (
-              <IconField icon={AtSign} value={form.venmoHandle} onChange={(v) => setForm({ ...form, venmoHandle: v })} placeholder="Venmo handle (e.g. @name)" isDark={isDark} />
+              <FormField label="Venmo Handle *" value={form.venmoHandle} onChange={(v) => setForm({ ...form, venmoHandle: v })} placeholder="e.g. @username" isDark={isDark} />
             )}
           </div>
         </div>
 
-        {/* Bottom buttons */}
+        {/* Bottom buttons — above the tab bar */}
         <div className="flex gap-3 px-6 pt-4 flex-shrink-0"
           style={{
             borderTop: `1px solid ${cardBorder}`,
-            paddingBottom: 'max(calc(var(--safe-bottom, 0px) + 12px), 20px)',
+            paddingBottom: 'calc(72px + env(safe-area-inset-bottom, 0px))',
           }}>
           <button onClick={() => setShowModal(false)} className="flex-1 rounded-2xl py-4 font-semibold"
             style={{
@@ -392,16 +404,9 @@ export function PayoutSetup() {
         <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] rounded-full" style={{ backgroundColor: '#008CE5', filter: 'blur(160px)', opacity: isDark ? 0.06 : 0.03 }} />
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </motion.button>
-        <h1 className="text-xl font-bold" style={{ color: textColor }}>Payouts</h1>
-      </div>
+      <PageHeader title="Payouts" onBack={() => navigate(-1)} />
 
-      <div className="relative z-10 px-6 space-y-5">
+      <div className="relative z-10 px-6 space-y-5" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {loadError && (
           <div className="rounded-2xl p-4 border border-red-500/30" style={{ backgroundColor: cardBg }}>
             <p className="text-red-400 text-sm">{loadError}</p>
@@ -505,9 +510,9 @@ export function PayoutSetup() {
                       </div>
                       <div className="flex gap-2 mt-3">
                         {!method.is_default && (
-                          <button onClick={() => setDefaultMethod(method.id)} className="px-3 py-2 rounded-xl text-xs font-semibold"
+                          <button onClick={() => setDefaultMethod(method.id)} disabled={!!actionInProgress} className="px-3 py-2 rounded-xl text-xs font-semibold disabled:opacity-40"
                             style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', color: '#FFFFFF' }}>
-                            Set Default
+                            {actionInProgress === method.id ? 'Updating...' : 'Set Default'}
                           </button>
                         )}
                         <button onClick={() => openEdit(method)} className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1"
@@ -515,7 +520,7 @@ export function PayoutSetup() {
                           <Pencil className="w-3 h-3" /> Edit
                         </button>
                         {!method.is_default && (
-                          <button onClick={() => removeMethod(method.id)} className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1 text-red-400"
+                          <button onClick={() => removeMethod(method.id)} disabled={!!actionInProgress} className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1 text-red-400 disabled:opacity-40"
                             style={{ backgroundColor: 'rgba(239,68,68,0.08)' }}>
                             <Trash2 className="w-3 h-3" /> Remove
                           </button>

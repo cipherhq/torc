@@ -1,8 +1,9 @@
 import { useNavigate } from 'react-router';
-import { ArrowLeft, HelpCircle, ChevronDown, ChevronRight, Phone, Mail, MessageCircle, DollarSign, FileText, Wrench, Zap, Users, Send } from 'lucide-react';
+import { HelpCircle, ChevronDown, ChevronRight, Phone, Mail, MessageCircle, DollarSign, FileText, Wrench, Zap, Users, Send } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
+import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useEffect, useState } from 'react';
 
@@ -200,25 +201,9 @@ export function HelpSupport() {
         paddingBottom: 'calc(120px + env(safe-area-inset-bottom, 0px))',
       }}
     >
-      {/* Header */}
-      <div className="sticky top-0 z-10 p-6" style={{ backgroundColor: isDark ? 'rgba(10,22,38,0.85)' : 'rgba(248,251,255,0.85)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${cardBorder}`, paddingTop: 'var(--safe-top)' }}>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/profile')}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2' }}
-            title="Back to profile"
-          >
-            <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold" style={{ color: textColor }}>Help & Support</h1>
-            <p className="text-sm" style={{ color: subColor }}>Find answers or contact us</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="Help & Support" onBack={() => navigate('/profile')} />
 
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Quick Actions */}
         <div className="grid grid-cols-3 gap-3">
           {[

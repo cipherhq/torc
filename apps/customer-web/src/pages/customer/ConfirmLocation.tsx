@@ -1,13 +1,14 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { ArrowLeft, MapPin, AlertTriangle, Navigation2, Search, X, LocateFixed, MapPinOff } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { GoogleMap, MarkerF, Autocomplete } from '@react-google-maps/api';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useLocation as useLocationCtx } from '../../context/LocationContext';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
-import { updateRequestContext } from '../../data/requestContext';
+import { getRequestContext, updateRequestContext } from '../../data/requestContext';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 
@@ -42,6 +43,8 @@ export function ConfirmLocation() {
   } = useLocationCtx();
   const { updateJobDetails } = useJob();
   const { isDark } = useTheme();
+  const ctx = getRequestContext();
+  const isForSomeoneElse = ctx.whoNeedsHelp === 'new';
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -70,9 +73,9 @@ export function ConfirmLocation() {
     }
   }, [permissionStatus, locationLoading]);
 
-  // Initialize marker with current location
+  // Initialize marker with current location (skip for "someone else" — they must search)
   useEffect(() => {
-    if (currentLocation) {
+    if (currentLocation && !isForSomeoneElse) {
       setMarkerPos({ lat: currentLocation.latitude, lng: currentLocation.longitude });
     }
   }, [currentLocation]);
@@ -90,6 +93,13 @@ export function ConfirmLocation() {
       geocoderRef.current = new google.maps.Geocoder();
     }
   }, [isLoaded]);
+
+  // Auto-open search when requesting for someone else
+  useEffect(() => {
+    if (isForSomeoneElse && !markerPos) {
+      setShowSearch(true);
+    }
+  }, []);
 
   // Focus search input when opened
   useEffect(() => {
@@ -126,6 +136,11 @@ export function ConfirmLocation() {
   };
 
   const handleRecenter = () => {
+    if (isForSomeoneElse) {
+      // Don't snap to customer's GPS — open search for recipient's address
+      setShowSearch(true);
+      return;
+    }
     if (permissionStatus !== 'granted') {
       handleAllowLocation();
       return;
@@ -192,28 +207,21 @@ export function ConfirmLocation() {
 
   return (
     <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      {/* Header */}
-      <div className="relative z-40 p-4 flex items-center gap-3" style={{ paddingTop: 'var(--safe-top)' }}>
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </motion.button>
-        <h1 className="text-xl font-bold flex-1" style={{ color: textColor }}>Confirm Location</h1>
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setShowSearch(true)}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-        >
-          <Search className="w-5 h-5 text-[#008CE5]" />
-        </motion.button>
-      </div>
+      <PageHeader
+        title="Confirm Location"
+        rightAction={
+          <button
+            onClick={() => setShowSearch(true)}
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}
+          >
+            <Search className="w-5 h-5 text-white" />
+          </button>
+        }
+      />
+
+      {/* Spacer for fixed header */}
+      <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       {/* Location permission banner */}
       <AnimatePresence>
@@ -481,7 +489,9 @@ export function ConfirmLocation() {
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-3">
             <MapPin className="w-4 h-4 text-[#008CE5]" />
-            <p className="font-semibold text-sm" style={{ color: textColor }}>Service Location</p>
+            <p className="font-semibold text-sm" style={{ color: textColor }}>
+              {isForSomeoneElse ? `Where does ${ctx.personName || 'this person'} need help?` : 'Service Location'}
+            </p>
           </div>
           <button
             onClick={() => setShowSearch(true)}
@@ -566,7 +576,7 @@ export function ConfirmLocation() {
         {/* Confirm button */}
         <button
           onClick={handleContinue}
-          disabled={!address && !markerPos}
+          disabled={!markerPos}
           className="torc-btn-primary"
           style={
             !(address || markerPos)

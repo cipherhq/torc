@@ -374,6 +374,20 @@ export function AdminProviders() {
         details: { provider_name: `${provider.first_name} ${provider.last_name}`, provider_email: provider.email },
       });
 
+      // Send email notification for suspension/unsuspension
+      if (provider.email) {
+        if (newStatus === 'suspended') {
+          sendEmail(provider.email, 'provider_suspended', {
+            name: `${provider.first_name} ${provider.last_name}`.trim() || 'Provider',
+            reason: 'Your account has been suspended by an administrator. Please contact support for more details.',
+          });
+        } else {
+          sendEmail(provider.email, 'provider_approved', {
+            name: `${provider.first_name} ${provider.last_name}`.trim() || 'Provider',
+          });
+        }
+      }
+
       setProviders(prev => prev.map(p => p.id === provider.id ? { ...p, status: newStatus } : p));
     } catch (e: any) {
       console.error('Failed to toggle suspend:', e);
@@ -1120,7 +1134,12 @@ export function AdminProviders() {
                   <button
                     key={reason}
                     onClick={() => setRejectReason(reason)}
-                    className="px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-xs font-medium border border-red-100 hover:bg-red-100 transition-colors"
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
+                    style={{
+                      backgroundColor: rejectReason === reason ? '#FEE2E2' : '#FEF2F2',
+                      color: '#DC2626',
+                      border: '1px solid #FECACA',
+                    }}
                   >
                     {reason}
                   </button>

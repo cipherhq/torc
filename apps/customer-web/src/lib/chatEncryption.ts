@@ -37,27 +37,10 @@ async function deriveKey(jobId: string): Promise<CryptoKey> {
   );
 }
 
-/** Encrypt plaintext → "enc:<base64(iv + ciphertext)>" */
-export async function encryptMessage(jobId: string, plaintext: string): Promise<string> {
-  if (!plaintext) return plaintext;
-  try {
-    const key = await deriveKey(jobId);
-    const enc = new TextEncoder();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const cipherBuf = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      enc.encode(plaintext),
-    );
-    // Concatenate iv + ciphertext, then base64-encode
-    const combined = new Uint8Array(iv.length + cipherBuf.byteLength);
-    combined.set(iv);
-    combined.set(new Uint8Array(cipherBuf), iv.length);
-    return ENC_PREFIX + btoa(String.fromCharCode(...combined));
-  } catch {
-    // Fallback: return plaintext if encryption fails (e.g. insecure context)
-    return plaintext;
-  }
+/** Encryption disabled — messages are stored in plaintext.
+ *  The function signature is kept so callers don't need to change. */
+export async function encryptMessage(_jobId: string, plaintext: string): Promise<string> {
+  return plaintext;
 }
 
 /** Decrypt "enc:<base64>" → plaintext.  Non-prefixed strings pass through unchanged. */

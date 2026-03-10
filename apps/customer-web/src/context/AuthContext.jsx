@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
 import { registerNativePushForUser, deactivateNativePushToken } from '../utils/nativePush';
 import { getAuthCallbackUrl } from '../lib/authRedirectUrl';
+import { LoadingScreen } from '../components/LoadingScreen';
 
 const AuthContext = createContext({});
 
@@ -29,6 +30,7 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
+        setLoading(true);
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
@@ -79,9 +81,13 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!isNative || !user?.id) return;
-    registerNativePushForUser({ userId: user.id, role: 'customer' }).catch((error) => {
-      console.warn('Native push setup failed:', error);
-    });
+    // Delay push registration so iOS has time to present the permission dialog
+    const timer = setTimeout(() => {
+      registerNativePushForUser({ userId: user.id, role: 'customer' }).catch((error) => {
+        console.warn('Native push setup failed:', error);
+      });
+    }, 1500);
+    return () => clearTimeout(timer);
   }, [user?.id]);
 
   async function fetchProfile(userId) {
@@ -249,14 +255,7 @@ export function ProtectedRoute({ children, requiredRole = null }) {
   }, [isAuthenticated, loading, navigate, requiredRole, isAuthorized, resolvedRole]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/60">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return isAuthenticated && isAuthorized ? children : null;

@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Plus, CreditCard, Check, Trash2, Shield, AlertCircle, X } from 'lucide-react';
+import { Plus, CreditCard, Check, Trash2, Shield, AlertCircle, X } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -187,6 +188,7 @@ export function PaymentMethods() {
   const { isDark } = useTheme();
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
@@ -240,39 +242,37 @@ export function PaymentMethods() {
   }
 
   async function setDefaultMethod(id: string) {
+    if (actionInProgress) return;
+    setActionInProgress(id);
     try {
       await supabase.from('payment_methods').update({ is_default: false }).eq('user_id', user.id);
       await supabase.from('payment_methods').update({ is_default: true }).eq('id', id);
       await fetchPaymentMethods();
-    } catch (e) {
-      console.warn('Failed to set default:', e);
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setActionInProgress(null);
     }
   }
 
   async function deleteMethod(id: string) {
+    if (actionInProgress) return;
+    setActionInProgress(id);
     try {
       await supabase.from('payment_methods').delete().eq('id', id);
       await fetchPaymentMethods();
-    } catch (e) {
-      console.warn('Failed to delete method:', e);
+    } catch {
+      // stays unchanged on failure
+    } finally {
+      setActionInProgress(null);
     }
   }
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="sticky top-0 z-10 p-6" style={{ paddingTop: 'var(--safe-top)', backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderBottom: `1px solid ${cardBorder}` }}>
-        <div className="max-w-2xl mx-auto flex items-center gap-4">
-          <button onClick={() => navigate('/profile')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }} title="Go back">
-            <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold" style={{ color: textColor }}>Payment Methods</h1>
-            <p className="text-sm" style={{ color: subColor }}>Manage your payment options</p>
-          </div>
-        </div>
-      </div>
+      <PageHeader title="Payment Methods" onBack={() => navigate('/profile')} />
 
-      <div className="max-w-2xl mx-auto p-6 space-y-5">
+      <div className="max-w-2xl mx-auto p-6 space-y-5" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         <div className="rounded-2xl p-4 flex gap-3" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.1)' : 'rgba(0,122,255,0.05)', border: `1px solid ${isDark ? 'rgba(0,122,255,0.3)' : 'rgba(0,122,255,0.15)'}` }}>
           <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#0070B8' }} />
           <div>
@@ -317,10 +317,10 @@ export function PaymentMethods() {
                     <div className="flex gap-2 mt-3">
                       {!method.is_default && (
                         <>
-                          <button onClick={() => setDefaultMethod(method.id)} className="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8]">
-                            Set as Default
+                          <button onClick={() => setDefaultMethod(method.id)} disabled={!!actionInProgress} className="px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-40">
+                            {actionInProgress === method.id ? 'Updating...' : 'Set as Default'}
                           </button>
-                          <button onClick={() => deleteMethod(method.id)} className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#EF4444' }}>
+                          <button onClick={() => deleteMethod(method.id)} disabled={!!actionInProgress} className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1 disabled:opacity-40" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#EF4444' }}>
                             <Trash2 className="w-3 h-3" />Remove
                           </button>
                         </>

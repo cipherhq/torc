@@ -1,6 +1,7 @@
 import { X, Send, ArrowLeft, WifiOff, Loader2, AlertTriangle, Camera, ImagePlus, MapPin } from 'lucide-react';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { loadPlatformSettings } from '../lib/platformSettings';
@@ -348,10 +349,10 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
   }, [saveToDb]);
 
   const shareLocation = useCallback(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const { latitude, longitude } = pos.coords;
-      sendMessage(`My current location: https://maps.google.com/maps?q=${latitude},${longitude}`);
+    import('../utils/safeLocation').then(({ getSafePosition }) => {
+      getSafePosition().then((pos) => {
+        sendMessage(`My current location: https://maps.google.com/maps?q=${pos.lat},${pos.lng}`);
+      });
     });
   }, [sendMessage]);
 
@@ -570,7 +571,33 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
               background: '#FFFFFF', borderRadius: 16, border: '1px solid #E5E7EB',
               boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 8, display: 'flex', gap: 8,
             }}>
-              <button onClick={() => cameraInputRef.current?.click()} style={{
+              <button onClick={async () => {
+                try {
+                  const perms = await CapCamera.requestPermissions({ permissions: ['camera', 'photos'] });
+                  if (perms.camera === 'denied' && perms.photos === 'denied') {
+                    alert('Camera and photo permissions are required. Please enable them in Settings.');
+                    return;
+                  }
+                  const image = await CapCamera.getPhoto({
+                    quality: 80,
+                    allowEditing: false,
+                    resultType: CameraResultType.DataUrl,
+                    source: CameraSource.Camera,
+                    promptLabelHeader: 'Take Photo',
+                  });
+                  if (image.dataUrl) {
+                    setShowAttachMenu(false);
+                    const blob = await fetch(image.dataUrl).then(r => r.blob());
+                    const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    handleImageSelected(file);
+                  }
+                } catch (err: any) {
+                  const msg = err?.message || '';
+                  if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('User cancelled')) return;
+                  console.warn('Camera error:', err);
+                  cameraInputRef.current?.click();
+                }
+              }} style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                 padding: '12px 8px', borderRadius: 12, background: 'rgba(0,140,229,0.06)',
                 border: '1px solid rgba(0,140,229,0.15)', cursor: 'pointer', touchAction: 'manipulation',
@@ -578,7 +605,33 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
                 <Camera style={{ width: 22, height: 22, color: '#008CE5' }} />
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#0070B8' }}>Camera</span>
               </button>
-              <button onClick={() => galleryInputRef.current?.click()} style={{
+              <button onClick={async () => {
+                try {
+                  const perms = await CapCamera.requestPermissions({ permissions: ['photos'] });
+                  if (perms.photos === 'denied') {
+                    alert('Photo library permission is required. Please enable it in Settings.');
+                    return;
+                  }
+                  const image = await CapCamera.getPhoto({
+                    quality: 80,
+                    allowEditing: false,
+                    resultType: CameraResultType.DataUrl,
+                    source: CameraSource.Photos,
+                    promptLabelHeader: 'Choose Photo',
+                  });
+                  if (image.dataUrl) {
+                    setShowAttachMenu(false);
+                    const blob = await fetch(image.dataUrl).then(r => r.blob());
+                    const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    handleImageSelected(file);
+                  }
+                } catch (err: any) {
+                  const msg = err?.message || '';
+                  if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('User cancelled')) return;
+                  console.warn('Gallery error:', err);
+                  galleryInputRef.current?.click();
+                }
+              }} style={{
                 flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                 padding: '12px 8px', borderRadius: 12, background: '#F9FAFB',
                 border: '1px solid #E5E7EB', cursor: 'pointer', touchAction: 'manipulation',

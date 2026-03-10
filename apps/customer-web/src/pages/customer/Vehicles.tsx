@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Car, Plus, Trash2, Star, Calendar, Palette, Hash } from 'lucide-react';
+import { Car, Plus, Trash2, Star, Calendar, Palette, Hash } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -33,6 +34,7 @@ export function Vehicles() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [form, setForm] = useState({ make: '', model: '', year: '', color: '', plate: '' });
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
@@ -71,14 +73,31 @@ export function Vehicles() {
   };
 
   const deleteVehicle = async (id: string) => {
-    await supabase.from('vehicles').delete().eq('id', id);
-    fetchVehicles();
+    if (actionInProgress) return;
+    setActionInProgress(id);
+    try {
+      const { error } = await supabase.from('vehicles').delete().eq('id', id);
+      if (error) throw error;
+      await fetchVehicles();
+    } catch {
+      // Silently handled — vehicle stays in list
+    } finally {
+      setActionInProgress(null);
+    }
   };
 
   const setDefault = async (id: string) => {
-    await supabase.from('vehicles').update({ is_default: false }).eq('user_id', user.id);
-    await supabase.from('vehicles').update({ is_default: true }).eq('id', id);
-    fetchVehicles();
+    if (actionInProgress) return;
+    setActionInProgress(id);
+    try {
+      await supabase.from('vehicles').update({ is_default: false }).eq('user_id', user.id);
+      await supabase.from('vehicles').update({ is_default: true }).eq('id', id);
+      await fetchVehicles();
+    } catch {
+      // Silently handled
+    } finally {
+      setActionInProgress(null);
+    }
   };
 
   const inputStyle = {
@@ -89,17 +108,16 @@ export function Vehicles() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}>
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-xl font-bold flex-1" style={{ color: textColor }}>My Vehicles</h1>
-        <button onClick={() => setShowAdd(!showAdd)} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#008CE5] to-[#0070B8]">
-          <Plus className="w-5 h-5 text-white" />
-        </button>
-      </div>
+      <PageHeader
+        title="My Vehicles"
+        rightAction={
+          <button onClick={() => setShowAdd(!showAdd)} className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-r from-[#008CE5] to-[#0070B8]">
+            <Plus className="w-5 h-5 text-white" />
+          </button>
+        }
+      />
 
-      <div className="px-6" style={{ paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
+      <div className="px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
         {/* Add Vehicle Form */}
         {showAdd && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
@@ -166,11 +184,11 @@ export function Vehicles() {
                 </div>
                 {v.is_default && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,140,229,0.15)', color: '#008CE5' }}>Default</span>}
                 {!v.is_default && (
-                  <button onClick={() => setDefault(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }}>
+                  <button onClick={() => setDefault(v.id)} disabled={!!actionInProgress} className="p-2 rounded-lg disabled:opacity-40" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }}>
                     <Star className="w-4 h-4" style={{ color: subColor }} />
                   </button>
                 )}
-                <button onClick={() => deleteVehicle(v.id)} className="p-2 rounded-lg" style={{ backgroundColor: 'rgba(239,68,68,0.08)' }}>
+                <button onClick={() => deleteVehicle(v.id)} disabled={!!actionInProgress} className="p-2 rounded-lg disabled:opacity-40" style={{ backgroundColor: 'rgba(239,68,68,0.08)' }}>
                   <Trash2 className="w-4 h-4 text-red-500" />
                 </button>
               </motion.div>

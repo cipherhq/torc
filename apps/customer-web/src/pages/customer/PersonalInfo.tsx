@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, User, Mail, Phone, Save, AlertCircle, CheckCircle } from 'lucide-react';
+import { User, Mail, Phone, Save, AlertCircle, CheckCircle } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -122,20 +123,10 @@ export function PersonalInfo() {
           : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)',
       }}
     >
-      {/* Header */}
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'calc(env(safe-area-inset-top, 16px) + 16px)' }}>
-        <button
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', touchAction: 'manipulation' }}
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <h1 className="text-xl font-bold" style={{ color: textColor }}>Personal Information</h1>
-      </div>
+      <PageHeader title="Personal Information" />
 
       {/* Form Content */}
-      <div className="px-6 flex-1 flex flex-col max-w-md mx-auto w-full" style={{ paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
+      <div className="px-6 flex-1 flex flex-col max-w-md mx-auto w-full" style={{ paddingTop: 'calc(var(--safe-top) + 64px)', paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
         {/* Error message */}
         {error && (
           <motion.div

@@ -176,6 +176,30 @@ function providerApprovedEmail(name: string): { subject: string; html: string } 
   };
 }
 
+function providerSuspendedEmail(name: string, reason: string): { subject: string; html: string } {
+  return {
+    subject: 'Account Suspended — TORC',
+    html: baseLayout(`
+      <div class="header" style="background: linear-gradient(135deg, #EF4444, #DC2626);">
+        <h1>Account Suspended</h1>
+        <p>Action required to restore your account</p>
+      </div>
+      <div class="body">
+        <h2>Hi ${name},</h2>
+        <p>Your TORC provider account has been suspended and you will not be able to receive new service requests until this is resolved.</p>
+        <div class="card">
+          <p style="font-size: 14px; font-weight: 600; color: #1A1F2E; margin: 0 0 8px;">Reason:</p>
+          <p style="font-size: 14px; color: #4B5563; margin: 0;">${reason || 'Your account has been suspended. Please contact support for more information.'}</p>
+        </div>
+        <p>To restore your account, please address the issue above and contact our support team or update your documents in the app.</p>
+        <p style="text-align:center; margin-top: 24px;">
+          <a href="https://torcapp.com" class="btn">Open TORC</a>
+        </p>
+      </div>
+    `),
+  };
+}
+
 function customerInvoiceEmail(data: {
   customerName: string;
   serviceName: string;
@@ -317,6 +341,8 @@ function getEmailContent(
       return documentRequestEmail(data.name || 'there', data.reason || '');
     case 'provider_approved':
       return providerApprovedEmail(data.name || 'there');
+    case 'provider_suspended':
+      return providerSuspendedEmail(data.name || 'there', data.reason || '');
     case 'customer_invoice':
       return customerInvoiceEmail(data);
     case 'provider_completion':

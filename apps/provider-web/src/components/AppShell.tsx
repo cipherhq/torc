@@ -1,9 +1,12 @@
-import { Navigate, Outlet, useLocation } from 'react-router';
-import { useEffect, useRef } from 'react';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { ProviderBottomNav } from './ProviderBottomNav';
+import { LoadingScreen } from './LoadingScreen';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { initAudio, playMessageSound, showSystemNotification } from '../utils/audio';
+import { decryptMessage } from '../lib/chatEncryption';
+import { Haptics } from '@capacitor/haptics';
 
 const PUBLIC_PATHS = new Set([
   '/',
@@ -47,12 +50,14 @@ function useGlobalMessageNotifications(userId: string | undefined) {
     let cancelled = false;
 
     async function setup() {
-      // Find provider's active jobs
+      // Find provider's active jobs (only recent — stale jobs are ignored)
+      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from('jobs')
         .select('id')
         .eq('provider_id', userId!)
         .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+        .gte('created_at', twelveHoursAgo)
         .limit(5);
 
       if (cancelled || !data || data.length === 0) return;
@@ -75,18 +80,20 @@ function useGlobalMessageNotifications(userId: string | undefined) {
           config: { broadcast: { self: false } },
         });
         channel
-          .on('broadcast', { event: 'new_message' }, (payload) => {
+          .on('broadcast', { event: 'new_message' }, async (payload) => {
             const msg = payload.payload;
             if (!msg || msg.sender_role === 'provider') return;
             // Don't double-notify if already on the job page (JobActiveRealtime has its own listener)
             if (isOnJobPage) return;
             initAudio();
             playMessageSound();
-            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            Haptics.vibrate({ duration: 300 }).catch(() => {});
+            navigator.vibrate?.([200, 100, 200]);
             const senderName = msg.sender_name || 'Customer';
+            const plainText = msg.text ? await decryptMessage(jobId, msg.text) : '';
             showSystemNotification(
               `Message from ${senderName}`,
-              msg.text?.slice(0, 80) || 'Sent you a message',
+              plainText?.slice(0, 80) || 'Sent you a message',
               `chat-${jobId}`,
             );
           })
@@ -110,31 +117,135 @@ function useGlobalMessageNotifications(userId: string | undefined) {
   }, [userId, location.pathname]);
 }
 
+const ACTIVE_JOB_STATUSES = ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'];
+
+/**
+ * Track active job globally so a "Return to Job" banner appears on every page.
+ * Also auto-redirects to the active job on first detection (crash recovery).
+ * Only considers jobs from the last 12 hours — older stuck jobs are auto-cancelled.
+ */
+function useActiveJobTracker(userId: string | undefined) {
+  const [activeJob, setActiveJob] = useState<{ id: string; status: string; service_name?: string; customer_name?: string } | null>(null);
+  const hasAutoRedirected = useRef(false);
+  const hasCleaned = useRef(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!userId) { setActiveJob(null); return; }
+    let cancelled = false;
+
+    async function check() {
+      try {
+        const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+
+        // One-time cleanup: auto-cancel stale jobs stuck in active statuses for 12+ hours
+        if (!hasCleaned.current) {
+          hasCleaned.current = true;
+          supabase
+            .from('jobs')
+            .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
+            .eq('provider_id', userId!)
+            .in('status', ACTIVE_JOB_STATUSES)
+            .lt('created_at', twelveHoursAgo)
+            .then(() => {});
+        }
+
+        const { data } = await supabase
+          .from('jobs')
+          .select('id, status, service_id, created_at, services(name), customers:customer_id(first_name)')
+          .eq('provider_id', userId!)
+          .in('status', ACTIVE_JOB_STATUSES)
+          .gte('created_at', twelveHoursAgo)
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        if (data) {
+          setActiveJob({
+            id: data.id,
+            status: data.status,
+            service_name: (data as any).services?.name || undefined,
+            customer_name: (data as any).customers?.first_name || undefined,
+          });
+
+          // Auto-redirect on first detection (crash / app restart recovery)
+          // Only if on a non-job page like /home
+          if (!hasAutoRedirected.current) {
+            hasAutoRedirected.current = true;
+            const path = location.pathname;
+            const isAlreadyOnJob = path.startsWith('/job/') || path.startsWith('/complete/') || path.startsWith('/request/');
+            if (!isAlreadyOnJob) {
+              navigate(`/job/${data.id}`, { replace: true });
+            }
+          }
+        } else {
+          setActiveJob(null);
+        }
+      } catch { if (!cancelled) setActiveJob(null); }
+    }
+
+    check();
+    const interval = setInterval(check, 8000);
+
+    // Also re-check when app returns from background (crash recovery, task switch)
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') check();
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [userId]);
+
+  return activeJob;
+}
+
 export function AppShell() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { isAuthenticated, loading, profile, user } = useAuth() as any;
   const showBottomNav = !shouldHideNav(location.pathname);
   const isPublicPath = PUBLIC_PATHS.has(location.pathname);
+  const isOnJobPage = location.pathname.startsWith('/job/') || location.pathname.startsWith('/complete/');
+
+  // Refresh auth session when app returns from background
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        supabase.auth.getSession().catch(() => {});
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   // Global message notification listener for authenticated providers
   useGlobalMessageNotifications(isAuthenticated && profile?.role === 'provider' ? user?.id : undefined);
+
+  // Global active job tracking — banner appears on all non-job pages + auto-redirect on crash
+  const activeJob = useActiveJobTracker(isAuthenticated && profile?.role === 'provider' ? user?.id : undefined);
 
   if (isPublicPath) {
     return <Outlet />;
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-[#14263D] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/60">Loading...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
-  if (!isAuthenticated || profile?.role !== 'provider') {
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Profile still loading after auth — show logo screen instead of redirecting
+  if (!profile) {
+    return <LoadingScreen />;
+  }
+
+  if (profile.role !== 'provider') {
     return <Navigate to="/login" replace />;
   }
 
@@ -143,6 +254,28 @@ export function AppShell() {
   return (
     <>
       <Outlet />
+      {/* Floating active job banner — visible from any page except the job page itself */}
+      {activeJob && !isOnJobPage && (
+        <div className="fixed left-0 right-0 z-40" style={{ bottom: showBottomNav ? 'calc(75px + env(safe-area-inset-bottom, 0px))' : 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+          <button
+            onClick={() => navigate(`/job/${activeJob.id}`)}
+            className="mx-4 rounded-2xl px-4 py-3 flex items-center gap-3 active:scale-[0.98] transition-transform shadow-xl"
+            style={{
+              background: 'linear-gradient(135deg, #008CE5, #0070B8)',
+              boxShadow: '0 8px 24px rgba(0,140,229,0.5)',
+            }}
+          >
+            <div className="w-3 h-3 rounded-full bg-white animate-pulse flex-shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-white font-bold text-sm">Active Job — Tap to Return</p>
+              <p className="text-white/70 text-xs">
+                {activeJob.service_name || 'Service'}{activeJob.customer_name ? ` · ${activeJob.customer_name}` : ''}
+              </p>
+            </div>
+            <span className="text-white text-lg font-bold">&rarr;</span>
+          </button>
+        </div>
+      )}
       {showBottomNav && <ProviderBottomNav />}
     </>
   );

@@ -1,7 +1,8 @@
 import { useEffect, useState, type ComponentType, type CSSProperties } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Mail, Lock, AlertCircle, CheckCircle2, Shield, Trash2 } from 'lucide-react';
+import { Mail, Lock, AlertCircle, CheckCircle2, Shield, Trash2 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
@@ -189,22 +190,9 @@ export function AccountSecurity() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' , paddingBottom: 'calc(96px + var(--safe-bottom, 0px))' }}>
-      <div className="p-6 flex items-center gap-4" style={{ paddingTop: 'var(--safe-top)' }}>
-        <button
-          onClick={() => navigate('/customer/profile')}
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }}
-          title="Back to profile"
-        >
-          <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
-        </button>
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: textColor }}>Account Security</h1>
-          <p className="text-sm" style={{ color: subColor }}>Manage login email and password</p>
-        </div>
-      </div>
+      <PageHeader title="Account Security" onBack={() => navigate('/customer/profile')} />
 
-      <div className="px-6 space-y-5 max-w-2xl">
+      <div className="px-6 space-y-5 max-w-2xl" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         <div className="rounded-2xl p-4 flex items-start gap-3" style={{ backgroundColor: isDark ? 'rgba(0,122,255,0.12)' : 'rgba(0,122,255,0.07)', border: `1px solid ${isDark ? 'rgba(0,122,255,0.35)' : 'rgba(0,122,255,0.2)'}` }}>
           <Shield className="w-5 h-5 mt-0.5" style={{ color: '#0070B8' }} />
           <p className="text-sm" style={{ color: subColor }}>

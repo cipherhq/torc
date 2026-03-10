@@ -20,6 +20,7 @@ export function VerificationPending() {
   const [documents, setDocuments] = useState<DocRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [revocationReason, setRevocationReason] = useState<string | null>(null);
   const approvedByAdmin = isVerified || providerProfile?.is_verified === true;
 
   // Load documents + latest provider verification from DB
@@ -29,14 +30,25 @@ export function VerificationPending() {
 
     async function loadDocs() {
       await refreshProviderProfile?.();
-      const { data } = await supabase
-        .from('documents')
-        .select('id, type, status, rejection_reason')
-        .eq('provider_id', user!.id)
-        .order('created_at', { ascending: true });
+      const [docsRes, notifRes] = await Promise.all([
+        supabase
+          .from('documents')
+          .select('id, type, status, rejection_reason')
+          .eq('provider_id', user!.id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('notifications')
+          .select('message')
+          .eq('user_id', user!.id)
+          .eq('type', 'alert')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
       if (cancelled) return;
-      setDocuments(data || []);
+      setDocuments(docsRes.data || []);
+      setRevocationReason(notifRes.data?.message || null);
       setLoading(false);
     }
 
@@ -90,6 +102,11 @@ export function VerificationPending() {
   const hasRejected = rejectedDocs.length > 0;
   const allApproved = approvedByAdmin || (hasDocuments && documents.every(d => d.status === 'approved'));
 
+  // Determine which state to show (must be before steps array)
+  const isApproved = approvedByAdmin === true;
+  const isRevoked = !isApproved && !!revocationReason;
+  const isRejected = !isApproved && (hasRejected || isRevoked);
+
   const steps = [
     { name: 'Account Created', status: 'completed' as const },
     {
@@ -102,13 +119,9 @@ export function VerificationPending() {
     },
     {
       name: 'Final Approval',
-      status: approvedByAdmin ? 'completed' as const : 'pending' as const,
+      status: approvedByAdmin ? 'completed' as const : isRevoked ? 'rejected' as const : 'pending' as const,
     },
   ];
-
-  // Determine which state to show
-  const isApproved = approvedByAdmin === true;
-  const isRejected = !isApproved && hasRejected;
 
   if (loading) {
     return (
@@ -173,19 +186,42 @@ export function VerificationPending() {
             )}
           </div>
           <h1 className="text-3xl font-bold mb-2" style={{ color: isDark ? '#FFFFFF' : '#14263D' }}>
-            {isApproved ? 'Application Approved!' : isRejected ? 'Action Required' : 'Verification Pending'}
+            {isApproved ? 'Application Approved!' : isRevoked ? 'Verification Revoked' : isRejected ? 'Action Required' : 'Verification Pending'}
           </h1>
           <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : '#6B7280' }}>
             {isApproved
               ? 'Your provider application has been approved. You can now go online and start accepting jobs!'
-              : isRejected
-                ? 'Some of your documents need attention. Please review and re-upload.'
-                : `We're reviewing your application. This usually takes 24-48 hours.`}
+              : isRevoked
+                ? 'Your verification has been revoked by an administrator. Please review the reason below and take action.'
+                : isRejected
+                  ? 'Some of your documents need attention. Please review and re-upload.'
+                  : `We're reviewing your application. This usually takes 24-48 hours.`}
           </p>
         </motion.div>
 
+        {/* Revocation reason alert */}
+        {isRevoked && revocationReason && (
+          <div
+            className="rounded-2xl p-4 mb-6"
+            style={{
+              backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : '#FEF2F2',
+              border: `1px solid ${isDark ? 'rgba(239,68,68,0.2)' : '#FECACA'}`,
+            }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="w-5 h-5" style={{ color: '#EF4444' }} />
+              <p className="font-semibold text-sm" style={{ color: isDark ? '#EF4444' : '#B91C1C' }}>
+                Reason for Revocation
+              </p>
+            </div>
+            <p className="text-sm ml-7" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>
+              {revocationReason}
+            </p>
+          </div>
+        )}
+
         {/* Rejection reasons alert */}
-        {isRejected && (
+        {hasRejected && rejectedDocs.length > 0 && (
           <div
             className="rounded-2xl p-4 mb-6"
             style={{
@@ -196,7 +232,7 @@ export function VerificationPending() {
             <div className="flex items-center gap-2 mb-3">
               <AlertCircle className="w-5 h-5" style={{ color: '#F59E0B' }} />
               <p className="font-semibold text-sm" style={{ color: isDark ? '#F59E0B' : '#92400E' }}>
-                Rejection Reasons
+                Document Issues
               </p>
             </div>
             <div className="space-y-2">
@@ -294,10 +330,10 @@ export function VerificationPending() {
             whileTap={{ scale: 0.98 }}
             onClick={() => navigate('/documents')}
             className="w-full rounded-2xl py-4 font-bold text-white text-lg mb-4 flex items-center justify-center gap-2"
-            style={{ background: 'linear-gradient(to right, #F59E0B, #D97706)' }}
+            style={{ background: isRevoked ? 'linear-gradient(to right, #EF4444, #DC2626)' : 'linear-gradient(to right, #F59E0B, #D97706)' }}
           >
             <Upload className="w-5 h-5" />
-            Re-upload Documents
+            {isRevoked ? 'Update Documents' : 'Re-upload Documents'}
           </motion.button>
         ) : (
           <motion.button
