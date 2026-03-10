@@ -13,6 +13,7 @@ export function ProviderSignup() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -46,6 +47,7 @@ export function ProviderSignup() {
     const password = String(formData.password);
     const confirmPassword = String(formData.confirmPassword);
 
+    if (!acceptedTerms) { setError('Please accept the Terms and Privacy Policy to continue.'); return; }
     if (!email || !password) { setError('Email and password are required'); return; }
     if (!String(formData.phone).trim()) { setError('Phone number is required'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
@@ -288,19 +290,24 @@ export function ProviderSignup() {
                 </div>
               </div>
 
-              <p className="text-xs text-center" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>
-                By signing up, you agree to Torc's{' '}
-                <a href="https://www.torcapp.com/terms" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
-                  Provider Agreement
-                </a>,{' '}
-                <a href="https://www.torcapp.com/terms" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
-                  Terms
-                </a>{' '}
-                and{' '}
-                <a href="https://www.torcapp.com/privacy" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
-                  Privacy Policy
-                </a>.
-              </p>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded accent-[#008CE5] flex-shrink-0"
+                />
+                <span className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }}>
+                  I agree to TORC's{' '}
+                  <a href="https://www.torcapp.com/terms?role=provider" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
+                    Provider Agreement & Terms
+                  </a>{' '}
+                  and{' '}
+                  <a href="https://www.torcapp.com/privacy" target="_blank" rel="noreferrer" style={{ color: '#008CE5' }}>
+                    Privacy Policy
+                  </a>.
+                </span>
+              </label>
 
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit"
                 disabled={loading || !formData.email || !formData.password}

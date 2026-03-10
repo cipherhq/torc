@@ -151,6 +151,10 @@ export function AccountSecurity() {
       return;
     }
 
+    if (!window.confirm('Are you sure you want to delete your account? This action cannot be undone. Your data will be permanently removed within 30 days.')) {
+      return;
+    }
+
     try {
       setDeleteSaving(true);
       const { error } = await supabase.from('support_tickets').insert({
@@ -163,8 +167,16 @@ export function AccountSecurity() {
       });
       if (error) throw error;
 
+      // Mark profile as pending deletion
+      await supabase.from('profiles').update({ status: 'pending_deletion' }).eq('id', user.id);
+
       setDeleteReason('');
-      setDeleteMessage('Deletion request submitted. Support will verify and process it.');
+      setDeleteMessage('Your account has been scheduled for deletion. You will be signed out now.');
+
+      // Sign out after short delay so user sees the message
+      setTimeout(async () => {
+        await supabase.auth.signOut();
+      }, 2000);
     } catch (error: any) {
       setDeleteError(error?.message || 'Could not submit deletion request right now.');
     } finally {
