@@ -1,13 +1,41 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// --- CORS allowlist (configurable via ALLOWED_ORIGINS env var) ---
+const DEFAULT_ORIGINS = [
+  'https://torcapp.com',
+  'https://www.torcapp.com',
+  'https://provider.torcservices.com',
+  'https://admin.torcservices.com',
+  'https://customer.torcservices.com',
+];
+const envOrigins = (Deno.env.get('ALLOWED_ORIGINS') || '').split(',').filter(Boolean);
+const ALLOWED_ORIGINS = envOrigins.length > 0 ? envOrigins : DEFAULT_ORIGINS;
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '';
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.startsWith('http://localhost:') ||
+    origin.startsWith('http://127.0.0.1:') ||
+    origin === 'capacitor://localhost' ||
+    origin === 'http://localhost' ||
+    origin === 'https://localhost';
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  };
+}
+
+// E.164 phone number validation
+const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
 
 Deno.serve(async (req) => {
+  const cors = getCorsHeaders(req);
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: cors });
   }
 
   try {
@@ -16,17 +44,17 @@ Deno.serve(async (req) => {
     const twilioMessagingServiceSid = Deno.env.get('TWILIO_MESSAGING_SERVICE_SID');
 
     if (!twilioSid || !twilioToken || !twilioMessagingServiceSid) {
-      throw new Error('Missing Twilio configuration (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_MESSAGING_SERVICE_SID).');
+      throw new Error('Missing Twilio configuration.');
     }
 
-    // Verify the caller is authenticated
+    // --- Authentication ---
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -37,7 +65,7 @@ Deno.serve(async (req) => {
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -46,7 +74,15 @@ Deno.serve(async (req) => {
     if (!to || !message) {
       return new Response(JSON.stringify({ error: 'Missing required fields: to, message' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // --- Phone number validation ---
+    if (!PHONE_REGEX.test(to)) {
+      return new Response(JSON.stringify({ error: 'Invalid phone number. Must be E.164 format (e.g. +15551234567).' }), {
+        status: 400,
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -70,22 +106,22 @@ Deno.serve(async (req) => {
     const result = await res.json();
 
     if (!res.ok) {
-      console.error('Twilio error:', result);
+      console.error('Twilio error:', result?.code);
       return new Response(
-        JSON.stringify({ error: result?.message || 'SMS send failed' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        JSON.stringify({ error: 'SMS send failed. Please try again.' }),
+        { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
     return new Response(
       JSON.stringify({ success: true, sid: result.sid }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   } catch (err: any) {
-    console.error('send-sms error:', err);
+    console.error('send-sms error:', err?.message);
     return new Response(
-      JSON.stringify({ error: err?.message || 'Internal error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: 'Internal error' }),
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 });

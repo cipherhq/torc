@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 8082",
     "build": "vite build",
+    "build:staging": "vite build --mode staging",
     "preview": "vite preview --port 8082"
   },
   "dependencies": {

@@ -7,7 +7,7 @@ export function callPhone(phoneNumber: string) {
 }
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-const DEFAULT_SHARE_BASE_URL = 'https://customer-web-rho-three.vercel.app';
+const DEFAULT_SHARE_BASE_URL = String(import.meta.env.VITE_APP_URL || 'https://torcapp.com').replace(/\/+$/, '');
 
 function isPrivateHost(hostname: string): boolean {
   const host = (hostname || '').toLowerCase();

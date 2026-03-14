@@ -1,12 +1,45 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// ─── CORS with origin allowlist (configurable via ALLOWED_ORIGINS env var) ───
+const DEFAULT_ORIGINS = [
+  'https://torcapp.com',
+  'https://www.torcapp.com',
+  'https://provider.torcservices.com',
+  'https://admin.torcservices.com',
+  'https://customer.torcservices.com',
+];
+const envOrigins = (Deno.env.get('ALLOWED_ORIGINS') || '').split(',').filter(Boolean);
+const ALLOWED_ORIGINS = envOrigins.length > 0 ? envOrigins : DEFAULT_ORIGINS;
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '';
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.startsWith('http://localhost:') ||
+    origin.startsWith('http://127.0.0.1:') ||
+    origin === 'capacitor://localhost' ||
+    origin === 'http://localhost' ||
+    origin === 'https://localhost';
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  };
+}
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const FROM_EMAIL = Deno.env.get('FROM_EMAIL') || 'TORC <noreply@torcapp.com>';
+
+// ─── HTML escaping to prevent XSS in email templates ────────────────
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 // ─── Email Templates ────────────────────────────────────────────────
 
@@ -55,7 +88,7 @@ function baseLayout(content: string): string {
 
 function welcomeEmail(name: string): { subject: string; html: string } {
   return {
-    subject: 'Welcome to TORC! 🎉',
+    subject: 'Welcome to TORC!',
     html: baseLayout(`
       <div class="header">
         <h1>Welcome to TORC</h1>
@@ -66,27 +99,13 @@ function welcomeEmail(name: string): { subject: string; html: string } {
         <p>Welcome to TORC — your go-to platform for fast, reliable roadside assistance. Whether you need a tow, tire change, jump start, or fuel delivery, we've got you covered.</p>
         <p>Here's what you can do:</p>
         <div class="card">
-          <div class="card-row">
-            <span class="card-label">🚗</span>
-            <span class="card-value">Request help in seconds</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">📍</span>
-            <span class="card-value">Track your provider in real-time</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">💬</span>
-            <span class="card-value">Chat directly with your provider</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">💳</span>
-            <span class="card-value">Secure, cashless payments</span>
-          </div>
+          <div class="card-row"><span class="card-label">🚗</span><span class="card-value">Request help in seconds</span></div>
+          <div class="card-row"><span class="card-label">📍</span><span class="card-value">Track your provider in real-time</span></div>
+          <div class="card-row"><span class="card-label">💬</span><span class="card-value">Chat directly with your provider</span></div>
+          <div class="card-row"><span class="card-label">💳</span><span class="card-value">Secure, cashless payments</span></div>
         </div>
         <p>Ready to get started? Open the app and request your first service!</p>
-        <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">Open TORC</a>
-        </p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">Open TORC</a></p>
       </div>
     `),
   };
@@ -96,21 +115,14 @@ function documentsPendingEmail(name: string): { subject: string; html: string } 
   return {
     subject: 'Documents Under Review — TORC',
     html: baseLayout(`
-      <div class="header">
-        <h1>Documents Received</h1>
-        <p>We're reviewing your submission</p>
-      </div>
+      <div class="header"><h1>Documents Received</h1><p>We're reviewing your submission</p></div>
       <div class="body">
         <h2>Thanks, ${name}!</h2>
         <p>We've received your documents and they are currently under review. This process typically takes 1-2 business days.</p>
         <div class="card">
-          <div style="text-align:center; padding: 12px 0;">
-            <span class="badge badge-pending">⏳ Under Review</span>
-          </div>
+          <div style="text-align:center; padding: 12px 0;"><span class="badge badge-pending">Under Review</span></div>
           <div class="divider"></div>
-          <p style="font-size: 13px; color: #6B7280; margin: 8px 0 0; text-align: center;">
-            We'll email you as soon as your account is verified and ready to go.
-          </p>
+          <p style="font-size: 13px; color: #6B7280; margin: 8px 0 0; text-align: center;">We'll email you as soon as your account is verified and ready to go.</p>
         </div>
         <p>In the meantime, make sure your profile information is up to date.</p>
       </div>
@@ -122,10 +134,7 @@ function documentRequestEmail(name: string, reason: string): { subject: string; 
   return {
     subject: 'Action Required: Additional Documents Needed — TORC',
     html: baseLayout(`
-      <div class="header">
-        <h1>Documents Needed</h1>
-        <p>We need a bit more from you</p>
-      </div>
+      <div class="header"><h1>Documents Needed</h1><p>We need a bit more from you</p></div>
       <div class="body">
         <h2>Hi ${name},</h2>
         <p>We've reviewed your application and need additional documentation before we can approve your account.</p>
@@ -134,9 +143,7 @@ function documentRequestEmail(name: string, reason: string): { subject: string; 
           <p style="font-size: 14px; color: #4B5563; margin: 0;">${reason || 'Please upload clearer copies of your required documents.'}</p>
         </div>
         <p>Please log in to the app and navigate to your profile to upload the requested documents.</p>
-        <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">Upload Documents</a>
-        </p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">Upload Documents</a></p>
       </div>
     `),
   };
@@ -144,33 +151,20 @@ function documentRequestEmail(name: string, reason: string): { subject: string; 
 
 function providerApprovedEmail(name: string): { subject: string; html: string } {
   return {
-    subject: 'Your TORC Account is Approved! ✅',
+    subject: 'Your TORC Account is Approved!',
     html: baseLayout(`
-      <div class="header">
-        <h1>You're Approved!</h1>
-        <p>Welcome to the TORC provider network</p>
-      </div>
+      <div class="header"><h1>You're Approved!</h1><p>Welcome to the TORC provider network</p></div>
       <div class="body">
         <h2>Congratulations, ${name}!</h2>
         <p>Your provider application has been reviewed and approved. You can now start accepting service requests and earning money on the TORC platform.</p>
         <div class="card">
-          <div style="text-align:center; padding: 12px 0;">
-            <span class="badge badge-success">✓ Verified Provider</span>
-          </div>
+          <div style="text-align:center; padding: 12px 0;"><span class="badge badge-success">Verified Provider</span></div>
           <div class="divider"></div>
-          <div class="card-row">
-            <span class="card-label">Next Steps</span>
-            <span class="card-value">Go online & start earning</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Set Up Payouts</span>
-            <span class="card-value">Add your bank details</span>
-          </div>
+          <div class="card-row"><span class="card-label">Next Steps</span><span class="card-value">Go online &amp; start earning</span></div>
+          <div class="card-row"><span class="card-label">Set Up Payouts</span><span class="card-value">Add your bank details</span></div>
         </div>
         <p>Open the app to go online and start receiving job requests in your area!</p>
-        <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">Open TORC</a>
-        </p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">Open TORC</a></p>
       </div>
     `),
   };
@@ -180,10 +174,7 @@ function providerSuspendedEmail(name: string, reason: string): { subject: string
   return {
     subject: 'Account Suspended — TORC',
     html: baseLayout(`
-      <div class="header" style="background: linear-gradient(135deg, #EF4444, #DC2626);">
-        <h1>Account Suspended</h1>
-        <p>Action required to restore your account</p>
-      </div>
+      <div class="header" style="background: linear-gradient(135deg, #EF4444, #DC2626);"><h1>Account Suspended</h1><p>Action required to restore your account</p></div>
       <div class="body">
         <h2>Hi ${name},</h2>
         <p>Your TORC provider account has been suspended and you will not be able to receive new service requests until this is resolved.</p>
@@ -192,135 +183,57 @@ function providerSuspendedEmail(name: string, reason: string): { subject: string
           <p style="font-size: 14px; color: #4B5563; margin: 0;">${reason || 'Your account has been suspended. Please contact support for more information.'}</p>
         </div>
         <p>To restore your account, please address the issue above and contact our support team or update your documents in the app.</p>
-        <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">Open TORC</a>
-        </p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">Open TORC</a></p>
       </div>
     `),
   };
 }
 
-function customerInvoiceEmail(data: {
-  customerName: string;
-  serviceName: string;
-  providerName: string;
-  date: string;
-  amount: string;
-  address: string;
-  jobId: string;
-  paymentMethod?: string;
-}): { subject: string; html: string } {
+function customerInvoiceEmail(data: { customerName: string; serviceName: string; providerName: string; date: string; amount: string; address: string; jobId: string; paymentMethod?: string; }): { subject: string; html: string } {
   return {
     subject: `Service Complete — Invoice #${data.jobId.slice(0, 8).toUpperCase()}`,
     html: baseLayout(`
-      <div class="header">
-        <h1>Service Complete</h1>
-        <p>Thank you for using TORC</p>
-      </div>
+      <div class="header"><h1>Service Complete</h1><p>Thank you for using TORC</p></div>
       <div class="body">
         <h2>Hi ${data.customerName},</h2>
         <p>Your service has been completed. Here's your invoice summary:</p>
-
         <div class="card">
-          <div style="text-align:center; margin-bottom: 16px;">
-            <p class="amount-label">Total Charged</p>
-            <p class="amount">${data.amount}</p>
-            <span class="badge badge-success">✓ Paid</span>
-          </div>
+          <div style="text-align:center; margin-bottom: 16px;"><p class="amount-label">Total Charged</p><p class="amount">${data.amount}</p><span class="badge badge-success">Paid</span></div>
           <div class="divider"></div>
-          <div class="card-row">
-            <span class="card-label">Service</span>
-            <span class="card-value">${data.serviceName}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Provider</span>
-            <span class="card-value">${data.providerName}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Location</span>
-            <span class="card-value">${data.address}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Date</span>
-            <span class="card-value">${data.date}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Invoice #</span>
-            <span class="card-value">${data.jobId.slice(0, 8).toUpperCase()}</span>
-          </div>
-          ${data.paymentMethod ? `<div class="card-row">
-            <span class="card-label">Payment</span>
-            <span class="card-value">${data.paymentMethod}</span>
-          </div>` : ''}
+          <div class="card-row"><span class="card-label">Service</span><span class="card-value">${data.serviceName}</span></div>
+          <div class="card-row"><span class="card-label">Provider</span><span class="card-value">${data.providerName}</span></div>
+          <div class="card-row"><span class="card-label">Location</span><span class="card-value">${data.address}</span></div>
+          <div class="card-row"><span class="card-label">Date</span><span class="card-value">${data.date}</span></div>
+          <div class="card-row"><span class="card-label">Invoice #</span><span class="card-value">${data.jobId.slice(0, 8).toUpperCase()}</span></div>
+          ${data.paymentMethod ? `<div class="card-row"><span class="card-label">Payment</span><span class="card-value">${data.paymentMethod}</span></div>` : ''}
         </div>
-
         <p>If you have any questions about this charge, please contact our support team.</p>
-        <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">Rate Your Provider</a>
-        </p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">Rate Your Provider</a></p>
       </div>
     `),
   };
 }
 
-function providerCompletionEmail(data: {
-  providerName: string;
-  customerName: string;
-  serviceName: string;
-  date: string;
-  payout: string;
-  address: string;
-  jobId: string;
-  duration?: string;
-}): { subject: string; html: string } {
+function providerCompletionEmail(data: { providerName: string; customerName: string; serviceName: string; date: string; payout: string; address: string; jobId: string; duration?: string; }): { subject: string; html: string } {
   return {
     subject: `Job Complete — Earned ${data.payout}`,
     html: baseLayout(`
-      <div class="header">
-        <h1>Job Complete!</h1>
-        <p>Great work out there</p>
-      </div>
+      <div class="header"><h1>Job Complete!</h1><p>Great work out there</p></div>
       <div class="body">
         <h2>Nice job, ${data.providerName}!</h2>
         <p>You've successfully completed a service. Here's your earnings summary:</p>
-
         <div class="card">
-          <div style="text-align:center; margin-bottom: 16px;">
-            <p class="amount-label">You Earned</p>
-            <p class="amount" style="color: #22C55E;">${data.payout}</p>
-            <span class="badge badge-success">✓ Completed</span>
-          </div>
+          <div style="text-align:center; margin-bottom: 16px;"><p class="amount-label">You Earned</p><p class="amount" style="color: #22C55E;">${data.payout}</p><span class="badge badge-success">Completed</span></div>
           <div class="divider"></div>
-          <div class="card-row">
-            <span class="card-label">Service</span>
-            <span class="card-value">${data.serviceName}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Customer</span>
-            <span class="card-value">${data.customerName}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Location</span>
-            <span class="card-value">${data.address}</span>
-          </div>
-          <div class="card-row">
-            <span class="card-label">Date</span>
-            <span class="card-value">${data.date}</span>
-          </div>
-          ${data.duration ? `<div class="card-row">
-            <span class="card-label">Duration</span>
-            <span class="card-value">${data.duration}</span>
-          </div>` : ''}
-          <div class="card-row">
-            <span class="card-label">Job #</span>
-            <span class="card-value">${data.jobId.slice(0, 8).toUpperCase()}</span>
-          </div>
+          <div class="card-row"><span class="card-label">Service</span><span class="card-value">${data.serviceName}</span></div>
+          <div class="card-row"><span class="card-label">Customer</span><span class="card-value">${data.customerName}</span></div>
+          <div class="card-row"><span class="card-label">Location</span><span class="card-value">${data.address}</span></div>
+          <div class="card-row"><span class="card-label">Date</span><span class="card-value">${data.date}</span></div>
+          ${data.duration ? `<div class="card-row"><span class="card-label">Duration</span><span class="card-value">${data.duration}</span></div>` : ''}
+          <div class="card-row"><span class="card-label">Job #</span><span class="card-value">${data.jobId.slice(0, 8).toUpperCase()}</span></div>
         </div>
-
         <p>Your earnings will be deposited to your linked bank account. Keep up the great work!</p>
-        <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">View Earnings</a>
-        </p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">View Earnings</a></p>
       </div>
     `),
   };
@@ -332,21 +245,27 @@ function getEmailContent(
   template: string,
   data: Record<string, any>
 ): { subject: string; html: string } {
+  // Escape all string values to prevent XSS in email templates
+  const safeData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    safeData[key] = typeof value === 'string' ? escapeHtml(value) : value;
+  }
+
   switch (template) {
     case 'welcome':
-      return welcomeEmail(data.name || 'there');
+      return welcomeEmail(safeData.name || 'there');
     case 'documents_pending':
-      return documentsPendingEmail(data.name || 'there');
+      return documentsPendingEmail(safeData.name || 'there');
     case 'document_request':
-      return documentRequestEmail(data.name || 'there', data.reason || '');
+      return documentRequestEmail(safeData.name || 'there', safeData.reason || '');
     case 'provider_approved':
-      return providerApprovedEmail(data.name || 'there');
+      return providerApprovedEmail(safeData.name || 'there');
     case 'provider_suspended':
-      return providerSuspendedEmail(data.name || 'there', data.reason || '');
+      return providerSuspendedEmail(safeData.name || 'there', safeData.reason || '');
     case 'customer_invoice':
-      return customerInvoiceEmail(data);
+      return customerInvoiceEmail(safeData);
     case 'provider_completion':
-      return providerCompletionEmail(data);
+      return providerCompletionEmail(safeData);
     default:
       throw new Error(`Unknown email template: ${template}`);
   }
@@ -355,11 +274,36 @@ function getEmailContent(
 // ─── Main Handler ───────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
+    // ── Authentication ──────────────────────────────────────────────
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Process request ─────────────────────────────────────────────
     const { to, template, data } = await req.json();
 
     if (!to || !template) {
@@ -371,7 +315,6 @@ Deno.serve(async (req) => {
 
     const { subject, html } = getEmailContent(template, data || {});
 
-    // Send via Resend API
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -389,9 +332,9 @@ Deno.serve(async (req) => {
     const result = await res.json();
 
     if (!res.ok) {
-      console.error('Resend error:', result);
+      console.error('Resend error status:', result?.statusCode);
       return new Response(
-        JSON.stringify({ error: result?.message || 'Email send failed' }),
+        JSON.stringify({ error: 'Email send failed' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -400,10 +343,10 @@ Deno.serve(async (req) => {
       JSON.stringify({ success: true, id: result.id }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (err) {
-    console.error('Edge Function error:', err);
+  } catch (err: any) {
+    console.error('Edge Function error:', err?.message);
     return new Response(
-      JSON.stringify({ error: err.message || 'Internal error' }),
+      JSON.stringify({ error: 'Internal error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

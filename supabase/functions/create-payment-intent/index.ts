@@ -1,9 +1,34 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+// --- CORS allowlist (configurable via ALLOWED_ORIGINS env var) ---
+const DEFAULT_ORIGINS = [
+  'https://torcapp.com',
+  'https://www.torcapp.com',
+  'https://provider.torcservices.com',
+  'https://admin.torcservices.com',
+  'https://customer.torcservices.com',
+];
+const envOrigins = (Deno.env.get('ALLOWED_ORIGINS') || '').split(',').filter(Boolean);
+const ALLOWED_ORIGINS = envOrigins.length > 0 ? envOrigins : DEFAULT_ORIGINS;
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '';
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) ||
+    origin.startsWith('http://localhost:') ||
+    origin.startsWith('http://127.0.0.1:') ||
+    origin === 'capacitor://localhost' ||
+    origin === 'http://localhost' ||
+    origin === 'https://localhost';
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  };
+}
+
+const ALLOWED_CURRENCIES = ['usd'];
 
 async function stripeRequest(path: string, body: URLSearchParams, secretKey: string) {
   const response = await fetch(`https://api.stripe.com${path}`, {
@@ -23,8 +48,10 @@ async function stripeRequest(path: string, body: URLSearchParams, secretKey: str
 }
 
 Deno.serve(async (req) => {
+  const cors = getCorsHeaders(req);
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: cors });
   }
 
   try {
@@ -35,14 +62,14 @@ Deno.serve(async (req) => {
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey || !stripeSecretKey) {
-      throw new Error('Missing required secrets for payment function (STRIPE_SECRET_KEY, SERVICE_ROLE_KEY).');
+      throw new Error('Missing required configuration.');
     }
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -56,9 +83,9 @@ Deno.serve(async (req) => {
     } = await supabaseUserClient.auth.getUser();
 
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized', detail: authError?.message || 'No user returned' }), {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -74,13 +101,22 @@ Deno.serve(async (req) => {
     if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
       return new Response(JSON.stringify({ error: 'Invalid amount' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
     if (!paymentMethodId || typeof paymentMethodId !== 'string') {
       return new Response(JSON.stringify({ error: 'paymentMethodId is required' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // --- Currency validation ---
+    const normalizedCurrency = String(currency).toLowerCase();
+    if (!ALLOWED_CURRENCIES.includes(normalizedCurrency)) {
+      return new Response(JSON.stringify({ error: 'Unsupported currency' }), {
+        status: 400,
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -106,7 +142,7 @@ Deno.serve(async (req) => {
         stripe_customer_id: stripeCustomerId,
       });
       if (upsertError) {
-        throw new Error(`Failed to persist Stripe customer mapping: ${upsertError.message}`);
+        throw new Error('Failed to persist Stripe customer mapping.');
       }
     }
 
@@ -121,10 +157,12 @@ Deno.serve(async (req) => {
 
     const intentBody = new URLSearchParams();
     intentBody.append('amount', String(Math.round(normalizedAmount * 100)));
-    intentBody.append('currency', String(currency).toLowerCase());
+    intentBody.append('currency', normalizedCurrency);
     intentBody.append('customer', stripeCustomerId);
     intentBody.append('payment_method', paymentMethodId);
     intentBody.append('payment_method_types[]', 'card');
+    intentBody.append('confirm', 'true');
+    intentBody.append('off_session', 'false');
     if (savePaymentMethod) {
       intentBody.append('setup_future_usage', 'off_session');
     }
@@ -140,21 +178,22 @@ Deno.serve(async (req) => {
         paymentIntentId: paymentIntent.id,
         clientSecret: paymentIntent.client_secret,
         customerId: stripeCustomerId,
+        status: paymentIntent.status,
       }),
       {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       }
     );
   } catch (error: any) {
-    console.error('create-payment-intent error:', error?.message, error?.stack);
+    // Log only message, never stack trace
+    console.error('create-payment-intent error:', error?.message);
     return new Response(
-      JSON.stringify({ error: error?.message || 'Failed to create payment intent' }),
+      JSON.stringify({ error: 'Failed to create payment intent. Please try again.' }),
       {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       }
     );
   }
 });
-
