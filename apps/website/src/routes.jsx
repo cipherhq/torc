@@ -7,6 +7,7 @@ import { Contact } from "./pages/Contact";
 import { Privacy } from "./pages/Privacy";
 import { Terms } from "./pages/Terms";
 import { HelpCenter } from "./pages/HelpCenter";
+import { DeleteAccount } from "./pages/DeleteAccount";
 
 export const router = createBrowserRouter([
   {
@@ -40,5 +41,9 @@ export const router = createBrowserRouter([
   {
     path: "/help",
     Component: HelpCenter,
+  },
+  {
+    path: "/delete-account",
+    Component: DeleteAccount,
   },
 ]);
