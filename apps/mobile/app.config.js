@@ -3,7 +3,7 @@ const IS_PROVIDER = process.env.APP_VARIANT === 'provider';
 const name = IS_PROVIDER ? 'Torc Provider' : 'Torc';
 const slug = IS_PROVIDER ? 'torcapp-provider' : 'torcapp-services';
 const scheme = IS_PROVIDER ? 'torc-provider' : 'torc';
-const bundleId = IS_PROVIDER ? 'com.torc.provider' : 'com.torc.customer';
+const bundleId = IS_PROVIDER ? 'com.torctechnologies.provider' : 'com.torctechnologies.customer';
 const associatedDomain = IS_PROVIDER
   ? 'applinks:provider.torcservices.com'
   : 'applinks:app.torcservices.com';
