@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,15 +28,15 @@ export default function LoginScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#0F1419] px-6 justify-center">
-      <View className="mb-8">
-        <Text className="text-4xl font-bold text-white mb-2">Welcome Back</Text>
-        <Text className="text-white/60 text-lg">Sign in to continue</Text>
+    <View style={styles.container}>
+      <View style={styles.headerSection}>
+        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.subtitle}>Sign in to continue</Text>
       </View>
 
-      <View className="space-y-4">
-        <View>
-          <Text className="text-white/80 mb-2">Email</Text>
+      <View style={styles.formSection}>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Email</Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
@@ -44,42 +44,124 @@ export default function LoginScreen() {
             keyboardType="email-address"
             placeholder="your@email.com"
             placeholderTextColor="#666"
-            className="bg-white/10 text-white px-4 py-4 rounded-2xl"
+            style={styles.input}
           />
         </View>
 
-        <View>
-          <Text className="text-white/80 mb-2">Password</Text>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Password</Text>
           <TextInput
             value={password}
             onChangeText={setPassword}
             secureTextEntry
             placeholder="••••••••"
             placeholderTextColor="#666"
-            className="bg-white/10 text-white px-4 py-4 rounded-2xl"
+            style={styles.input}
           />
         </View>
 
         <TouchableOpacity
+          onPress={() => router.push('/auth/forgot-password')}
+          style={styles.forgotPasswordLink}
+        >
+          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           onPress={handleLogin}
           disabled={loading}
-          className="bg-gradient-to-r from-[#2EFFAF] to-[#007AFF] rounded-2xl py-4 mt-4"
-          style={{ backgroundColor: '#2EFFAF' }}
+          style={[styles.signInButton, loading && styles.signInButtonDisabled]}
         >
-          <Text className="text-center text-[#0F1419] font-bold text-lg">
+          <Text style={styles.signInButtonText}>
             {loading ? 'Signing in...' : 'Sign In'}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => router.push('/auth/signup')}
-          className="mt-4"
+          style={styles.signUpLink}
         >
-          <Text className="text-center text-[#2EFFAF]">
-            Don&apos;t have an account? Sign Up
+          <Text style={styles.signUpText}>
+            Don&apos;t have an account? <Text style={styles.signUpHighlight}>Sign Up</Text>
           </Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+  },
+  headerSection: {
+    marginBottom: 32,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  subtitle: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 18,
+  },
+  formSection: {
+    gap: 16,
+  },
+  fieldGroup: {
+    marginBottom: 0,
+  },
+  label: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 8,
+    fontSize: 15,
+  },
+  input: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    color: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderRadius: 16,
+    fontSize: 16,
+  },
+  forgotPasswordLink: {
+    alignSelf: 'flex-end',
+  },
+  forgotPasswordText: {
+    color: '#2EFFAF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  signInButton: {
+    backgroundColor: '#2EFFAF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  signInButtonDisabled: {
+    opacity: 0.6,
+  },
+  signInButtonText: {
+    textAlign: 'center',
+    color: '#0F1419',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  signUpLink: {
+    marginTop: 8,
+  },
+  signUpText: {
+    textAlign: 'center',
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 15,
+  },
+  signUpHighlight: {
+    color: '#2EFFAF',
+    fontWeight: '600',
+  },
+});

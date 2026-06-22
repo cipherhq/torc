@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView, Linking, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
@@ -105,7 +105,7 @@ export default function TrackingScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-[#0F1419] items-center justify-center">
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2EFFAF" />
       </View>
     );
@@ -113,8 +113,8 @@ export default function TrackingScreen() {
 
   if (!job) {
     return (
-      <View className="flex-1 bg-[#0F1419] items-center justify-center px-6">
-        <Text className="text-white text-lg">Job not found</Text>
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>Job not found</Text>
       </View>
     );
   }
@@ -123,9 +123,9 @@ export default function TrackingScreen() {
   const isCompleted = jobStatus === 'completed';
 
   return (
-    <View className="flex-1 bg-[#0F1419]">
+    <View style={styles.screenContainer}>
       <MapView
-        style={{ height: '35%' }}
+        style={styles.map}
         region={{
           latitude: job.pickup_latitude || 37.78825,
           longitude: job.pickup_longitude || -122.4324,
@@ -154,8 +154,8 @@ export default function TrackingScreen() {
         )}
       </MapView>
 
-      <ScrollView className="flex-1 px-6 pt-6">
-        <Text className="text-white text-3xl font-bold mb-4">
+      <ScrollView style={styles.scrollContent}>
+        <Text style={styles.statusHeading}>
           {isCompleted
             ? 'Job Completed'
             : jobStatus === 'inprogress'
@@ -166,60 +166,60 @@ export default function TrackingScreen() {
         </Text>
 
         {/* Provider Info */}
-        <View className="bg-white/5 rounded-3xl p-6 mb-4">
-          <Text className="text-white text-xl font-bold mb-2">
+        <View style={styles.card}>
+          <Text style={styles.providerName}>
             {job.provider?.full_name || job.provider?.first_name || 'Your Provider'}
           </Text>
-          <View className="flex-row items-center mb-4">
-            <Text className="text-[#2EFFAF] text-lg mr-2">
-              ⭐ {providerStats?.averageRating?.toFixed(1) || 'N/A'}
+          <View style={styles.ratingRow}>
+            <Text style={styles.ratingText}>
+              {'\u2B50'} {providerStats?.averageRating?.toFixed(1) || 'N/A'}
             </Text>
-            <Text className="text-white/60">
+            <Text style={styles.jobCountText}>
               ({providerStats?.completedCount || 0} jobs)
             </Text>
           </View>
 
           {job.provider?.phone && (
-            <Text className="text-white/60 mb-4">{job.provider.phone}</Text>
+            <Text style={styles.phoneText}>{job.provider.phone}</Text>
           )}
 
           {/* Action Buttons */}
-          <View className="flex-row gap-3">
+          <View style={styles.actionButtonsRow}>
             <TouchableOpacity
               onPress={handleCall}
-              className="flex-1 bg-[#2EFFAF] py-3 rounded-xl flex-row items-center justify-center"
+              style={styles.callButton}
             >
-              <Text className="text-[#0F1419] font-semibold">📞 Call</Text>
+              <Text style={styles.callButtonText}>{'\uD83D\uDCDE'} Call</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={handleMessage}
-              className="flex-1 bg-white/10 py-3 rounded-xl flex-row items-center justify-center"
+              style={styles.messageButton}
             >
-              <Text className="text-white font-semibold">💬 Message</Text>
+              <Text style={styles.messageButtonText}>{'\uD83D\uDCAC'} Message</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Job Details */}
-        <View className="bg-white/5 rounded-3xl p-6 mb-4">
-          <Text className="text-white/60 text-sm mb-2">Service</Text>
-          <Text className="text-white text-lg mb-4">{job.service?.name || 'N/A'}</Text>
+        <View style={styles.card}>
+          <Text style={styles.labelText}>Service</Text>
+          <Text style={styles.detailValue}>{job.service?.name || 'N/A'}</Text>
 
-          <Text className="text-white/60 text-sm mb-2">Pickup</Text>
-          <Text className="text-white mb-4">{job.pickup_address || 'N/A'}</Text>
+          <Text style={styles.labelText}>Pickup</Text>
+          <Text style={styles.addressText}>{job.pickup_address || 'N/A'}</Text>
 
           {job.destination_address && (
             <>
-              <Text className="text-white/60 text-sm mb-2">Destination</Text>
-              <Text className="text-white mb-4">{job.destination_address}</Text>
+              <Text style={styles.labelText}>Destination</Text>
+              <Text style={styles.addressText}>{job.destination_address}</Text>
             </>
           )}
 
-          <View className="border-t border-white/10 pt-4 mt-2">
-            <View className="flex-row justify-between items-center">
-              <Text className="text-white/60">Total</Text>
-              <Text className="text-[#2EFFAF] text-2xl font-bold">
+          <View style={styles.divider}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalAmount}>
                 ${job.total_amount?.toFixed(2) || '0.00'}
               </Text>
             </View>
@@ -230,9 +230,9 @@ export default function TrackingScreen() {
         {jobStatus === 'arrived' && (
           <TouchableOpacity
             onPress={handleConfirmArrival}
-            className="bg-[#2EFFAF] py-4 rounded-2xl mb-4"
+            style={styles.primaryActionButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">
+            <Text style={styles.primaryActionText}>
               Confirm Provider Arrived
             </Text>
           </TouchableOpacity>
@@ -241,21 +241,21 @@ export default function TrackingScreen() {
         {jobStatus === 'inprogress' && (
           <TouchableOpacity
             onPress={handleConfirmComplete}
-            className="bg-[#2EFFAF] py-4 rounded-2xl mb-4"
+            style={styles.primaryActionButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">
+            <Text style={styles.primaryActionText}>
               Confirm Job Complete
             </Text>
           </TouchableOpacity>
         )}
 
         {isCompleted && !job.rating && (
-          <View className="bg-white/5 rounded-3xl p-6 mb-8">
-            <Text className="text-white text-xl font-bold mb-4 text-center">Rate Your Experience</Text>
-            <View className="flex-row justify-center gap-3">
+          <View style={styles.ratingCard}>
+            <Text style={styles.ratingHeading}>Rate Your Experience</Text>
+            <View style={styles.starsRow}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <TouchableOpacity key={star} onPress={() => handleRating(star)}>
-                  <Text className="text-4xl">{star <= rating ? '⭐' : '☆'}</Text>
+                  <Text style={styles.starIcon}>{star <= rating ? '\u2B50' : '\u2606'}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -265,12 +265,187 @@ export default function TrackingScreen() {
         {isCompleted && job.rating && (
           <TouchableOpacity
             onPress={() => router.replace('/')}
-            className="bg-[#2EFFAF] py-4 rounded-2xl mb-8"
+            style={styles.homeButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">Back to Home</Text>
+            <Text style={styles.primaryActionText}>Back to Home</Text>
           </TouchableOpacity>
         )}
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  emptyText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+  },
+  screenContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+  },
+  map: {
+    height: '35%',
+  },
+  scrollContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  statusHeading: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  card: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 16,
+  },
+  providerName: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  ratingText: {
+    color: '#2EFFAF',
+    fontSize: 18,
+    marginRight: 8,
+  },
+  jobCountText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 15,
+  },
+  phoneText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 16,
+    fontSize: 15,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  callButton: {
+    flex: 1,
+    backgroundColor: '#2EFFAF',
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  callButtonText: {
+    color: '#0F1419',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  messageButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messageButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  labelText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  detailValue: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    marginBottom: 16,
+  },
+  addressText: {
+    color: '#FFFFFF',
+    marginBottom: 16,
+    fontSize: 15,
+  },
+  divider: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: 16,
+    marginTop: 8,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  totalLabel: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 15,
+  },
+  totalAmount: {
+    color: '#2EFFAF',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  primaryActionButton: {
+    backgroundColor: '#2EFFAF',
+    paddingVertical: 16,
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  primaryActionText: {
+    textAlign: 'center',
+    color: '#0F1419',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  ratingCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 32,
+  },
+  ratingHeading: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  starsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  starIcon: {
+    fontSize: 32,
+  },
+  homeButton: {
+    backgroundColor: '#2EFFAF',
+    paddingVertical: 16,
+    borderRadius: 16,
+    marginBottom: 32,
+  },
+});

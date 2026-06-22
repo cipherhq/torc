@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import * as WebBrowser from 'expo-web-browser';
@@ -71,19 +71,23 @@ export default function SignupScreen() {
   };
 
   return (
-    <View className="flex-1 bg-[#0F1419] px-6 justify-center">
-      <View className="mb-6">
-        <Text className="text-4xl font-bold text-white mb-2">Create Account</Text>
-        <Text className="text-white/60 text-lg">Sign up to get started</Text>
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.headerSection}>
+        <Text style={styles.title}>Create Account</Text>
+        <Text style={styles.subtitle}>Sign up to get started</Text>
       </View>
 
-      <View className="space-y-3">
+      <View style={styles.formSection}>
         <TextInput
           value={firstName}
           onChangeText={setFirstName}
           placeholder="First Name"
           placeholderTextColor="#666"
-          className="bg-white/10 text-white px-4 py-3 rounded-2xl"
+          style={styles.input}
         />
 
         <TextInput
@@ -91,7 +95,7 @@ export default function SignupScreen() {
           onChangeText={setLastName}
           placeholder="Last Name"
           placeholderTextColor="#666"
-          className="bg-white/10 text-white px-4 py-3 rounded-2xl"
+          style={styles.input}
         />
 
         <TextInput
@@ -100,7 +104,7 @@ export default function SignupScreen() {
           placeholder="Phone Number"
           keyboardType="phone-pad"
           placeholderTextColor="#666"
-          className="bg-white/10 text-white px-4 py-3 rounded-2xl"
+          style={styles.input}
         />
 
         <TextInput
@@ -110,7 +114,7 @@ export default function SignupScreen() {
           keyboardType="email-address"
           placeholder="Email"
           placeholderTextColor="#666"
-          className="bg-white/10 text-white px-4 py-3 rounded-2xl"
+          style={styles.input}
         />
 
         <TextInput
@@ -119,50 +123,69 @@ export default function SignupScreen() {
           secureTextEntry
           placeholder="Password"
           placeholderTextColor="#666"
-          className="bg-white/10 text-white px-4 py-3 rounded-2xl"
+          style={styles.input}
         />
 
-        <View className="flex-row gap-2 mt-2">
+        <View style={styles.roleRow}>
           <TouchableOpacity
             onPress={() => setRole('customer')}
-            className={`flex-1 py-3 rounded-2xl ${role === 'customer' ? 'bg-[#2EFFAF]' : 'bg-white/10'}`}
+            style={[
+              styles.roleButton,
+              role === 'customer' ? styles.roleButtonActive : styles.roleButtonInactive,
+            ]}
           >
-            <Text className={`text-center font-semibold ${role === 'customer' ? 'text-[#0F1419]' : 'text-white'}`}>
+            <Text
+              style={[
+                styles.roleButtonText,
+                role === 'customer' ? styles.roleTextActive : styles.roleTextInactive,
+              ]}
+            >
               Customer
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => setRole('provider')}
-            className={`flex-1 py-3 rounded-2xl ${role === 'provider' ? 'bg-[#2EFFAF]' : 'bg-white/10'}`}
+            style={[
+              styles.roleButton,
+              role === 'provider' ? styles.roleButtonActive : styles.roleButtonInactive,
+            ]}
           >
-            <Text className={`text-center font-semibold ${role === 'provider' ? 'text-[#0F1419]' : 'text-white'}`}>
+            <Text
+              style={[
+                styles.roleButtonText,
+                role === 'provider' ? styles.roleTextActive : styles.roleTextInactive,
+              ]}
+            >
               Provider
             </Text>
           </TouchableOpacity>
         </View>
 
-        <View className="mt-4 p-3 rounded-2xl bg-white/5 border border-white/10">
+        <View style={styles.termsContainer}>
           <TouchableOpacity
             onPress={() => setAcceptedTerms((prev) => !prev)}
-            className="flex-row items-start"
+            style={styles.termsRow}
             activeOpacity={0.8}
           >
             <View
-              className={`w-5 h-5 rounded border mr-3 mt-0.5 items-center justify-center ${acceptedTerms ? 'bg-[#2EFFAF] border-[#2EFFAF]' : 'border-white/40'}`}
+              style={[
+                styles.checkbox,
+                acceptedTerms ? styles.checkboxChecked : styles.checkboxUnchecked,
+              ]}
             >
-              {acceptedTerms && <Text className="text-[#0F1419] text-xs font-bold">✓</Text>}
+              {acceptedTerms && <Text style={styles.checkmark}>✓</Text>}
             </View>
-            <Text className="text-white/70 flex-1">
+            <Text style={styles.termsText}>
               I agree to TORC&apos;s Terms of Service and Privacy Policy.
             </Text>
           </TouchableOpacity>
-          <View className="flex-row mt-3 gap-4">
+          <View style={styles.legalLinksRow}>
             <TouchableOpacity onPress={() => openLegalLink('/terms')}>
-              <Text className="text-[#2EFFAF] text-sm font-semibold">View Terms</Text>
+              <Text style={styles.legalLinkText}>View Terms</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => openLegalLink('/privacy')}>
-              <Text className="text-[#2EFFAF] text-sm font-semibold">View Privacy</Text>
+              <Text style={styles.legalLinkText}>View Privacy</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -170,22 +193,166 @@ export default function SignupScreen() {
         <TouchableOpacity
           onPress={handleSignup}
           disabled={loading}
-          className={`rounded-2xl py-4 mt-4 ${acceptedTerms ? 'bg-[#2EFFAF]' : 'bg-[#2EFFAF]/40'}`}
+          style={[
+            styles.signUpButton,
+            !acceptedTerms && styles.signUpButtonDisabled,
+          ]}
         >
-          <Text className="text-center text-[#0F1419] font-bold text-lg">
+          <Text style={styles.signUpButtonText}>
             {loading ? 'Creating Account...' : 'Sign Up'}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={() => router.push('/auth/login')}
-          className="mt-4"
+          style={styles.signInLink}
         >
-          <Text className="text-center text-white/60">
-            Already have an account? <Text className="text-[#2EFFAF]">Sign In</Text>
+          <Text style={styles.signInText}>
+            Already have an account? <Text style={styles.signInHighlight}>Sign In</Text>
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 48,
+  },
+  headerSection: {
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  subtitle: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 18,
+  },
+  formSection: {
+    gap: 12,
+  },
+  input: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    color: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    fontSize: 16,
+  },
+  roleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  roleButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  roleButtonActive: {
+    backgroundColor: '#2EFFAF',
+  },
+  roleButtonInactive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  roleButtonText: {
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  roleTextActive: {
+    color: '#0F1419',
+  },
+  roleTextInactive: {
+    color: '#FFFFFF',
+  },
+  termsContainer: {
+    marginTop: 4,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    marginRight: 12,
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#2EFFAF',
+    borderColor: '#2EFFAF',
+  },
+  checkboxUnchecked: {
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  checkmark: {
+    color: '#0F1419',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  termsText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  legalLinksRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 16,
+  },
+  legalLinkText: {
+    color: '#2EFFAF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  signUpButton: {
+    backgroundColor: '#2EFFAF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginTop: 4,
+  },
+  signUpButtonDisabled: {
+    opacity: 0.4,
+  },
+  signUpButtonText: {
+    textAlign: 'center',
+    color: '#0F1419',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  signInLink: {
+    marginTop: 8,
+  },
+  signInText: {
+    textAlign: 'center',
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 15,
+  },
+  signInHighlight: {
+    color: '#2EFFAF',
+    fontWeight: '600',
+  },
+});

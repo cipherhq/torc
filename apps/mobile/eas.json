@@ -8,17 +8,43 @@
       "developmentClient": true,
       "distribution": "internal"
     },
+    "development:provider": {
+      "extends": "development",
+      "env": {
+        "APP_VARIANT": "provider"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
       }
     },
+    "preview:provider": {
+      "extends": "preview",
+      "env": {
+        "APP_VARIANT": "provider"
+      }
+    },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "GOOGLE_MAPS_API_KEY": "AIzaSyAuprl33EOfXpkO0yyRSAL7Qz9d_1Dc95c"
+      }
+    },
+    "production:provider": {
+      "extends": "production",
+      "env": {
+        "APP_VARIANT": "provider",
+        "GOOGLE_MAPS_API_KEY": "AIzaSyAuprl33EOfXpkO0yyRSAL7Qz9d_1Dc95c"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "REPLACE_AFTER_CREATING_APP_IN_ASC"
+      }
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
@@ -8,6 +8,17 @@ function normalizeStatus(status?: string): string {
   if (status === 'in_progress') return 'inprogress';
   if (status === 'en_route') return 'enroute';
   return status || 'accepted';
+}
+
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  accepted: { bg: 'rgba(234,179,8,0.2)', text: '#EAB308' },
+  arrived: { bg: 'rgba(6,182,212,0.2)', text: '#06B6D4' },
+  inprogress: { bg: 'rgba(59,130,246,0.2)', text: '#3B82F6' },
+  default: { bg: 'rgba(34,197,94,0.2)', text: '#22C55E' },
+};
+
+function getStatusColors(status: string) {
+  return STATUS_COLORS[status] || STATUS_COLORS.default;
 }
 
 export default function ActiveJobScreen() {
@@ -63,7 +74,7 @@ export default function ActiveJobScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-[#0F1419] items-center justify-center">
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2EFFAF" />
       </View>
     );
@@ -71,21 +82,22 @@ export default function ActiveJobScreen() {
 
   if (!job) {
     return (
-      <View className="flex-1 bg-[#0F1419] items-center justify-center px-6">
-        <Text className="text-white text-lg">Job not found</Text>
-        <TouchableOpacity onPress={() => router.back()} className="mt-4 bg-[#2EFFAF] px-6 py-3 rounded-xl">
-          <Text className="text-[#0F1419] font-semibold">Go Back</Text>
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>Job not found</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.goBackButton}>
+          <Text style={styles.goBackButtonText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   const jobStatus = normalizeStatus(job.status);
+  const statusColors = getStatusColors(jobStatus);
 
   return (
-    <View className="flex-1 bg-[#0F1419]">
+    <View style={styles.container}>
       <MapView
-        style={{ height: '35%' }}
+        style={styles.map}
         region={{
           latitude: job.pickup_latitude || 37.78825,
           longitude: job.pickup_longitude || -122.4324,
@@ -114,62 +126,52 @@ export default function ActiveJobScreen() {
         )}
       </MapView>
 
-      <ScrollView className="flex-1 px-6 pt-6">
-        <View className="flex-row items-center justify-between mb-4">
-          <Text className="text-white text-3xl font-bold">Active Job</Text>
-          <View className={`px-4 py-2 rounded-full ${
-            jobStatus === 'accepted' ? 'bg-yellow-500/20' :
-            jobStatus === 'arrived' ? 'bg-cyan-500/20' :
-            jobStatus === 'inprogress' ? 'bg-blue-500/20' :
-            'bg-green-500/20'
-          }`}>
-            <Text className={`text-sm font-semibold ${
-              jobStatus === 'accepted' ? 'text-yellow-500' :
-              jobStatus === 'arrived' ? 'text-cyan-500' :
-              jobStatus === 'inprogress' ? 'text-blue-500' :
-              'text-green-500'
-            }`}>
+      <ScrollView style={styles.scrollContainer}>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Active Job</Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
+            <Text style={[styles.statusText, { color: statusColors.text }]}>
               {jobStatus.replace('_', ' ').toUpperCase()}
             </Text>
           </View>
         </View>
 
-        <View className="space-y-4 mb-6">
-          <View>
-            <Text className="text-white/60 text-sm">Service</Text>
-            <Text className="text-white text-lg">{job.service?.name || 'N/A'}</Text>
+        <View style={styles.infoSection}>
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Service</Text>
+            <Text style={styles.value}>{job.service?.name || 'N/A'}</Text>
           </View>
 
-          <View>
-            <Text className="text-white/60 text-sm">Pickup</Text>
-            <Text className="text-white">{job.pickup_address || 'N/A'}</Text>
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Pickup</Text>
+            <Text style={styles.valueSmall}>{job.pickup_address || 'N/A'}</Text>
           </View>
 
           {job.destination_address && (
-            <View>
-              <Text className="text-white/60 text-sm">Destination</Text>
-              <Text className="text-white">{job.destination_address}</Text>
+            <View style={styles.infoBlock}>
+              <Text style={styles.label}>Destination</Text>
+              <Text style={styles.valueSmall}>{job.destination_address}</Text>
             </View>
           )}
 
-          <View>
-            <Text className="text-white/60 text-sm">Customer</Text>
-            <Text className="text-white text-lg">
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Customer</Text>
+            <Text style={styles.value}>
               {job.customer?.full_name || job.customer?.first_name || 'Customer'}
             </Text>
             {job.customer?.phone && (
-              <Text className="text-[#2EFFAF]">{job.customer.phone}</Text>
+              <Text style={styles.customerPhone}>{job.customer.phone}</Text>
             )}
           </View>
 
-          <View>
-            <Text className="text-white/60 text-sm">Customer Notes</Text>
-            <Text className="text-white">{job.customer_notes || 'None'}</Text>
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Customer Notes</Text>
+            <Text style={styles.valueSmall}>{job.customer_notes || 'None'}</Text>
           </View>
 
-          <View>
-            <Text className="text-white/60 text-sm">Payout</Text>
-            <Text className="text-[#2EFFAF] text-2xl font-bold">
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Payout</Text>
+            <Text style={styles.payoutAmount}>
               ${job.total_amount?.toFixed(2) || '0.00'}
             </Text>
           </View>
@@ -185,37 +187,153 @@ export default function ActiveJobScreen() {
                 Alert.alert('Error', error.message);
               }
             }}
-            className="bg-cyan-500 py-4 rounded-2xl mb-4"
+            style={styles.arrivedButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">I&apos;ve Arrived</Text>
+            <Text style={styles.actionButtonText}>I've Arrived</Text>
           </TouchableOpacity>
         )}
 
         {jobStatus === 'arrived' && (
           <TouchableOpacity
             onPress={handleStartJob}
-            className="bg-[#2EFFAF] py-4 rounded-2xl mb-4"
+            style={styles.primaryActionButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">Start Job</Text>
+            <Text style={styles.actionButtonText}>Start Job</Text>
           </TouchableOpacity>
         )}
 
         {jobStatus === 'inprogress' && (
           <TouchableOpacity
             onPress={handleCompleteJob}
-            className="bg-[#2EFFAF] py-4 rounded-2xl mb-4"
+            style={styles.primaryActionButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">Complete Job</Text>
+            <Text style={styles.actionButtonText}>Complete Job</Text>
           </TouchableOpacity>
         )}
 
         <TouchableOpacity
           onPress={() => router.back()}
-          className="bg-white/10 py-4 rounded-2xl mb-8"
+          style={styles.backButton}
         >
-          <Text className="text-center text-white font-semibold">Back to Home</Text>
+          <Text style={styles.backButtonText}>Back to Home</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  emptyText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+  },
+  goBackButton: {
+    marginTop: 16,
+    backgroundColor: '#2EFFAF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 16,
+  },
+  goBackButtonText: {
+    color: '#0F1419',
+    fontWeight: '600',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+  },
+  map: {
+    height: '35%',
+  },
+  scrollContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '700',
+  },
+  statusBadge: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  statusText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  infoSection: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  infoBlock: {},
+  label: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+  },
+  value: {
+    color: '#FFFFFF',
+    fontSize: 18,
+  },
+  valueSmall: {
+    color: '#FFFFFF',
+  },
+  customerPhone: {
+    color: '#2EFFAF',
+  },
+  payoutAmount: {
+    color: '#2EFFAF',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  arrivedButton: {
+    backgroundColor: '#06B6D4',
+    paddingVertical: 16,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  primaryActionButton: {
+    backgroundColor: '#2EFFAF',
+    paddingVertical: 16,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  actionButtonText: {
+    textAlign: 'center',
+    color: '#0F1419',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  backButton: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 16,
+    borderRadius: 20,
+    marginBottom: 32,
+  },
+  backButtonText: {
+    textAlign: 'center',
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+});

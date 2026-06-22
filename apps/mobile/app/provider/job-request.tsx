@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { useJob } from '../../contexts/JobContext';
@@ -36,7 +36,7 @@ export default function JobRequestScreen() {
 
   const handleAccept = async () => {
     if (!user || !jobId) return;
-    
+
     setAccepting(true);
     try {
       await acceptJob(jobId as string, user.id);
@@ -57,7 +57,7 @@ export default function JobRequestScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 bg-[#0F1419] items-center justify-center">
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2EFFAF" />
       </View>
     );
@@ -65,20 +65,20 @@ export default function JobRequestScreen() {
 
   if (!job) {
     return (
-      <View className="flex-1 bg-[#0F1419] items-center justify-center px-6">
-        <Text className="text-white text-lg">Job not found</Text>
-        <TouchableOpacity onPress={() => router.back()} className="mt-4 bg-[#2EFFAF] px-6 py-3 rounded-xl">
-          <Text className="text-[#0F1419] font-semibold">Go Back</Text>
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>Job not found</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.goBackButton}>
+          <Text style={styles.goBackButtonText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-[#0F1419]">
+    <View style={styles.container}>
       {/* Map */}
       <MapView
-        style={{ height: '40%' }}
+        style={styles.map}
         region={{
           latitude: job.pickup_latitude || 37.78825,
           longitude: job.pickup_longitude || -122.4324,
@@ -108,52 +108,52 @@ export default function JobRequestScreen() {
       </MapView>
 
       {/* Job Details */}
-      <View className="flex-1 px-6 pt-6">
-        <Text className="text-white text-3xl font-bold mb-2">New Job Request</Text>
-        <Text className="text-white/60 mb-6">{job.service?.name || 'Service'}</Text>
+      <View style={styles.detailsContainer}>
+        <Text style={styles.title}>New Job Request</Text>
+        <Text style={styles.subtitle}>{job.service?.name || 'Service'}</Text>
 
-        <View className="space-y-4 mb-6">
-          <View>
-            <Text className="text-white/60 text-sm">Pickup</Text>
-            <Text className="text-white text-lg">{job.pickup_address || 'N/A'}</Text>
+        <View style={styles.infoSection}>
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Pickup</Text>
+            <Text style={styles.value}>{job.pickup_address || 'N/A'}</Text>
           </View>
 
           {job.destination_address && (
-            <View>
-              <Text className="text-white/60 text-sm">Destination</Text>
-              <Text className="text-white text-lg">{job.destination_address}</Text>
+            <View style={styles.infoBlock}>
+              <Text style={styles.label}>Destination</Text>
+              <Text style={styles.value}>{job.destination_address}</Text>
             </View>
           )}
 
-          <View>
-            <Text className="text-white/60 text-sm">Customer Notes</Text>
-            <Text className="text-white">{job.customer_notes || 'None'}</Text>
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Customer Notes</Text>
+            <Text style={styles.valueSmall}>{job.customer_notes || 'None'}</Text>
           </View>
 
-          <View>
-            <Text className="text-white/60 text-sm">Payout</Text>
-            <Text className="text-[#2EFFAF] text-2xl font-bold">
+          <View style={styles.infoBlock}>
+            <Text style={styles.label}>Payout</Text>
+            <Text style={styles.payoutAmount}>
               ${job.total_amount?.toFixed(2) || '0.00'}
             </Text>
           </View>
         </View>
 
         {/* Action Buttons */}
-        <View className="flex-row gap-4">
+        <View style={styles.buttonRow}>
           <TouchableOpacity
             onPress={handleDecline}
             disabled={accepting}
-            className="flex-1 bg-white/10 py-4 rounded-2xl"
+            style={styles.declineButton}
           >
-            <Text className="text-center text-white font-semibold text-lg">Decline</Text>
+            <Text style={styles.declineButtonText}>Decline</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={handleAccept}
             disabled={accepting}
-            className="flex-1 bg-[#2EFFAF] py-4 rounded-2xl"
+            style={styles.acceptButton}
           >
-            <Text className="text-center text-[#0F1419] font-bold text-lg">
+            <Text style={styles.acceptButtonText}>
               {accepting ? 'Accepting...' : 'Accept'}
             </Text>
           </TouchableOpacity>
@@ -162,3 +162,105 @@ export default function JobRequestScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  emptyText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+  },
+  goBackButton: {
+    marginTop: 16,
+    backgroundColor: '#2EFFAF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 16,
+  },
+  goBackButtonText: {
+    color: '#0F1419',
+    fontWeight: '600',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#0F1419',
+  },
+  map: {
+    height: '40%',
+  },
+  detailsContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  title: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  subtitle: {
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 24,
+  },
+  infoSection: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  infoBlock: {},
+  label: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+  },
+  value: {
+    color: '#FFFFFF',
+    fontSize: 18,
+  },
+  valueSmall: {
+    color: '#FFFFFF',
+  },
+  payoutAmount: {
+    color: '#2EFFAF',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  declineButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 16,
+    borderRadius: 20,
+  },
+  declineButtonText: {
+    textAlign: 'center',
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 18,
+  },
+  acceptButton: {
+    flex: 1,
+    backgroundColor: '#2EFFAF',
+    paddingVertical: 16,
+    borderRadius: 20,
+  },
+  acceptButtonText: {
+    textAlign: 'center',
+    color: '#0F1419',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+});

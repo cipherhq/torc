@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { AuthProvider } from '../contexts/AuthContext';
+import { JobProvider } from '../contexts/JobContext';
 
 SplashScreen.preventAutoHideAsync?.()?.catch(() => {});
 
@@ -21,11 +22,11 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
     <AuthProvider>
+    <JobProvider>
     <ThemeProvider value={DarkTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="webview" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="auth/login" options={{ headerShown: false }} />
         <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
         <Stack.Screen name="provider/job-request" options={{ headerShown: false }} />
@@ -35,6 +36,7 @@ export default function RootLayout() {
       </Stack>
       <StatusBar style="light" />
     </ThemeProvider>
+    </JobProvider>
     </AuthProvider>
     </ErrorBoundary>
   );
