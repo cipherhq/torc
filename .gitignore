@@ -8,9 +8,18 @@ yarn.lock
 
 # Environment variables (IMPORTANT - contains secret keys!)
 .env
+.env.*
 .env.local
+.env.staging
+.env.production
 .env.*.local
+.env.development
+!.env.example
 workers/.secrets/
+
+# Files that contained leaked secrets — removed from tracking
+PUSH_WORKER_SUCCESS.md
+apps/customer-web/SUPABASE_CONNECTION_VERIFIED.md
 
 # Build output
 dist/
@@ -56,3 +65,4 @@ Thumbs.db
 *.jks
 *.keystore
 **/keystore.properties
+.vercel

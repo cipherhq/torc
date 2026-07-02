@@ -3,6 +3,9 @@ import { AdminLayout } from '../../components/AdminLayout';
 import { Shield, Eye, Crown, Users, Loader2, AlertCircle, Mail, UserPlus, X, ChevronDown } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { logAudit } from '../../lib/auditLog';
+import { ROLE_PERMISSIONS } from '../../lib/rbac';
+import type { AdminRole } from '../../lib/rbac';
 
 interface TeamMember {
   id: string;
@@ -11,48 +14,96 @@ interface TeamMember {
   last_name: string | null;
   email: string | null;
   role: string;
+  admin_role: string | null;
   status: string;
   avatar_url: string | null;
   created_at: string | null;
 }
 
-/* Static role definitions — roles/permissions are code-level config, not DB */
+/**
+ * Resolve the effective admin sub-role for a team member.
+ * Falls back to 'admin' when admin_role is not set.
+ */
+function effectiveAdminRole(member: TeamMember): AdminRole {
+  const valid: AdminRole[] = ['super_admin', 'admin', 'manager', 'support'];
+  if (member.admin_role && valid.includes(member.admin_role as AdminRole)) {
+    return member.admin_role as AdminRole;
+  }
+  return 'admin';
+}
+
+/**
+ * Build a human-readable list of permission labels from the route permissions
+ * defined in rbac.ts, for display on the Roles tab.
+ */
+function permissionsLabel(roleId: AdminRole): string[] {
+  const routes = ROLE_PERMISSIONS[roleId];
+  if (!routes) return [];
+  if (routes.includes('*')) return ['All Access'];
+
+  const labelMap: Record<string, string> = {
+    '/dashboard': 'Dashboard',
+    '/users': 'Users',
+    '/providers': 'Providers',
+    '/provider-approval': 'Provider Approval',
+    '/jobs': 'Jobs',
+    '/live-dispatch': 'Live Dispatch',
+    '/services': 'Services',
+    '/settings': 'Settings',
+    '/payouts': 'Payouts',
+    '/payout-history': 'Payout History',
+    '/payments': 'Payments',
+    '/finance': 'Finance',
+    '/reporting': 'Reporting',
+    '/analytics': 'Analytics',
+    '/notifications': 'Notifications',
+    '/support-tickets': 'Support Tickets',
+    '/audit-trail': 'Audit Trail',
+    '/documents': 'Documents',
+    '/team': 'Team',
+    '/directory': 'Directory',
+  };
+
+  return routes.map((r) => labelMap[r] || r).filter(Boolean);
+}
+
+/* Static role definitions -- visual metadata for the UI */
 const ROLES = [
   {
-    id: 'super_admin',
+    id: 'super_admin' as AdminRole,
     name: 'Super Admin',
     description: 'Full platform access and control',
-    permissions: ['All Access'],
+    get permissions() { return permissionsLabel('super_admin'); },
     gradient: 'linear-gradient(135deg, #008CE5, #0070B8)',
     icon: Crown,
     badgeBg: 'rgba(0,140,229,0.1)',
     badgeColor: '#008CE5',
   },
   {
-    id: 'admin',
+    id: 'admin' as AdminRole,
     name: 'Admin',
-    description: 'Manage operations and users',
-    permissions: ['Jobs', 'Users', 'Providers', 'Analytics', 'Settings'],
+    description: 'Manage operations, users, finance, and settings',
+    get permissions() { return permissionsLabel('admin'); },
     gradient: 'linear-gradient(135deg, #007AFF, #0051D5)',
     icon: Shield,
     badgeBg: 'rgba(0,122,255,0.1)',
     badgeColor: '#007AFF',
   },
   {
-    id: 'manager',
+    id: 'manager' as AdminRole,
     name: 'Manager',
-    description: 'Oversee jobs and providers',
-    permissions: ['Jobs', 'Providers', 'Payments'],
+    description: 'Oversee jobs, providers, and payments',
+    get permissions() { return permissionsLabel('manager'); },
     gradient: 'linear-gradient(135deg, #FF6B6B, #FF5252)',
     icon: Users,
     badgeBg: 'rgba(255,107,107,0.1)',
     badgeColor: '#FF6B6B',
   },
   {
-    id: 'support',
+    id: 'support' as AdminRole,
     name: 'Support',
     description: 'Handle customer and provider support',
-    permissions: ['Jobs', 'Users', 'Support Tickets'],
+    get permissions() { return permissionsLabel('support'); },
     gradient: 'linear-gradient(135deg, #FFA500, #FF8C00)',
     icon: Eye,
     badgeBg: 'rgba(255,165,0,0.1)',
@@ -89,7 +140,7 @@ export function AdminTeam() {
     setError(null);
     const { data, error: err } = await supabase
       .from('profiles')
-      .select('id, full_name, first_name, last_name, email, role, status, avatar_url, created_at')
+      .select('id, full_name, first_name, last_name, email, role, admin_role, status, avatar_url, created_at')
       .eq('role', 'admin')
       .order('created_at', { ascending: true });
 
@@ -112,12 +163,16 @@ export function AdminTeam() {
       : name.slice(0, 2).toUpperCase();
   };
 
-  const roleMeta = (roleId: string) => ROLES.find((r) => r.id === roleId) || ROLES[1];
+  const roleMeta = (member: TeamMember) => {
+    const roleId = effectiveAdminRole(member);
+    return ROLES.find((r) => r.id === roleId) || ROLES[1];
+  };
 
-  /* Count members per role for the Roles tab */
+  /* Count members per admin sub-role for the Roles tab */
   const roleCounts: Record<string, number> = {};
   members.forEach((m) => {
-    roleCounts[m.role] = (roleCounts[m.role] || 0) + 1;
+    const ar = effectiveAdminRole(m);
+    roleCounts[ar] = (roleCounts[ar] || 0) + 1;
   });
 
   /* ---- Invite flow ---- */
@@ -153,34 +208,35 @@ export function AdminTeam() {
           setInviting(false);
           return;
         }
-        // Promote existing user to admin
+        // Promote existing user to admin with the selected sub-role
+        const updatePayload: Record<string, unknown> = {
+          role: 'admin',
+          admin_role: inviteRole,
+          updated_at: new Date().toISOString(),
+        };
         const { error: updateErr } = await supabase
           .from('profiles')
-          .update({
-            role: 'admin',
-            updated_at: new Date().toISOString(),
-          })
+          .update(updatePayload)
           .eq('id', existing.id);
 
         if (updateErr) throw updateErr;
 
-        // Audit log
-        const { data: session } = await supabase.auth.getSession();
-        const actorId = session?.session?.user?.id;
-        if (actorId) {
-          await supabase.from('admin_audit_logs').insert({
-            actor_id: actorId,
-            action: 'promote_to_admin',
-            entity_type: 'profile',
-            entity_id: existing.id,
-            details: { email: inviteEmail, previous_role: existing.role },
-          });
-        }
+        logAudit({
+          action: 'promote_to_admin',
+          entity_type: 'profile',
+          entity_id: existing.id,
+          details: { email: inviteEmail, previous_role: existing.role, admin_role: inviteRole },
+        });
 
         setInviteSuccess(true);
         loadTeam();
       } else {
-        // No existing profile — create invite via Supabase auth
+        // No existing profile -- attempt to create via Supabase Auth Admin API.
+        // LIMITATION: supabase.auth.admin.createUser() requires the service_role key,
+        // but the browser client uses the anon key, so this call will fail with a
+        // "not authorized" error. To fix properly, create a server-side API route
+        // (e.g. /api/admin/invite) that uses the service_role key to create the user.
+        // For now, the fallback message guides the admin to create the user manually.
         const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
           email: inviteEmail.trim().toLowerCase(),
           email_confirm: true,
@@ -192,9 +248,11 @@ export function AdminTeam() {
         });
 
         if (authErr) {
-          // Fallback: if admin API not available, just insert a profile row
           if (authErr.message.includes('not authorized') || authErr.message.includes('not allowed')) {
-            setInviteError('Admin API unavailable. Add the user manually in Supabase Auth, then they will appear here once their role is set to admin.');
+            setInviteError(
+              'Admin API requires service_role privileges which are not available in the browser. ' +
+              'Please add the user manually in the Supabase Auth dashboard, then they will appear here once their role is set to admin.'
+            );
           } else {
             throw authErr;
           }
@@ -202,30 +260,26 @@ export function AdminTeam() {
           return;
         }
 
-        // Update profile with role = admin
+        // Update profile with role = admin and admin_role
         if (authData?.user) {
+          const updatePayload: Record<string, unknown> = {
+            role: 'admin',
+            admin_role: inviteRole,
+            first_name: inviteFirstName.trim() || null,
+            last_name: inviteLastName.trim() || null,
+            updated_at: new Date().toISOString(),
+          };
           await supabase
             .from('profiles')
-            .update({
-              role: 'admin',
-              first_name: inviteFirstName.trim() || null,
-              last_name: inviteLastName.trim() || null,
-              updated_at: new Date().toISOString(),
-            })
+            .update(updatePayload)
             .eq('id', authData.user.id);
 
-          // Audit log
-          const { data: session } = await supabase.auth.getSession();
-          const actorId = session?.session?.user?.id;
-          if (actorId) {
-            await supabase.from('admin_audit_logs').insert({
-              actor_id: actorId,
-              action: 'invite_admin',
-              entity_type: 'profile',
-              entity_id: authData.user.id,
-              details: { email: inviteEmail },
-            });
-          }
+          logAudit({
+            action: 'invite_admin',
+            entity_type: 'profile',
+            entity_id: authData.user.id,
+            details: { email: inviteEmail, admin_role: inviteRole },
+          });
         }
 
         setInviteSuccess(true);
@@ -241,36 +295,55 @@ export function AdminTeam() {
 
   /* ---- Role change ---- */
 
-  const handleRoleChange = async (memberId: string, newRole: string) => {
+  const handleRoleChange = async (memberId: string, newAdminRole: string) => {
     setSavingRole(true);
     try {
-      const { error: err } = await supabase
-        .from('profiles')
-        .update({ role: newRole, updated_at: new Date().toISOString() })
-        .eq('id', memberId);
+      const member = members.find((m) => m.id === memberId);
 
-      if (err) throw err;
+      if (newAdminRole === 'customer') {
+        // Remove from admin team entirely
+        const { error: err } = await supabase
+          .from('profiles')
+          .update({
+            role: 'customer',
+            admin_role: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', memberId);
 
-      // If we changed someone OFF admin, they disappear from this list.
-      // If we keep them admin, update local state.
-      if (newRole !== 'admin') {
+        if (err) throw err;
+
         setMembers((prev) => prev.filter((m) => m.id !== memberId));
       } else {
-        setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
+        // Update the admin sub-role; keep role as 'admin'
+        const updatePayload: Record<string, unknown> = {
+          admin_role: newAdminRole,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: err } = await supabase
+          .from('profiles')
+          .update(updatePayload)
+          .eq('id', memberId);
+
+        if (err) throw err;
+
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.id === memberId ? { ...m, admin_role: newAdminRole } : m
+          )
+        );
       }
 
-      // Audit log
-      const { data: session } = await supabase.auth.getSession();
-      const actorId = session?.session?.user?.id;
-      if (actorId) {
-        await supabase.from('admin_audit_logs').insert({
-          actor_id: actorId,
-          action: 'change_role',
-          entity_type: 'profile',
-          entity_id: memberId,
-          details: { new_role: newRole },
-        });
-      }
+      logAudit({
+        action: 'change_role',
+        entity_type: 'profile',
+        entity_id: memberId,
+        details: {
+          previous_admin_role: member ? effectiveAdminRole(member) : null,
+          new_admin_role: newAdminRole,
+          email: member?.email,
+        },
+      });
 
       setEditingRoleId(null);
     } catch (e: any) {
@@ -359,8 +432,9 @@ export function AdminTeam() {
               </div>
             ) : (
               members.map((member, index) => {
-                const meta = roleMeta(member.role);
+                const meta = roleMeta(member);
                 const RoleIcon = meta.icon;
+                const memberAdminRole = effectiveAdminRole(member);
                 const isEditingRole = editingRoleId === member.id;
                 return (
                   <motion.div
@@ -386,7 +460,7 @@ export function AdminTeam() {
                           </div>
                           <div className="flex items-center gap-2 text-gray-500">
                             <Mail className="w-3.5 h-3.5" />
-                            <span>{member.email || '—'}</span>
+                            <span>{member.email || '\u2014'}</span>
                           </div>
                           {member.created_at && (
                             <p className="text-gray-400 text-sm mt-1">
@@ -416,12 +490,12 @@ export function AdminTeam() {
                                 onClick={() => handleRoleChange(member.id, r.id)}
                                 disabled={savingRole}
                                 className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition-colors disabled:opacity-50 ${
-                                  member.role === r.id ? 'bg-gray-50 font-semibold' : ''
+                                  memberAdminRole === r.id ? 'bg-gray-50 font-semibold' : ''
                                 }`}
                               >
                                 <r.icon className="w-4 h-4 text-gray-500" />
                                 {r.name}
-                                {member.role === r.id && <span className="ml-auto text-[#008CE5] text-xs">Current</span>}
+                                {memberAdminRole === r.id && <span className="ml-auto text-[#008CE5] text-xs">Current</span>}
                               </button>
                             ))}
                             <div className="border-t border-gray-100 mt-1 pt-1">
@@ -444,7 +518,7 @@ export function AdminTeam() {
           </div>
         )}
 
-        {/* Roles Tab — static config, not DB data */}
+        {/* Roles Tab -- permission config derived from rbac.ts */}
         {!loading && !error && activeTab === 'roles' && (
           <div className="grid grid-cols-2 gap-6">
             {ROLES.map((role, index) => {
@@ -565,7 +639,7 @@ export function AdminTeam() {
                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 focus:outline-none focus:border-[#008CE5]/50"
                       >
                         {ROLES.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name} — {r.description}</option>
+                          <option key={r.id} value={r.id}>{r.name} -- {r.description}</option>
                         ))}
                       </select>
                     </div>

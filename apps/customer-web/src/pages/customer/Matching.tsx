@@ -63,11 +63,14 @@ export function Matching() {
         if (user) {
           const jobDetailsFromContext = {
             serviceId: context.serviceId || null,
+            vehicleId: context.vehicleId || null,
             pickupLocation: context.location
               ? { latitude: context.location.lat, longitude: context.location.lng }
               : null,
             pickupAddress: context.location?.address || '',
-            destinationLocation: null,
+            destinationLocation: context.destinationCoords
+              ? { latitude: context.destinationCoords.lat, longitude: context.destinationCoords.lng }
+              : null,
             destinationAddress: context.destinationAddress || '',
             isHazardLocation: !!context.isHazardous,
             requesterType: context.whoNeedsHelp === 'new' ? 'other' : 'self',
@@ -75,6 +78,7 @@ export function Matching() {
             requesterPhone: context.personPhone || '',
             scheduledFor: context.scheduledFor || null,
             customerNotes: context.notes || '',
+            serviceBasePrice: context.serviceBasePrice ?? null,
             paymentIntentId: context.paymentIntentId || null,
             paymentStatus: context.paymentStatus || 'unpaid',
             paymentCurrency: context.paymentCurrency || 'USD',
@@ -87,6 +91,38 @@ export function Matching() {
             setCreatedJobId(job.id);
             if (job.pickup_latitude && job.pickup_longitude) {
               setPickupCoords({ lat: job.pickup_latitude, lng: job.pickup_longitude });
+            }
+
+            // Upload customer photos to storage (fire-and-forget)
+            if (context.photos?.length > 0) {
+              (async () => {
+                try {
+                  const uploadedUrls: string[] = [];
+                  for (let i = 0; i < context.photos.length; i++) {
+                    const dataUrl = context.photos[i];
+                    const res = await fetch(dataUrl);
+                    const blob = await res.blob();
+                    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+                    const path = `${job.id}/customer_${i}.${ext}`;
+                    const { error: uploadErr } = await supabase.storage
+                      .from('job-photos')
+                      .upload(path, blob, { contentType: blob.type, upsert: true });
+                    if (!uploadErr) {
+                      const { data: urlData } = supabase.storage.from('job-photos').getPublicUrl(path);
+                      if (urlData?.publicUrl) uploadedUrls.push(urlData.publicUrl);
+                    }
+                  }
+                  if (uploadedUrls.length > 0) {
+                    const notesWithPhotos = (job.customer_notes || '') +
+                      '\n\n[Photos: ' + uploadedUrls.join(', ') + ']';
+                    await supabase.from('jobs')
+                      .update({ customer_notes: notesWithPhotos })
+                      .eq('id', job.id);
+                  }
+                } catch (e) {
+                  console.warn('Photo upload failed:', e);
+                }
+              })();
             }
 
             // Tiered radius dispatch
@@ -341,7 +377,14 @@ export function Matching() {
             if (phone.length === 10) phone = '1' + phone;
             if (!phone.startsWith('+')) phone = '+' + phone;
 
-            const { data: provProfile } = await supabase.from('profiles').select('phone').eq('id', data.provider_id).single();
+            // Only query provider phone if the job is accepted (provider matched to this job).
+            // The tightened profiles RLS (migration 056) ensures this query only returns
+            // data for providers who are active participants in the customer's jobs.
+            const { data: provProfile } = await supabase
+              .from('profiles')
+              .select('phone')
+              .eq('id', data.provider_id)
+              .single();
             const customerName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Someone';
             const providerPhone = provProfile?.phone ? ` You can reach them at ${provProfile.phone}.` : '';
             const smsMessage = `Hi ${context.personName || 'there'}! ${customerName} has requested TORC roadside assistance for you. ${provName} is on the way to ${context.location?.address || 'your location'}.${providerPhone} — TORC`;
@@ -866,16 +909,15 @@ export function Matching() {
                 className="mt-4 rounded-2xl p-4 border border-red-500/30"
                 style={{ backgroundColor: 'rgba(239,68,68,0.08)' }}
               >
-                <p className="text-red-300 text-sm mb-3">{error}</p>
+                <p className="text-red-500 text-sm mb-3">{error}</p>
                 <button
                   onClick={() => {
                     setError(null);
-                    jobCreated.current = false;
-                    window.location.reload();
+                    navigate('/pricing');
                   }}
                   className="px-4 py-2 rounded-xl text-sm font-semibold text-[#081427] bg-gradient-to-r from-[#008CE5] to-[#0070B8]"
                 >
-                  Retry
+                  Try Again
                 </button>
               </motion.div>
             )}
@@ -1008,10 +1050,12 @@ export function Matching() {
                   if (!finalReason) return;
                   try {
                     if (createdJobId) await cancelJob(createdJobId, finalReason);
+                    navigate('/home');
                   } catch (e) {
                     console.warn('Cancel failed:', e);
+                    setShowCancelReason(false);
+                    setError('Failed to cancel request. Please try again.');
                   }
-                  navigate('/home');
                 }}
                 disabled={!cancelReason || (cancelReason === 'other' && !cancelCustomReason.trim())}
                 className="rounded-2xl py-3 font-bold text-sm text-white"
