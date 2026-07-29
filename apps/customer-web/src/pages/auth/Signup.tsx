@@ -129,7 +129,7 @@ export function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-y-auto"
+    <div className="min-h-dvh w-full flex flex-col relative overflow-y-auto pb-12"
       style={{ background: isDark ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)' }}
     >
       {/* Ambient glow */}
