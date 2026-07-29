@@ -12,7 +12,7 @@ export function ThemeToggle({ size = 'md', className = '' }: ThemeToggleProps) {
 
   const sizeMap = {
     sm: { button: 'min-w-[44px] min-h-[44px] w-11 h-11', icon: 'w-4 h-4' },
-    md: { button: 'w-11 h-11', icon: 'w-5 h-5' },
+    md: { button: 'min-w-[44px] min-h-[44px] w-11 h-11', icon: 'w-5 h-5' },
     lg: { button: 'w-14 h-14', icon: 'w-6 h-6' },
   };
 

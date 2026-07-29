@@ -29,14 +29,22 @@ export function AuthProvider({ children }) {
         setLoading(false);
         setIsHydrated(true);
       }
+    }).catch(() => {
+      // Storage corrupted or unavailable — unblock the UI
+      setLoading(false);
+      setIsHydrated(true);
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        setLoading(true);
-        fetchProfile(session.user.id);
+        // Only re-fetch profile on actual sign-in, not on TOKEN_REFRESHED
+        // which just updates the JWT silently.
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          setLoading(true);
+          fetchProfile(session.user.id);
+        }
       } else {
         setProfile(null);
         setProviderProfile(null);

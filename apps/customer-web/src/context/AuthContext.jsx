@@ -30,6 +30,10 @@ export function AuthProvider({ children }) {
         setLoading(false);
         setIsHydrated(true);
       }
+    }).catch(() => {
+      // Storage corrupted or unavailable — unblock the UI
+      setLoading(false);
+      setIsHydrated(true);
     });
 
     // Listen for auth changes
