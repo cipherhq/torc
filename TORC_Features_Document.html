@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>TORC Platform — Complete Features Document</title>
+<style>
+  @page { margin: 0.75in; size: letter; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1A1F2E; line-height: 1.55; font-size: 11px; background: #fff; }
+  .page-break { page-break-before: always; }
+
+  /* Cover */
+  .cover { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #0A1626 0%, #14263D 50%, #1B3A5C 100%); color: #fff; text-align: center; padding: 60px 40px; page-break-after: always; }
+  .cover h1 { font-size: 52px; font-weight: 800; letter-spacing: -1px; margin-bottom: 12px; }
+  .cover h1 span { background: linear-gradient(135deg, #4ECDC4, #008CE5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .cover .subtitle { font-size: 20px; color: rgba(255,255,255,0.7); margin-bottom: 40px; }
+  .cover .meta { font-size: 13px; color: rgba(255,255,255,0.45); margin-top: 60px; }
+  .cover .badge { display: inline-block; padding: 8px 24px; border-radius: 100px; background: rgba(0,140,229,0.15); border: 1px solid rgba(0,140,229,0.3); color: #4ECDC4; font-weight: 600; font-size: 13px; margin-bottom: 20px; }
+
+  /* TOC */
+  .toc { padding: 40px; page-break-after: always; }
+  .toc h2 { font-size: 28px; color: #14263D; margin-bottom: 24px; border-bottom: 3px solid #008CE5; padding-bottom: 8px; }
+  .toc-section { margin-bottom: 16px; }
+  .toc-section h3 { font-size: 14px; color: #008CE5; font-weight: 700; margin-bottom: 6px; }
+  .toc-section ul { list-style: none; padding-left: 16px; }
+  .toc-section li { font-size: 12px; color: #4B5563; padding: 2px 0; }
+  .toc-section li::before { content: "•"; color: #008CE5; margin-right: 8px; }
+
+  /* Section headers */
+  .section { padding: 0 0 20px; }
+  .section-header { background: linear-gradient(135deg, #14263D, #1B3A5C); color: #fff; padding: 20px 24px; border-radius: 16px; margin-bottom: 20px; }
+  .section-header h2 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+  .section-header p { font-size: 12px; color: rgba(255,255,255,0.65); }
+  .section-header .icon { font-size: 18px; margin-right: 8px; }
+
+  /* Feature cards */
+  .feature-group { margin-bottom: 20px; }
+  .feature-group h3 { font-size: 15px; font-weight: 700; color: #14263D; margin-bottom: 10px; padding-left: 12px; border-left: 3px solid #008CE5; }
+  .feature-card { background: #F8FBFF; border: 1px solid #E5ECF5; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .feature-card h4 { font-size: 12px; font-weight: 700; color: #14263D; margin-bottom: 4px; }
+  .feature-card p { font-size: 10.5px; color: #4B5563; line-height: 1.5; }
+  .feature-card .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 9px; font-weight: 600; margin-right: 4px; margin-top: 6px; }
+  .tag-blue { background: #EBF5FF; color: #008CE5; }
+  .tag-green { background: #ECFDF5; color: #059669; }
+  .tag-amber { background: #FFFBEB; color: #D97706; }
+  .tag-red { background: #FEF2F2; color: #DC2626; }
+  .tag-purple { background: #F5F3FF; color: #7C3AED; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 10.5px; }
+  th { background: #14263D; color: #fff; text-align: left; padding: 8px 10px; font-weight: 600; font-size: 10px; }
+  th:first-child { border-radius: 8px 0 0 0; }
+  th:last-child { border-radius: 0 8px 0 0; }
+  td { padding: 7px 10px; border-bottom: 1px solid #E5ECF5; color: #374151; }
+  tr:nth-child(even) td { background: #F8FBFF; }
+  tr:last-child td:first-child { border-radius: 0 0 0 8px; }
+  tr:last-child td:last-child { border-radius: 0 0 8px 0; }
+
+  /* Stats row */
+  .stats-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat-card { flex: 1; min-width: 120px; background: linear-gradient(135deg, #008CE5, #0070B8); color: #fff; border-radius: 12px; padding: 14px 16px; text-align: center; }
+  .stat-card .num { font-size: 28px; font-weight: 800; }
+  .stat-card .label { font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 2px; }
+
+  /* Flow diagrams */
+  .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 10px 0; }
+  .flow .step { background: #EBF5FF; color: #008CE5; font-size: 10px; font-weight: 600; padding: 5px 10px; border-radius: 8px; white-space: nowrap; }
+  .flow .arrow { color: #9CA3AF; font-size: 12px; }
+
+  /* Email table */
+  .email-table td:first-child { font-weight: 600; }
+
+  /* Compact list */
+  .compact-list { padding-left: 18px; margin-bottom: 10px; }
+  .compact-list li { font-size: 10.5px; color: #4B5563; padding: 2px 0; }
+
+  /* Two column */
+  .two-col { display: flex; gap: 12px; }
+  .two-col > div { flex: 1; }
+
+  /* Footer */
+  .doc-footer { text-align: center; padding: 20px; color: #9CA3AF; font-size: 10px; border-top: 1px solid #E5ECF5; margin-top: 30px; }
+
+  @media print {
+    body { font-size: 10px; }
+    .cover { min-height: 100vh; }
+    .no-break { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ COVER PAGE ═══════════════════ -->
+<div class="cover">
+  <div class="badge">CONFIDENTIAL — INTERNAL DOCUMENT</div>
+  <h1><span>TORC</span></h1>
+  <h1 style="font-size:22px; font-weight:400; color:rgba(255,255,255,0.85); margin-top:-4px;">Roadside Assistance Platform</h1>
+  <p class="subtitle">Complete Features &amp; Capabilities Document</p>
+  <div style="display:flex; gap:24px; margin-top:20px;">
+    <div style="text-align:center;">
+      <div style="font-size:36px; font-weight:800;">3</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.5);">Applications</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:36px; font-weight:800;">75+</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.5);">Features</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:36px; font-weight:800;">23</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.5);">Database Tables</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:36px; font-weight:800;">7</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.5);">Email Templates</div>
+    </div>
+  </div>
+  <p class="meta">Version 1.0 &bull; March 3, 2026 &bull; Generated from codebase analysis</p>
+</div>
+
+<!-- ═══════════════════ TABLE OF CONTENTS ═══════════════════ -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <div class="two-col">
+    <div>
+      <div class="toc-section">
+        <h3>1. Platform Overview</h3>
+        <ul>
+          <li>Architecture &amp; Tech Stack</li>
+          <li>Application Summary</li>
+        </ul>
+      </div>
+      <div class="toc-section">
+        <h3>2. Customer App (25 Pages)</h3>
+        <ul>
+          <li>Authentication &amp; Onboarding</li>
+          <li>Service Request Flow</li>
+          <li>Live Tracking &amp; Communication</li>
+          <li>Activity &amp; History</li>
+          <li>Profile &amp; Settings</li>
+          <li>Payments &amp; Billing</li>
+        </ul>
+      </div>
+      <div class="toc-section">
+        <h3>3. Provider App (30 Pages)</h3>
+        <ul>
+          <li>Authentication &amp; Onboarding</li>
+          <li>Dashboard &amp; Job Management</li>
+          <li>Active Job Execution</li>
+          <li>Earnings &amp; Payouts</li>
+          <li>Documents &amp; Verification</li>
+          <li>Profile &amp; Settings</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="toc-section">
+        <h3>4. Admin Dashboard (24 Pages)</h3>
+        <ul>
+          <li>Dashboard &amp; Analytics</li>
+          <li>User &amp; Provider Management</li>
+          <li>Jobs &amp; Live Dispatch</li>
+          <li>Finance &amp; Payouts</li>
+          <li>Support &amp; Notifications</li>
+          <li>Platform Settings</li>
+        </ul>
+      </div>
+      <div class="toc-section">
+        <h3>5. Backend &amp; Database</h3>
+        <ul>
+          <li>23 Database Tables</li>
+          <li>9 RPC Functions</li>
+          <li>15 Triggers</li>
+          <li>2 Edge Functions</li>
+          <li>Row-Level Security</li>
+        </ul>
+      </div>
+      <div class="toc-section">
+        <h3>6. Email System</h3>
+        <ul>
+          <li>7 Email Templates</li>
+          <li>Trigger Points</li>
+        </ul>
+      </div>
+      <div class="toc-section">
+        <h3>7. Real-Time Features</h3>
+        <ul>
+          <li>Location Broadcasting</li>
+          <li>Chat &amp; Calling</li>
+          <li>Push Notifications</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ 1. PLATFORM OVERVIEW ═══════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <div class="section-header">
+    <h2>1. Platform Overview</h2>
+    <p>Architecture, technology stack, and application summary</p>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="num">3</div>
+      <div class="label">Applications</div>
+    </div>
+    <div class="stat-card" style="background: linear-gradient(135deg, #4ECDC4, #2A9D8F);">
+      <div class="num">79</div>
+      <div class="label">Total Pages</div>
+    </div>
+    <div class="stat-card" style="background: linear-gradient(135deg, #F59E0B, #D97706);">
+      <div class="num">48</div>
+      <div class="label">DB Migrations</div>
+    </div>
+    <div class="stat-card" style="background: linear-gradient(135deg, #8B5CF6, #6D28D9);">
+      <div class="num">2</div>
+      <div class="label">Native Platforms</div>
+    </div>
+  </div>
+
+  <div class="feature-group">
+    <h3>Technology Stack</h3>
+    <table>
+      <tr><th style="width:160px;">Layer</th><th>Technology</th></tr>
+      <tr><td><strong>Frontend</strong></td><td>React 18 + TypeScript, Tailwind CSS, Framer Motion, Vite</td></tr>
+      <tr><td><strong>Native Wrapper</strong></td><td>Capacitor (iOS + Android) — wraps React SPA as native app</td></tr>
+      <tr><td><strong>Backend / DB</strong></td><td>Supabase (PostgreSQL 15, Auth, Storage, Edge Functions, Realtime)</td></tr>
+      <tr><td><strong>Payments</strong></td><td>Stripe (PaymentIntents, PaymentMethods, Customer objects)</td></tr>
+      <tr><td><strong>Email</strong></td><td>Resend API via Supabase Edge Function</td></tr>
+      <tr><td><strong>Maps</strong></td><td>Google Maps JavaScript API (Places, Directions, Geocoding)</td></tr>
+      <tr><td><strong>Real-time</strong></td><td>Supabase Broadcast Channels, Postgres Changes, Presence</td></tr>
+      <tr><td><strong>Push Notifications</strong></td><td>Native APNS (iOS) / FCM (Android) via Capacitor</td></tr>
+      <tr><td><strong>Chat Encryption</strong></td><td>AES-256-GCM with PBKDF2-derived keys</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Three Applications</h3>
+    <div class="two-col">
+      <div>
+        <div class="feature-card no-break">
+          <h4>Customer App (iOS + Android)</h4>
+          <p>Request roadside assistance, track providers in real-time, pay securely, rate service. 25 core pages covering the full service lifecycle from request to completion.</p>
+          <span class="tag tag-blue">Capacitor</span>
+          <span class="tag tag-green">Stripe Payments</span>
+          <span class="tag tag-purple">Live GPS Tracking</span>
+        </div>
+        <div class="feature-card no-break">
+          <h4>Provider App (iOS + Android)</h4>
+          <p>Accept job requests, navigate to customers, complete services, earn money, manage documents and payouts. 30 pages covering onboarding through active job execution.</p>
+          <span class="tag tag-blue">Capacitor</span>
+          <span class="tag tag-amber">Job Dispatch</span>
+          <span class="tag tag-green">Earnings Dashboard</span>
+        </div>
+      </div>
+      <div>
+        <div class="feature-card no-break">
+          <h4>Admin Dashboard (Web)</h4>
+          <p>Full platform management — users, providers, jobs, payments, payouts, support tickets, analytics, settings, team, and audit trail. 24 pages with real-time monitoring.</p>
+          <span class="tag tag-red">Admin Only</span>
+          <span class="tag tag-purple">Analytics</span>
+          <span class="tag tag-amber">Live Dispatch</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ 2. CUSTOMER APP ═══════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <div class="section-header">
+    <h2>2. Customer App Features</h2>
+    <p>25 pages — Full service request, tracking, payment, and account management</p>
+  </div>
+
+  <div class="feature-group">
+    <h3>Authentication &amp; Onboarding (6 screens)</h3>
+    <table>
+      <tr><th>Screen</th><th>Features</th></tr>
+      <tr><td><strong>Splash</strong></td><td>Auto-redirects based on auth state; crash recovery checks for in-progress jobs</td></tr>
+      <tr><td><strong>Login</strong></td><td>Email/password auth; password visibility toggle; forgot password link</td></tr>
+      <tr><td><strong>Signup</strong></td><td>Name, email, phone, password; terms acceptance; welcome email sent on creation</td></tr>
+      <tr><td><strong>Verify Email</strong></td><td>OTP/link verification; resend option; pending email display</td></tr>
+      <tr><td><strong>Forgot Password</strong></td><td>Email-based password reset request</td></tr>
+      <tr><td><strong>Reset Password</strong></td><td>New password entry with confirmation and validation</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Service Request Flow</h3>
+    <div class="flow">
+      <span class="step">Home Map</span><span class="arrow">→</span>
+      <span class="step">Who Needs Help</span><span class="arrow">→</span>
+      <span class="step">Confirm Location</span><span class="arrow">→</span>
+      <span class="step">Select Service</span><span class="arrow">→</span>
+      <span class="step">Schedule</span><span class="arrow">→</span>
+      <span class="step">Pricing &amp; Payment</span><span class="arrow">→</span>
+      <span class="step">Matching</span><span class="arrow">→</span>
+      <span class="step">Live Tracking</span><span class="arrow">→</span>
+      <span class="step">Completion</span>
+    </div>
+    <table>
+      <tr><th>Step</th><th>Key Features</th></tr>
+      <tr><td><strong>Home Map</strong></td><td>Interactive Google Map; current location; quick stats (saves, rating, member since); active job banner for crash recovery; real-time job polling every 8s; auto-cleanup of stale jobs (&gt;12h)</td></tr>
+      <tr><td><strong>Who Needs Help</strong></td><td>Select "Myself" or "Someone Else"; add name + phone for third party</td></tr>
+      <tr><td><strong>Confirm Location</strong></td><td>Draggable map marker; Google Autocomplete address search; hazard location toggle (adds fee); current GPS auto-fill</td></tr>
+      <tr><td><strong>Service Selection</strong></td><td>Grid of available services; search/filter; icon, name, description, base price; loads from Supabase services table</td></tr>
+      <tr><td><strong>Schedule Service</strong></td><td>Date/time picker for future bookings; scheduling fee applied; toggle immediate vs. scheduled</td></tr>
+      <tr><td><strong>Pricing &amp; Payment</strong></td><td>Full cost breakdown (base + service fee + hazard fee + scheduling fee + tax); Stripe card integration; add/select saved cards; set default payment method</td></tr>
+      <tr><td><strong>Matching</strong></td><td>Tiered provider dispatch (5mi → 15mi → 30mi); Supabase broadcast to eligible providers; ETA calculation; cancel with reason; provider acceptance detection</td></tr>
+      <tr><td><strong>Live Tracking</strong></td><td>Real-time GPS map; provider route rendering via Google Directions; status progression (enroute → arrived → working → complete); encrypted chat; phone calling; share tracking link; 911 emergency button; cancel support</td></tr>
+      <tr><td><strong>Service Completion</strong></td><td>1-5 star rating; optional text feedback; tip selection ($0-$20); before/after photo capture; cost summary; email receipt sent</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Activity, Messages &amp; Explore</h3>
+    <table>
+      <tr><th>Feature</th><th>Details</th></tr>
+      <tr><td><strong>Activity</strong></td><td>Dual tabs: Upcoming / Past; infinite scroll pagination; status badges; click to track or view detail</td></tr>
+      <tr><td><strong>Service History</strong></td><td>Filters: All, Completed, Cancelled; expandable detail rows; CSV receipt download</td></tr>
+      <tr><td><strong>Messages</strong></td><td>All active job conversations; search by provider name; unread badge; encrypted chat modal; privacy name formatting</td></tr>
+      <tr><td><strong>Explore</strong></td><td>Google Places API — nearby auto shops, gas stations, car washes; map + list views; distance filter; shop detail modal with hours, phone, directions</td></tr>
+      <tr><td><strong>Notifications</strong></td><td>Filter: All / Unread; color-coded by type; mark read; action URL deep links</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Profile &amp; Account Management</h3>
+    <table>
+      <tr><th>Page</th><th>Capabilities</th></tr>
+      <tr><td><strong>Profile Hub</strong></td><td>Avatar, name, stats; menu navigation to all settings; dark/light theme toggle; logout</td></tr>
+      <tr><td><strong>Personal Info</strong></td><td>Edit first name, last name, phone; auto-save to Supabase</td></tr>
+      <tr><td><strong>Vehicles</strong></td><td>Add/edit/delete vehicles; year, make, model, plate, VIN, color; set default vehicle</td></tr>
+      <tr><td><strong>Payment Methods</strong></td><td>View saved cards (brand, last 4, expiry); add new via Stripe; set default; delete</td></tr>
+      <tr><td><strong>Account Security</strong></td><td>Change password; account deletion with confirmation</td></tr>
+      <tr><td><strong>Help Center</strong></td><td>5 categories with expandable FAQ articles; support ticket creation with priority; ticket replies</td></tr>
+      <tr><td><strong>Reporting</strong></td><td>Job counts, spending analytics, date range filters; CSV export of all job data</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════ 3. PROVIDER APP ═══════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <div class="section-header">
+    <h2>3. Provider App Features</h2>
+    <p>30 pages — Onboarding, job execution, earnings, documents, and profile management</p>
+  </div>
+
+  <div class="feature-group">
+    <h3>Onboarding Flow</h3>
+    <div class="flow">
+      <span class="step">Signup</span><span class="arrow">→</span>
+      <span class="step">Verify Email</span><span class="arrow">→</span>
+      <span class="step">Select Services</span><span class="arrow">→</span>
+      <span class="step">Upload Documents</span><span class="arrow">→</span>
+      <span class="step">Setup Payout</span><span class="arrow">→</span>
+      <span class="step">Verification Pending</span><span class="arrow">→</span>
+      <span class="step">Approved → Dashboard</span>
+    </div>
+    <table>
+      <tr><th>Step</th><th>Details</th></tr>
+      <tr><td><strong>Provider Signup</strong></td><td>Name, email, phone, password; auto-creates profiles + provider_profiles rows; welcome email sent</td></tr>
+      <tr><td><strong>Service Selection</strong></td><td>Multi-select: Towing, Jump Start, Lockout, Fuel Delivery, Tire Change, Winch, Minor Repair, Diagnostic, EV Charge, Motorcycle, Consultation, Emergency Help</td></tr>
+      <tr><td><strong>Document Upload</strong></td><td>Driver's License, Insurance, Vehicle Registration, Towing Credentials; expiry date picker; status tracking (pending/approved/rejected); rejection reason display; "Documents Under Review" email sent on submit</td></tr>
+      <tr><td><strong>Payout Setup</strong></td><td>Bank Account, PayPal, or Venmo; multiple methods with default selection; encrypted storage</td></tr>
+      <tr><td><strong>Verification Pending</strong></td><td>Polls every 8s for approval; real-time listener; auto-navigates to dashboard on approval; shows rejection reasons</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Dashboard &amp; Job Flow</h3>
+    <table>
+      <tr><th>Feature</th><th>Details</th></tr>
+      <tr><td><strong>Home Dashboard</strong></td><td>Online/offline toggle; today's earnings; completed jobs count; provider rating; expired document warnings; incoming job alerts with 30s countdown + audio/haptic</td></tr>
+      <tr><td><strong>Job Request</strong></td><td>Full-screen with service type, pickup address, customer name, distance, pricing breakdown; 30s countdown timer with color urgency; accept/decline actions</td></tr>
+      <tr><td><strong>Active Job</strong></td><td>
+        <strong>Status flow:</strong> En Route → Arrived → Working → Photos → Complete<br>
+        <strong>Map:</strong> Live GPS of both parties; Google Directions route rendering<br>
+        <strong>Communication:</strong> Encrypted chat with image upload; WebRTC audio calling; unread message badge<br>
+        <strong>Controls:</strong> Navigate (turn-by-turn); I've Arrived (auto-triggers at 0.5mi); Start Service; Complete Job<br>
+        <strong>Photos:</strong> At least 1 completion photo required via native camera<br>
+        <strong>Cancel:</strong> With reason; atomic RPC; customer notified via broadcast + push
+      </td></tr>
+      <tr><td><strong>Job Completion</strong></td><td>Summary display; payment + tip info; rate the customer; navigate to earnings or home</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Earnings, Messages &amp; Profile</h3>
+    <table>
+      <tr><th>Feature</th><th>Details</th></tr>
+      <tr><td><strong>Earnings Dashboard</strong></td><td>Total/weekly/monthly earnings; bar chart by day (Recharts); job breakdown with fee details; payout method display; payout history</td></tr>
+      <tr><td><strong>Messages</strong></td><td>Conversation list with unread indicators; search by customer; encrypted chat modal; privacy name formatting ("FirstName L.")</td></tr>
+      <tr><td><strong>Personal Info</strong></td><td>Name, phone, full address editing</td></tr>
+      <tr><td><strong>Vehicles</strong></td><td>Add/edit/delete with pre-filled car database; make, model, year, color, plate</td></tr>
+      <tr><td><strong>Ratings &amp; Reviews</strong></td><td>Historical customer ratings; review text; pagination (10/page); average calculation</td></tr>
+      <tr><td><strong>Tax Documents</strong></td><td>Annual earnings summaries; gross, fees, tips, net breakdown; CSV export; 1099 income warning</td></tr>
+      <tr><td><strong>Notifications</strong></td><td>Push/system notification history; mark read; mark all read</td></tr>
+      <tr><td><strong>Help &amp; Support</strong></td><td>5 help categories with articles; support ticket creation; reply threading</td></tr>
+      <tr><td><strong>Reporting</strong></td><td>Job report, payout report, earnings report — all CSV exportable with date range filters</td></tr>
+      <tr><td><strong>Account Security</strong></td><td>Email update; password change; account deletion</td></tr>
+      <tr><td><strong>Explore</strong></td><td>Nearby auto shops via Google Places; map + list view; distance filter</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════ 4. ADMIN DASHBOARD ═══════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <div class="section-header">
+    <h2>4. Admin Dashboard Features</h2>
+    <p>24 pages — Full platform operations, finance, support, analytics, and team management</p>
+  </div>
+
+  <div class="feature-group">
+    <h3>Dashboard &amp; Operations</h3>
+    <table>
+      <tr><th>Page</th><th>Key Capabilities</th></tr>
+      <tr><td><strong>Dashboard</strong></td><td>Real-time stats (active jobs, online providers, today's revenue, total users); 9-card platform management grid; recent alerts; pending provider queue; urgent tickets; real-time Supabase subscriptions</td></tr>
+      <tr><td><strong>Jobs</strong></td><td>View all jobs (paginated); filter: All/Active/Completed/Cancelled; search; status badges with color coding; payment status; rating display</td></tr>
+      <tr><td><strong>Live Dispatch</strong></td><td>Real-time active job monitoring; auto-refresh 30s + Supabase subscriptions; stat cards (Active, Pending, En Route, In Progress); search by name/address</td></tr>
+      <tr><td><strong>Services</strong></td><td>Create/edit services (name, description, base price, icon, status); toggle active/inactive; display order; job count per service</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>User &amp; Provider Management</h3>
+    <table>
+      <tr><th>Page</th><th>Key Capabilities</th></tr>
+      <tr><td><strong>Users</strong></td><td>All users (paginated, 15/page); filter: All/Customers/Providers/Admins/Suspended; expandable cards with job history; edit name/phone/role; suspend/unsuspend with audit log</td></tr>
+      <tr><td><strong>Providers</strong></td><td>Detailed provider management; stats (earnings, jobs, rating, acceptance rate); vehicle/license info; services offered; document status; job + payout history; approve/reject/suspend/unsuspend/edit; email notifications on all actions</td></tr>
+      <tr><td><strong>Provider Approval</strong></td><td>Dedicated pending provider queue; document review with file previews; approve/reject individual documents with reasons; approve/reject entire application; email + in-app notification on all decisions</td></tr>
+      <tr><td><strong>Documents</strong></td><td>Document type configuration (create/edit required types); document review workflow: approve, reject, revoke; filter: All/Pending/Approved/Rejected; file download/preview</td></tr>
+      <tr><td><strong>Team</strong></td><td>Admin team members; roles (Super Admin, Admin, Manager, Support); invite new members; suspend/unsuspend</td></tr>
+      <tr><td><strong>Directory</strong></td><td>Partner business directory; types: Repair Shop, Gas Station, Tow Yard, etc.; CRUD with geolocation; partner status toggle</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Finance &amp; Payments</h3>
+    <table>
+      <tr><th>Page</th><th>Key Capabilities</th></tr>
+      <tr><td><strong>Payments</strong></td><td>All job payments; filter by status: Paid/Unpaid/Failed/Refunded; search; CSV export; refund tracking</td></tr>
+      <tr><td><strong>Payouts</strong></td><td>Provider earnings + balances; jobs completed, earned, tips, fees, net owed, paid, balance; issue manual payouts; payout method display; CSV export</td></tr>
+      <tr><td><strong>Payout History</strong></td><td>All processed payouts; filter: Paid/Processing/Pending/Failed; period dates, amounts; CSV export</td></tr>
+      <tr><td><strong>Finance Hub</strong></td><td>Revenue metrics; platform fee earnings; pending refund exposure; monthly revenue chart; job completion breakdown; payment status distribution; refund management</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Support, Analytics &amp; Settings</h3>
+    <table>
+      <tr><th>Page</th><th>Key Capabilities</th></tr>
+      <tr><td><strong>Support Tickets</strong></td><td>All tickets; filter by status + priority; SLA tracking (urgent: 2h, standard: 24h); reply thread; assign to admin; change status/priority; admin notes</td></tr>
+      <tr><td><strong>Notifications</strong></td><td>Compose broadcast notifications (title, message, type, audience); audience targeting: All/Customers/Providers; send history (last 50); recipient count</td></tr>
+      <tr><td><strong>Analytics</strong></td><td>Real-time metrics; monthly revenue trend chart; job completion by status; service popularity; user growth; peak hours analysis</td></tr>
+      <tr><td><strong>Reporting Hub</strong></td><td>CSV exports for: Jobs, Refunds, Support Tickets, Audit Logs, Provider Profiles, Payout Records; date range filtering</td></tr>
+      <tr><td><strong>Audit Trail</strong></td><td>All admin actions logged; filter by action/entity type; actor identification; details JSON; CSV export</td></tr>
+      <tr><td><strong>Settings</strong></td><td>
+        <strong>Fees:</strong> cancellation %, commission %, service fee %, tax %, hazard fee $, scheduling fee $<br>
+        <strong>Provider:</strong> auto-approve toggle, document grace period, response timeout<br>
+        <strong>Chat:</strong> max message length, messages/page, retention days, image size/sharing<br>
+        <strong>Platform:</strong> maintenance mode, max job search radius, currency<br>
+        <strong>Legal:</strong> terms version/date, customer + provider terms templates, help center content
+      </td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════ 5. BACKEND & DATABASE ═══════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <div class="section-header">
+    <h2>5. Backend &amp; Database</h2>
+    <p>23 tables, 9 RPC functions, 15 triggers, 2 edge functions, 1 cron job</p>
+  </div>
+
+  <div class="feature-group">
+    <h3>Database Tables (23)</h3>
+    <table>
+      <tr><th>Table</th><th>Purpose</th><th>Key Columns</th></tr>
+      <tr><td><strong>jobs</strong></td><td>Service request records with full lifecycle</td><td>status, customer_id, provider_id, total_amount, payment_status, rating, timestamps</td></tr>
+      <tr><td><strong>profiles</strong></td><td>User accounts (all roles)</td><td>email, name, phone, role, is_verified, status, rating</td></tr>
+      <tr><td><strong>provider_profiles</strong></td><td>Extended provider data</td><td>is_online, is_verified, services[], rating, total_jobs</td></tr>
+      <tr><td><strong>documents</strong></td><td>Provider document uploads</td><td>type, file_url, status, rejection_reason, expires_at</td></tr>
+      <tr><td><strong>document_types</strong></td><td>Configurable document requirements</td><td>name, is_required, is_active, display_order</td></tr>
+      <tr><td><strong>services</strong></td><td>Available service types</td><td>name, description, base_price, icon, is_active</td></tr>
+      <tr><td><strong>vehicles</strong></td><td>Customer vehicle information</td><td>make, model, year, color, license_plate, is_primary</td></tr>
+      <tr><td><strong>chat_messages</strong></td><td>In-job encrypted messaging</td><td>job_id, sender_id, sender_role, message, image_url</td></tr>
+      <tr><td><strong>stripe_customers</strong></td><td>Stripe customer ID mapping</td><td>user_id, stripe_customer_id</td></tr>
+      <tr><td><strong>payment_methods</strong></td><td>Stored payment cards</td><td>stripe_payment_method_id, method_type, is_default</td></tr>
+      <tr><td><strong>provider_payouts</strong></td><td>Weekly payout records</td><td>total_earnings, tips, platform_fee, net_payout, status</td></tr>
+      <tr><td><strong>provider_payout_methods</strong></td><td>Provider bank/PayPal/Venmo</td><td>method_type, account_details, is_default</td></tr>
+      <tr><td><strong>refunds</strong></td><td>Payment refund records</td><td>job_id, amount, reason, status</td></tr>
+      <tr><td><strong>support_tickets</strong></td><td>Customer/provider support</td><td>subject, status, priority, assigned_to</td></tr>
+      <tr><td><strong>ticket_replies</strong></td><td>Support ticket threads</td><td>ticket_id, sender_role, message</td></tr>
+      <tr><td><strong>notifications</strong></td><td>In-app notifications</td><td>user_id, type, title, message, action_url</td></tr>
+      <tr><td><strong>device_tokens</strong></td><td>Push notification tokens</td><td>platform, push_token, is_active</td></tr>
+      <tr><td><strong>push_notifications</strong></td><td>Push delivery log</td><td>notification_type, status, sent_at</td></tr>
+      <tr><td><strong>broadcast_log</strong></td><td>Admin broadcast history</td><td>title, audience, recipient_count</td></tr>
+      <tr><td><strong>platform_settings</strong></td><td>Global config (key-value JSONB)</td><td>key, value, updated_by</td></tr>
+      <tr><td><strong>provider_locations</strong></td><td>Real-time GPS data</td><td>latitude, longitude, is_online</td></tr>
+      <tr><td><strong>job_events</strong></td><td>Immutable event audit log</td><td>event_type, actor_id, metadata</td></tr>
+      <tr><td><strong>directory_listings</strong></td><td>Partner business directory</td><td>business_name, type, lat/lng, is_partner</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>RPC Functions (9)</h3>
+    <table>
+      <tr><th>Function</th><th>Purpose</th></tr>
+      <tr><td><strong>accept_job()</strong></td><td>Race-safe job acceptance with SELECT...FOR UPDATE lock; emits pg_notify</td></tr>
+      <tr><td><strong>cancel_job()</strong></td><td>Authorized cancellation with actor verification; emits pg_notify</td></tr>
+      <tr><td><strong>get_nearby_providers()</strong></td><td>Haversine geolocation dispatch; filters by distance, service, online status, active jobs</td></tr>
+      <tr><td><strong>recalculate_provider_rating()</strong></td><td>Auto-recalculates average rating from completed jobs</td></tr>
+      <tr><td><strong>recalculate_customer_rating()</strong></td><td>Auto-recalculates customer rating from provider feedback</td></tr>
+      <tr><td><strong>send_broadcast_notification()</strong></td><td>Bulk notification send targeting audience segments</td></tr>
+      <tr><td><strong>upsert_device_token()</strong></td><td>Register or update device push notification token</td></tr>
+      <tr><td><strong>ensure_provider_setup()</strong></td><td>Guarantees profiles + provider_profiles rows exist</td></tr>
+      <tr><td><strong>suspend_expired_document_providers()</strong></td><td>Daily auto-suspension of providers with expired required documents</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Edge Functions (2)</h3>
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <h4>send-email</h4>
+        <p>Sends templated transactional emails via Resend API. 7 templates: welcome, documents_pending, document_request, provider_approved, provider_suspended, customer_invoice, provider_completion.</p>
+        <span class="tag tag-blue">Resend API</span>
+        <span class="tag tag-green">7 Templates</span>
+      </div>
+      <div class="feature-card no-break">
+        <h4>create-payment-intent</h4>
+        <p>Creates Stripe PaymentIntents for checkout. Gets/creates Stripe customer, attaches payment method, returns client secret for frontend confirmation.</p>
+        <span class="tag tag-purple">Stripe</span>
+        <span class="tag tag-amber">PCI Compliant</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="feature-group">
+    <h3>Security: Row-Level Security (RLS)</h3>
+    <p style="font-size:10.5px; color:#4B5563; margin-bottom:8px;">All 23 tables have RLS enabled. Key policies:</p>
+    <ul class="compact-list">
+      <li><strong>Jobs:</strong> Users see own jobs; customers create; providers see pending; admins full access</li>
+      <li><strong>Profiles:</strong> Anyone can view; self-update only; admins can update any</li>
+      <li><strong>Documents:</strong> Providers manage own; admins manage all; public denied</li>
+      <li><strong>Payments:</strong> Users manage own; service role processes</li>
+      <li><strong>Support:</strong> Users see own tickets; admins manage all</li>
+      <li><strong>Settings:</strong> Admins read/write; authenticated read public keys; anonymous read legal only</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════ 6. EMAIL SYSTEM ═══════════════════ -->
+<div class="page-break"></div>
+<div class="section">
+  <div class="section-header">
+    <h2>6. Email System</h2>
+    <p>7 templates sent via Resend API through Supabase Edge Function</p>
+  </div>
+
+  <div class="feature-group">
+    <h3>Email Templates &amp; Triggers</h3>
+    <table class="email-table">
+      <tr><th>Template</th><th>Subject</th><th>Triggered When</th><th>Sent To</th></tr>
+      <tr><td>welcome</td><td>Welcome to TORC!</td><td>Customer or provider signs up</td><td>New user</td></tr>
+      <tr><td>documents_pending</td><td>Documents Under Review</td><td>Provider submits documents</td><td>Provider</td></tr>
+      <tr><td>document_request</td><td>Action Required: Additional Documents Needed</td><td>Admin rejects document or requests update</td><td>Provider</td></tr>
+      <tr><td>provider_approved</td><td>Your TORC Account is Approved!</td><td>Admin approves provider application</td><td>Provider</td></tr>
+      <tr><td>provider_suspended</td><td>Account Suspended</td><td>Admin suspends provider account</td><td>Provider</td></tr>
+      <tr><td>customer_invoice</td><td>Service Complete — Invoice #XXXXX</td><td>Job marked as completed</td><td>Customer</td></tr>
+      <tr><td>provider_completion</td><td>Job Complete — Earned $XX.XX</td><td>Job marked as completed</td><td>Provider</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Email Architecture</h3>
+    <div class="feature-card">
+      <p><strong>Provider:</strong> Resend (https://resend.com/) &bull; <strong>From:</strong> TORC &lt;noreply@torcapp.com&gt;<br>
+      <strong>Method:</strong> Supabase Edge Function receives { to, template, data } → renders HTML template → calls Resend API<br>
+      <strong>Error handling:</strong> All emails are fire-and-forget (non-blocking); errors logged but never block UI operations<br>
+      <strong>Design:</strong> Consistent branded HTML layout with teal gradient header, card-based content, responsive design</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ 7. REAL-TIME FEATURES ═══════════════════ -->
+<div class="section">
+  <div class="section-header">
+    <h2>7. Real-Time Features</h2>
+    <p>Supabase Broadcast, Postgres Changes, Presence, and Push Notifications</p>
+  </div>
+
+  <div class="feature-group">
+    <h3>Real-Time Capabilities</h3>
+    <table>
+      <tr><th>Feature</th><th>Technology</th><th>Details</th></tr>
+      <tr><td><strong>GPS Location Sharing</strong></td><td>Supabase Broadcast</td><td>Customer and provider exchange live location via <code>job-tracking-{jobId}</code> channel; includes heading + speed; auto-reconnect on visibility change</td></tr>
+      <tr><td><strong>Encrypted Chat</strong></td><td>Supabase Broadcast + DB</td><td>AES-256-GCM encryption; PBKDF2-derived key from jobId; messages stored in chat_messages; real-time delivery; image upload support</td></tr>
+      <tr><td><strong>Audio Calling</strong></td><td>WebRTC + Supabase Signaling</td><td>Peer-to-peer audio via WebRTC; Supabase channel for ICE/SDP signaling; mute/speaker controls; call duration timer</td></tr>
+      <tr><td><strong>Job Status Updates</strong></td><td>Postgres Changes</td><td>Real-time subscription to jobs table changes; auto-updates UI on status transitions</td></tr>
+      <tr><td><strong>Job Request Dispatch</strong></td><td>Supabase Broadcast</td><td>Customer broadcasts to <code>provider-job-{providerId}</code>; 30s timeout with audio/haptic; tiered radius expansion</td></tr>
+      <tr><td><strong>Chat Notifications</strong></td><td>Supabase Broadcast</td><td>Cross-page notifications via <code>chat-notify-{role}-{jobId}</code>; unread badge on Message button; toast with decrypted preview</td></tr>
+      <tr><td><strong>Push Notifications</strong></td><td>APNS / FCM</td><td>Native push via Capacitor; device tokens registered on login; delivered for: job accepted, provider arrived, job completed, job cancelled</td></tr>
+      <tr><td><strong>Presence Tracking</strong></td><td>Supabase Presence</td><td>Track online/offline status of peers during active jobs; connection state indicator</td></tr>
+      <tr><td><strong>Admin Dashboard</strong></td><td>Postgres Changes</td><td>Real-time updates to dashboard metrics: jobs, profiles, provider_profiles, support_tickets, refunds</td></tr>
+    </table>
+  </div>
+
+  <div class="feature-group">
+    <h3>Key User Flows Summary</h3>
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <h4>Customer Service Request</h4>
+        <p>Home → Who Needs Help → Confirm Location → Select Service → Schedule → Pay → Match → Track → Rate</p>
+        <span class="tag tag-blue">8-step flow</span>
+        <span class="tag tag-green">Stripe payment</span>
+      </div>
+      <div class="feature-card no-break">
+        <h4>Provider Job Execution</h4>
+        <p>Go Online → Receive Request (30s) → Accept → Navigate → Arrive → Start Service → Take Photos → Complete</p>
+        <span class="tag tag-amber">30s timeout</span>
+        <span class="tag tag-purple">GPS + Chat</span>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <h4>Provider Onboarding</h4>
+        <p>Signup → Verify Email → Select Services → Upload Documents → Setup Payout → Await Admin Approval</p>
+        <span class="tag tag-amber">Admin review</span>
+        <span class="tag tag-green">Email notifications</span>
+      </div>
+      <div class="feature-card no-break">
+        <h4>Admin Provider Approval</h4>
+        <p>Review documents → Approve/Reject individual docs → Approve/Reject application → Email + notification sent</p>
+        <span class="tag tag-red">Role-restricted</span>
+        <span class="tag tag-blue">Audit logged</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<div class="doc-footer">
+  <p><strong>TORC Roadside Assistance Platform</strong> &bull; Complete Features Document &bull; Version 1.0</p>
+  <p>Generated March 3, 2026 &bull; Confidential — Internal Use Only</p>
+  <p style="margin-top: 8px; color: #D1D5DB;">© 2026 TORC. All rights reserved.</p>
+</div>
+
+</body>
+</html>
