@@ -1,5 +1,5 @@
+import { memo, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { useEffect, useState } from 'react';
 
 interface MapWithRouteProps {
   providerPosition: { x: number; y: number };
@@ -7,7 +7,17 @@ interface MapWithRouteProps {
   showRoute?: boolean;
 }
 
-export function MapWithRoute({ providerPosition, customerPosition, showRoute = true }: MapWithRouteProps) {
+function propsAreEqual(prev: MapWithRouteProps, next: MapWithRouteProps) {
+  return (
+    prev.providerPosition.x === next.providerPosition.x &&
+    prev.providerPosition.y === next.providerPosition.y &&
+    prev.customerPosition.x === next.customerPosition.x &&
+    prev.customerPosition.y === next.customerPosition.y &&
+    prev.showRoute === next.showRoute
+  );
+}
+
+export const MapWithRoute = memo(function MapWithRoute({ providerPosition, customerPosition, showRoute = true }: MapWithRouteProps) {
   const [pathLength, setPathLength] = useState(0);
 
   // Calculate path between provider and customer
@@ -118,4 +128,4 @@ export function MapWithRoute({ providerPosition, customerPosition, showRoute = t
       <div className="absolute top-[70%] right-[25%] w-3 h-3 bg-white/40 rounded-full" />
     </div>
   );
-}
+}, propsAreEqual);

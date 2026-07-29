@@ -22,10 +22,9 @@ export function ProviderBottomNav() {
   const activePath = location.pathname;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50">
+    <div className="fixed bottom-0 left-0 right-0 z-50 pb-safe">
       <div className="px-4 py-3 backdrop-blur-xl"
         style={{
-          paddingBottom: 'max(calc(12px + var(--safe-bottom, 0px)), 28px)',
           background: isDark
             ? 'linear-gradient(180deg, rgba(9,20,36,0.92) 0%, rgba(8,16,28,0.92) 100%)'
             : 'linear-gradient(180deg, rgba(245,250,255,0.96) 0%, rgba(238,246,255,0.96) 100%)',

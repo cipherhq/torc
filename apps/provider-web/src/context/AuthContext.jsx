@@ -15,15 +15,19 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [providerProfile, setProviderProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // Check active session
+    let authSubscription;
+
+    // Check active session, then attach the auth listener
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        fetchProfile(session.user.id).then(() => setIsHydrated(true));
       } else {
         setLoading(false);
+        setIsHydrated(true);
       }
     });
 
@@ -39,15 +43,20 @@ export function AuthProvider({ children }) {
         setLoading(false);
       }
     });
+    authSubscription = subscription;
 
-    return () => subscription.unsubscribe();
+    return () => authSubscription.unsubscribe();
   }, []);
 
   // Listen for native bridge messages (session updates from the native app)
   useEffect(() => {
     if (!isNative) return;
 
+    const trustedOrigins = [window.location.origin, 'capacitor://localhost', 'http://localhost', 'https://localhost'];
+
     function handleNativeMessage(event) {
+      // Validate message origin
+      if (event.origin && !trustedOrigins.includes(event.origin)) return;
       try {
         const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (msg?.type === 'AUTH_SESSION' && msg.session) {
@@ -278,6 +287,10 @@ export function AuthProvider({ children }) {
     refreshProfile,
     refreshProviderProfile,
   };
+
+  if (!isHydrated) {
+    return <LoadingScreen />;
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

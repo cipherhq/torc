@@ -9,32 +9,23 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-// When running inside the native app wrapper, the native side handles token refresh.
-const isNative = typeof window !== 'undefined' && window.__TORC_NATIVE__ === true;
-const isCapacitor = Capacitor.isNativePlatform();
+const isNative = Capacitor.isNativePlatform();
 
 // Use Capacitor Preferences (SharedPreferences/UserDefaults) for session persistence
 // on native platforms. localStorage can be wiped when the app is force-killed.
-const capacitorStorage = {
-  getItem: async (key) => {
-    const { value } = await Preferences.get({ key });
-    return value;
-  },
-  setItem: async (key, value) => {
-    await Preferences.set({ key, value });
-  },
-  removeItem: async (key) => {
-    await Preferences.remove({ key });
-  },
+const customStorage = {
+  getItem: async (key) => (await Preferences.get({ key })).value,
+  setItem: async (key, value) => await Preferences.set({ key, value }),
+  removeItem: async (key) => await Preferences.remove({ key }),
 };
 
 // Create Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    autoRefreshToken: !isNative,
+    autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: !isNative,
-    ...(isCapacitor ? { storage: capacitorStorage } : {}),
+    storage: isNative ? customStorage : window.localStorage,
   }
 });
 

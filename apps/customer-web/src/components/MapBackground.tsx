@@ -1,6 +1,7 @@
+import { memo } from 'react';
 import { motion } from 'motion/react';
 
-export function MapBackground() {
+export const MapBackground = memo(function MapBackground() {
   return (
     <div className="absolute inset-0 overflow-hidden">
       {/* Simulated 3D map with glowing roads - lighter version */}
@@ -45,4 +46,4 @@ export function MapBackground() {
       </div>
     </div>
   );
-}
+});

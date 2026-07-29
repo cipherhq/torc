@@ -9,30 +9,21 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-// When running inside native wrappers, the native side owns auth hand-off/refresh.
-const isCapacitor = Capacitor.isNativePlatform();
-const isNative = typeof window !== 'undefined' && (window.__TORC_NATIVE__ === true || isCapacitor);
+const isNative = Capacitor.isNativePlatform();
 
-const capacitorStorage = {
-  getItem: async (key) => {
-    const { value } = await Preferences.get({ key });
-    return value;
-  },
-  setItem: async (key, value) => {
-    await Preferences.set({ key, value });
-  },
-  removeItem: async (key) => {
-    await Preferences.remove({ key });
-  },
+const customStorage = {
+  getItem: async (key) => (await Preferences.get({ key })).value,
+  setItem: async (key, value) => await Preferences.set({ key, value }),
+  removeItem: async (key) => await Preferences.remove({ key }),
 };
 
 // Create Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    autoRefreshToken: !isNative,
+    autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: !isNative,
-    ...(isCapacitor ? { storage: capacitorStorage } : {}),
+    storage: isNative ? customStorage : window.localStorage,
   }
 });
 

@@ -12,40 +12,58 @@ const isNative = typeof window !== 'undefined' && (window.__TORC_NATIVE__ === tr
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // Check active session
+    let authSubscription;
+
+    // Check active session, then attach the auth listener
     supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session ?? null);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
+        fetchProfile(session.user.id).then(() => setIsHydrated(true));
       } else {
         setLoading(false);
+        setIsHydrated(true);
       }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session ?? null);
       setUser(session?.user ?? null);
       if (session?.user) {
-        setLoading(true);
-        fetchProfile(session.user.id);
+        // Only show loading screen and re-fetch profile on actual sign-in,
+        // not on TOKEN_REFRESHED which just updates the JWT. Re-fetching
+        // profile on token refresh sets loading=true, which unmounts the
+        // current page via ProtectedRoute and loses component state.
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          setLoading(true);
+          fetchProfile(session.user.id);
+        }
       } else {
         setProfile(null);
         setLoading(false);
       }
     });
+    authSubscription = subscription;
 
-    return () => subscription.unsubscribe();
+    return () => authSubscription.unsubscribe();
   }, []);
 
   // Listen for native bridge messages (session updates from the native app)
   useEffect(() => {
     if (!isNative) return;
 
+    const trustedOrigins = [window.location.origin, 'capacitor://localhost', 'http://localhost', 'https://localhost'];
+
     function handleNativeMessage(event) {
+      // Validate message origin
+      if (event.origin && !trustedOrigins.includes(event.origin)) return;
       try {
         const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (msg?.type === 'AUTH_SESSION' && msg.session) {
@@ -189,6 +207,7 @@ export function AuthProvider({ children }) {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
     setUser(null);
+    setSession(null);
     setProfile(null);
   };
 
@@ -209,6 +228,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
+    session,
     profile,
     loading,
     isAuthenticated: !!user,
@@ -220,6 +240,10 @@ export function AuthProvider({ children }) {
     updateProfile,
     refreshProfile: () => user && fetchProfile(user.id),
   };
+
+  if (!isHydrated) {
+    return <LoadingScreen />;
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

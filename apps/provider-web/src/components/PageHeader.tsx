@@ -35,7 +35,7 @@ export function PageHeader({ title, onBack, rightAction }: PageHeaderProps) {
       <div className="flex items-center px-4 py-3">
         <button
           onClick={onBack || (() => navigate(-1))}
-          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+          className="min-w-[44px] min-h-[44px] w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
           style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}
         >
           <ArrowLeft className="w-5 h-5 text-white" />
@@ -43,7 +43,7 @@ export function PageHeader({ title, onBack, rightAction }: PageHeaderProps) {
         <h1 className="flex-1 text-center font-bold text-lg text-white truncate px-2">
           {title}
         </h1>
-        <div className="w-10 flex-shrink-0 flex items-center justify-center">
+        <div className="min-w-[44px] min-h-[44px] w-11 flex-shrink-0 flex items-center justify-center">
           {rightAction || null}
         </div>
       </div>
