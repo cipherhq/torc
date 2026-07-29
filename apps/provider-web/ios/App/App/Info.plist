@@ -48,7 +48,7 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TORC needs your location to find nearby auto shops and show your position on the map.</string>
+	<string>TORC requires your location to match you with nearby stranded motorists and provide live dispatch tracking.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TORC needs camera access to upload your profile photo and documents.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -243,6 +243,7 @@ export function ProviderHome() {
   }, []);
 
   // Get provider's current location — uses Capacitor native API (never re-prompts)
+  // Only actively watch when online to save battery; grab one-shot position when offline.
   useEffect(() => {
     let watchId: string | null = null;
     let cancelled = false;
@@ -251,13 +252,15 @@ export function ProviderHome() {
       const { safeWatchPosition, getSafePosition } = await import('../../utils/safeLocation');
       if (cancelled) return;
 
-      // Start watching — returns null if permission not granted (no prompt)
-      watchId = await safeWatchPosition((pos) => {
-        setCurrentPos({ lat: pos.lat, lng: pos.lng });
-        if (mapRef.current) mapRef.current.panTo({ lat: pos.lat, lng: pos.lng });
-      });
+      if (isOnline) {
+        // Active tracking while on duty
+        watchId = await safeWatchPosition((pos) => {
+          setCurrentPos({ lat: pos.lat, lng: pos.lng });
+          if (mapRef.current) mapRef.current.panTo({ lat: pos.lat, lng: pos.lng });
+        });
+      }
 
-      // If watch didn't start (no permission), try a one-shot fallback
+      // One-shot fallback so the map shows something even when offline
       if (!watchId) {
         const fallback = await getSafePosition();
         if (!cancelled && fallback) setCurrentPos(fallback);
@@ -271,7 +274,7 @@ export function ProviderHome() {
         import('../../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchId));
       }
     };
-  }, []);
+  }, [isOnline]);
 
   // Persist provider location to provider_locations table for tiered dispatch
   const locationUpsertRef = useRef<ReturnType<typeof setInterval> | null>(null);

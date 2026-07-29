@@ -50,7 +50,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>TORC needs camera access to take photos of completed service jobs.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TORC needs your location to connect you with nearby providers and show pickup location.</string>
+	<string>TORC requires your location to display nearby roadside assistance providers and calculate accurate arrival times.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TORC needs photo library access to upload photos of completed service jobs.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
