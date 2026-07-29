@@ -40,7 +40,7 @@ export function ResetPassword() {
 
   return (
     <div
-      className="min-h-screen flex flex-col relative overflow-hidden"
+      className="min-h-screen flex flex-col relative overflow-y-auto"
       style={{
         background: isDark
           ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'

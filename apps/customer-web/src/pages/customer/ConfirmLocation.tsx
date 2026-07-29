@@ -209,6 +209,7 @@ export function ConfirmLocation() {
     <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
       <PageHeader
         title="Confirm Location"
+        onBack={() => navigate('/who-needs-help')}
         rightAction={
           <button
             onClick={() => setShowSearch(true)}

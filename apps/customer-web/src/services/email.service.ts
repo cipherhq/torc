@@ -55,6 +55,14 @@ export async function sendProviderSuspendedEmail(email: string, name: string, re
   return sendEmail(email, 'provider_suspended', { name, reason });
 }
 
+/** Send password changed security notification */
+export async function sendPasswordChangedEmail(email: string, name: string) {
+  return sendEmail(email, 'password_changed', {
+    name,
+    changedAt: new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
+  });
+}
+
 /** Send completion summary to provider after service */
 export async function sendProviderCompletionEmail(
   email: string,

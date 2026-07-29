@@ -18,6 +18,10 @@ function getCorsHeaders(req: Request): Record<string, string> {
     origin.startsWith('http://localhost:') ||
     origin.startsWith('http://127.0.0.1:') ||
     origin === 'capacitor://localhost' ||
+    origin === 'capacitor://app.torcapp.com' ||
+    origin === 'capacitor://app.torcpro.com' ||
+    origin === 'https://app.torcapp.com' ||
+    origin === 'https://app.torcpro.com' ||
     origin === 'http://localhost' ||
     origin === 'https://localhost';
   return {
@@ -93,7 +97,7 @@ Deno.serve(async (req) => {
       amount,
       currency = 'usd',
       paymentMethodId,
-      savePaymentMethod = true,
+      savePaymentMethod = false,
       metadata = {},
     } = await req.json();
 
@@ -189,7 +193,7 @@ Deno.serve(async (req) => {
     // Log only message, never stack trace
     console.error('create-payment-intent error:', error?.message);
     return new Response(
-      JSON.stringify({ error: 'Failed to create payment intent. Please try again.' }),
+      JSON.stringify({ error: error?.message || 'Failed to create payment intent. Please try again.' }),
       {
         status: 500,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },

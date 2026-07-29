@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Clock, Zap } from 'lucide-react';
+import { Clock, Zap, X } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { updateRequestContext } from '../../data/requestContext';
 import { useState } from 'react';
@@ -54,7 +54,11 @@ export function ScheduleService() {
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 0px))' }}>
-      <PageHeader title="When do you need help?" />
+      <PageHeader title="When do you need help?" onBack={() => navigate(-1)} rightAction={
+        <button onClick={() => navigate('/customer/home')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+          <X className="w-5 h-5 text-white" />
+        </button>
+      } />
 
       <div className="relative z-10 px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Timing options */}
@@ -146,7 +150,14 @@ export function ScheduleService() {
                 onChange={(e) => setDateTime(e.target.value)}
                 min={minDateTime}
                 className="w-full rounded-xl px-4 py-4"
-                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', border: `1px solid ${cardBorder}`, color: textColor }}
+                style={{
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
+                  border: `1px solid ${cardBorder}`,
+                  color: textColor,
+                  colorScheme: isDark ? 'dark' : 'light',
+                  WebkitTextFillColor: textColor,
+                  opacity: 1,
+                }}
               />
             </div>
 

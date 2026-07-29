@@ -115,6 +115,7 @@ export function HomeMap() {
           .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
           .eq('customer_id', user!.id)
           .in('status', ['pending', 'matching', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+          .is('customer_completed_at', null)
           .lt('created_at', twelveHoursAgo)
           .then(() => {});
       }
@@ -124,6 +125,7 @@ export function HomeMap() {
         .select('id, status, services(name)')
         .eq('customer_id', user!.id)
         .in('status', ['pending', 'matching', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
+        .is('customer_completed_at', null)
         .gte('created_at', twelveHoursAgo)
         .limit(1)
         .maybeSingle();

@@ -42,10 +42,10 @@ export function ProviderProfile() {
         .from('provider-documents')
         .upload(filePath, file, { upsert: true, contentType: file.type });
       if (uploadError) throw uploadError;
-      const { data: urlData } = supabase.storage
+      const { data: urlData } = await supabase.storage
         .from('provider-documents')
-        .getPublicUrl(filePath);
-      const publicUrl = urlData.publicUrl + '?t=' + Date.now();
+        .createSignedUrl(filePath, 3600);
+      const publicUrl = (urlData?.signedUrl || '') + '&t=' + Date.now();
       await supabase.from('provider_profiles')
         .update({ avatar_url: publicUrl })
         .eq('id', user.id);

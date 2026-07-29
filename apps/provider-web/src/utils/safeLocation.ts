@@ -1,16 +1,14 @@
 import { Geolocation } from '@capacitor/geolocation';
 
-const DEFAULT_POS = { lat: 40.7128, lng: -74.006 };
-
 /**
  * Get current position without ever prompting for permission.
  * Uses Capacitor native geolocation (bypasses WKWebView prompt).
- * Returns fallback position if permission not granted.
+ * Returns null if permission not granted or GPS fails.
  */
-export async function getSafePosition(): Promise<{ lat: number; lng: number }> {
+export async function getSafePosition(): Promise<{ lat: number; lng: number } | null> {
   try {
     const perms = await Geolocation.checkPermissions();
-    if (perms.location !== 'granted') return DEFAULT_POS;
+    if (perms.location !== 'granted') return null;
 
     const pos = await Geolocation.getCurrentPosition({
       enableHighAccuracy: true,
@@ -19,7 +17,7 @@ export async function getSafePosition(): Promise<{ lat: number; lng: number }> {
     });
     return { lat: pos.coords.latitude, lng: pos.coords.longitude };
   } catch {
-    return DEFAULT_POS;
+    return null;
   }
 }
 

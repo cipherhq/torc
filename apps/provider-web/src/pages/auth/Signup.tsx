@@ -27,7 +27,7 @@ export function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1B2F4A] flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-[#1B2F4A] flex flex-col relative overflow-y-auto">
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -40,6 +40,7 @@ export function Signup() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate('/login')}
+          aria-label="Go back to login"
           className="glass rounded-full p-3"
         >
           <ArrowLeft className="w-6 h-6 text-white" />
@@ -62,7 +63,7 @@ export function Signup() {
         {/* Form fields */}
         <div className="space-y-4">
           {error && (
-            <div className="glass rounded-[20px] p-4 flex items-center gap-2 text-red-300 text-sm">
+            <div className="glass rounded-[20px] p-4 flex items-center gap-2 text-red-300 text-sm" role="alert">
               <AlertCircle className="w-4 h-4" />
               <span>{error}</span>
             </div>
@@ -134,7 +135,9 @@ export function Signup() {
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 placeholder="Create a password"
+                autoComplete="new-password"
                 className="flex-1 bg-transparent border-none text-white placeholder-white/40 focus:outline-none"
+                style={{ WebkitTextFillColor: '#FFFFFF', opacity: 1 }}
               />
             </div>
           </div>
@@ -148,7 +151,9 @@ export function Signup() {
                 value={formData.confirmPassword}
                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                 placeholder="Confirm your password"
+                autoComplete="new-password"
                 className="flex-1 bg-transparent border-none text-white placeholder-white/40 focus:outline-none"
+                style={{ WebkitTextFillColor: '#FFFFFF', opacity: 1 }}
               />
             </div>
           </div>

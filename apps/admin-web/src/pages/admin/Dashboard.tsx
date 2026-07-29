@@ -5,6 +5,7 @@ import {
   FileText, Wallet, UserX, MessageSquare, Wrench, LifeBuoy, LineChart,
 } from 'lucide-react';
 import { AdminLayout } from '../../components/AdminLayout';
+import { DashboardSkeleton } from '../../components/PageSkeleton';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect, useRef } from 'react';
 import { loadPlatformSettings } from '../../lib/platformSettings';
@@ -37,6 +38,7 @@ export function AdminDashboard() {
     { label: 'Total Users', value: '0', icon: Users, gradient: 'linear-gradient(135deg, #0070B8, #008CE5)', path: '/users' },
   ]);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [ops, setOps] = useState({
     pendingProviders: 0,
     suspendedUsers: 0,
@@ -46,7 +48,7 @@ export function AdminDashboard() {
     failedPayments: 0,
     refundsExposure: 0,
     totalServices: 0,
-    platformFeePercent: 15,
+    serviceFeePercent: 10,
     slaBreaches: 0,
   });
   const [pendingProviderRows, setPendingProviderRows] = useState<any[]>([]);
@@ -57,11 +59,11 @@ export function AdminDashboard() {
     { label: 'Approve Providers', value: `${ops.pendingProviders}`, subtitle: 'Pending verification', icon: ShieldCheck, path: '/providers' },
     { label: 'Manage Users', value: `${ops.suspendedUsers}`, subtitle: 'Suspended users', icon: UserX, path: '/users' },
     { label: 'Review Documents', value: `${ops.pendingDocs}`, subtitle: 'Pending document checks', icon: FileText, path: '/settings' },
-    { label: 'Manage Payouts', value: `${ops.pendingRefunds}`, subtitle: `Fee model ${ops.platformFeePercent.toFixed(1)}%`, icon: Wallet, path: '/payouts' },
+    { label: 'Manage Payouts', value: `${ops.pendingRefunds}`, subtitle: `Torc fee ${ops.serviceFeePercent.toFixed(1)}%`, icon: Wallet, path: '/payouts' },
     { label: 'Live Dispatch', value: stats[0]?.value || '0', subtitle: 'Currently active jobs', icon: MessageSquare, path: '/jobs' },
     { label: 'Service Pricing', value: `${ops.totalServices}`, subtitle: 'Configured services', icon: Wrench, path: '/settings' },
     { label: 'Support Tickets', value: `${ops.openTickets}`, subtitle: `${ops.slaBreaches} SLA breach(es)`, icon: LifeBuoy, path: '/support-tickets' },
-    { label: 'Financial Hub', value: `$${ops.refundsExposure.toFixed(0)}`, subtitle: `Pending refund exposure @ ${ops.platformFeePercent.toFixed(1)}% fee`, icon: LineChart, path: '/finance' },
+    { label: 'Financial Hub', value: `$${ops.refundsExposure.toFixed(0)}`, subtitle: `Pending refund exposure @ ${ops.serviceFeePercent.toFixed(1)}% Torc fee`, icon: LineChart, path: '/finance' },
     { label: 'Reporting Hub', value: `${ops.failedPayments}`, subtitle: 'Failed payments to review', icon: LineChart, path: '/reporting' },
   ];
 
@@ -294,13 +296,14 @@ export function AdminDashboard() {
           failedPayments: failedPaymentsCount,
           refundsExposure: pendingRefundAmount,
           totalServices: servicesCount,
-          platformFeePercent: settings.platformFee,
+          serviceFeePercent: settings.serviceFee,
           slaBreaches: slaBreachesCount,
         });
       } catch (error) {
         console.warn('Failed to load dashboard stats:', error);
       } finally {
         setLoading(false);
+        setInitialLoad(false);
       }
     }
     loadStatsRef.current = loadStats;
@@ -329,6 +332,14 @@ export function AdminDashboard() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  if (initialLoad && loading) {
+    return (
+      <AdminLayout>
+        <DashboardSkeleton />
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout>

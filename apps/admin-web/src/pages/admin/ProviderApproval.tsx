@@ -34,6 +34,7 @@ interface ProviderDoc {
   type: string;
   file_name: string;
   file_url: string | null;
+  file_path: string | null;
   mime_type: string | null;
   status: 'pending' | 'approved' | 'rejected';
   rejection_reason: string | null;
@@ -172,20 +173,35 @@ export function ProviderApproval() {
       // 3. Documents for these providers
       const { data: docData, error: docErr } = await supabase
         .from('documents')
-        .select('id, provider_id, type, file_name, file_url, mime_type, status, rejection_reason, created_at, expires_at')
+        .select('id, provider_id, type, file_name, file_url, file_path, mime_type, status, rejection_reason, created_at, expires_at')
         .in('provider_id', pendingIds)
         .order('created_at', { ascending: true });
 
       if (docErr) throw docErr;
 
+      // Generate signed URLs for documents with file_path (private bucket)
+      const docsWithSignedUrls = await Promise.all(
+        (docData || []).map(async (d: any) => {
+          let resolvedUrl = d.file_url || null;
+          if (d.file_path) {
+            const { data: signed } = await supabase.storage
+              .from('provider-documents')
+              .createSignedUrl(d.file_path, 3600);
+            if (signed?.signedUrl) resolvedUrl = signed.signedUrl;
+          }
+          return { ...d, file_url: resolvedUrl };
+        })
+      );
+
       const docMap = new Map<string, ProviderDoc[]>();
-      (docData || []).forEach((d: any) => {
+      docsWithSignedUrls.forEach((d: any) => {
         const existing = docMap.get(d.provider_id) || [];
         existing.push({
           id: d.id,
           type: d.type,
           file_name: d.file_name,
           file_url: d.file_url || null,
+          file_path: d.file_path || null,
           mime_type: d.mime_type || null,
           status: d.status,
           rejection_reason: d.rejection_reason || null,

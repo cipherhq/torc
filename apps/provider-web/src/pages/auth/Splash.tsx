@@ -36,7 +36,7 @@ export function Splash() {
         } catch {
           // Fall through to home on error
         }
-        navigate('/home', { replace: true });
+        navigate('/permissions', { replace: true });
       } else {
         const hasSeenIntro = localStorage.getItem(INTRO_KEY) === '1';
         navigate(hasSeenIntro ? '/login' : '/intro/provider', { replace: true });

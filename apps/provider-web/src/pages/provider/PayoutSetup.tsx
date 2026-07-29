@@ -103,7 +103,7 @@ export function PayoutSetup() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showAllPayouts, setShowAllPayouts] = useState(false);
-  const [platformFee, setPlatformFee] = useState(15);
+  const [serviceFee, setServiceFee] = useState(10);
   const [earningsData, setEarningsData] = useState({ net: 0, paidOut: 0 });
 
   useEffect(() => {
@@ -133,14 +133,14 @@ export function PayoutSetup() {
         setPayouts((payoutsRes.data || []) as PayoutRow[]);
       }
 
-      setPlatformFee(settings.platformFee);
+      setServiceFee(settings.service_fee_pct);
 
       if (jobsRes.data) {
         const jobs = jobsRes.data;
         const totalBase = jobs.reduce((s, j) => s + deriveBasePrice(j), 0);
         const totalTips = jobs.reduce((s, j) => s + (Number(j.tip) || 0), 0);
-        const commission = totalBase * (settings.platformFee / 100);
-        const net = totalBase - commission + totalTips;
+        const fee = totalBase * (settings.service_fee_pct / 100);
+        const net = totalBase - fee + totalTips;
         const paidOut = (payoutsRes.data || [])
           .filter((p: any) => p.status === 'paid')
           .reduce((s: number, p: any) => s + (Number(p.net_payout) || 0), 0);
@@ -176,13 +176,28 @@ export function PayoutSetup() {
     setShowModal(true);
   }
 
+  const [formError, setFormError] = useState('');
+
   function validateForm() {
+    setFormError('');
     if (form.methodType === 'bank') {
-      return !!form.bankName.trim() && !!form.accountHolderName.trim()
-        && !!form.accountNumber.trim() && form.accountNumber === form.confirmAccountNumber;
+      if (!form.bankName.trim() || !form.accountHolderName.trim()) return false;
+      if (!form.accountNumber.trim() || form.accountNumber !== form.confirmAccountNumber) return false;
+      if (form.routingNumber.trim()) {
+        const routingDigits = form.routingNumber.replace(/\D/g, '');
+        if (routingDigits.length !== 9) { setFormError('Routing number must be exactly 9 digits'); return false; }
+        if (routingDigits !== form.routingNumber.trim()) { setFormError('Routing number must contain only digits'); return false; }
+      }
+      const acctDigits = form.accountNumber.replace(/\D/g, '');
+      if (acctDigits !== form.accountNumber.trim()) { setFormError('Account number must contain only digits'); return false; }
+      if (acctDigits.length < 4 || acctDigits.length > 17) { setFormError('Account number must be between 4 and 17 digits'); return false; }
+      return true;
     }
     if (form.methodType === 'paypal') {
-      return !!form.paypalEmail.trim() && form.paypalEmail === form.confirmPaypalEmail;
+      if (!form.paypalEmail.trim()) return false;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.paypalEmail.trim())) { setFormError('Please enter a valid PayPal email address'); return false; }
+      if (form.paypalEmail !== form.confirmPaypalEmail) return false;
+      return true;
     }
     return !!form.venmoHandle.trim();
   }
@@ -239,6 +254,7 @@ export function PayoutSetup() {
 
   async function removeMethod(id: string) {
     if (!user || actionInProgress) return;
+    if (!window.confirm('Are you sure you want to delete this payout method?')) return;
     setActionInProgress(id);
     try {
       const { error } = await supabase.from('provider_payout_methods').delete().eq('id', id).eq('provider_id', user.id);
@@ -253,6 +269,7 @@ export function PayoutSetup() {
 
   async function setDefaultMethod(id: string) {
     if (!user || actionInProgress) return;
+    if (!window.confirm('Set this as your default payout method?')) return;
     setActionInProgress(id);
     try {
       await supabase.from('provider_payout_methods').update({ is_default: false }).eq('provider_id', user.id);
@@ -337,6 +354,9 @@ export function PayoutSetup() {
           </div>
 
           {/* Form fields */}
+          {formError && (
+            <p className="text-xs text-red-400 mb-2 px-1">{formError}</p>
+          )}
           <div className="space-y-4">
             {form.methodType === 'bank' && (
               <>
@@ -347,7 +367,9 @@ export function PayoutSetup() {
                 {form.accountNumber && form.confirmAccountNumber && form.accountNumber !== form.confirmAccountNumber && (
                   <p className="text-xs text-red-400 px-1 -mt-2">Account numbers do not match</p>
                 )}
-                <FormField label="Routing Number" value={form.routingNumber} onChange={(v) => setForm({ ...form, routingNumber: v })} placeholder={editingId ? 'Enter to replace' : 'Routing number'} isDark={isDark} />
+                <div>
+                  <FormField label="Routing Number" value={form.routingNumber} onChange={(v) => setForm({ ...form, routingNumber: v.replace(/\D/g, '').slice(0, 9) })} placeholder={editingId ? 'Enter to replace' : 'Routing number'} isDark={isDark} />
+                </div>
               </>
             )}
 
@@ -431,7 +453,7 @@ export function PayoutSetup() {
                 <p className="text-sm" style={{ color: 'rgba(255,255,255,0.78)' }}>Available Balance</p>
               </div>
               <h2 className="font-bold text-4xl mb-1" style={{ color: '#FFFFFF' }}>${fmt(availableBalance)}</h2>
-              <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.72)' }}>After {platformFee}% platform fee</p>
+              <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.72)' }}>After {serviceFee}% Torc fee</p>
 
               <div className="flex gap-3">
                 <div className="flex-1 rounded-xl py-2 px-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>

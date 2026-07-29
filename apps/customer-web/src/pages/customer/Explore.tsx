@@ -2,6 +2,7 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 import { PageHeader } from '../../components/PageHeader';
+import { ExploreShopSkeleton } from '../../components/PageSkeleton';
 import { Search, MapPin, Phone, Navigation, Star, SlidersHorizontal, Wrench, Car } from 'lucide-react';
 import { useLocation as useLocationCtx } from '../../context/LocationContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
@@ -102,7 +103,7 @@ export function Explore() {
       serviceRef.current!.nearbySearch(
         {
           location: { lat: currentLocation.latitude, lng: currentLocation.longitude },
-          radius: 25 * MILE_IN_METERS,
+          radius: maxDistance * MILE_IN_METERS,
           type: type,
         },
         (results, status) => {
@@ -145,7 +146,7 @@ export function Explore() {
     serviceRef.current.nearbySearch(
       {
         location: { lat: currentLocation.latitude, lng: currentLocation.longitude },
-        radius: 25 * MILE_IN_METERS,
+        radius: maxDistance * MILE_IN_METERS,
         keyword: 'auto mechanic',
       },
       (results, status) => {
@@ -228,7 +229,7 @@ export function Explore() {
         {/* Search */}
         <div className="flex items-center gap-3 rounded-2xl px-4 py-3 mb-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF', border: `1px solid ${cardBorder}` }}>
           <Search className="w-5 h-5" style={{ color: subColor }} />
-          <input type="text" placeholder="Search auto shops, mechanics..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 bg-transparent outline-none text-sm" style={{ color: textColor }} />
+          <input type="text" placeholder="Search auto shops, mechanics..." aria-label="Search auto shops and mechanics" value={search} onChange={e => setSearch(e.target.value)} className="flex-1 bg-transparent outline-none text-sm" style={{ color: textColor }} />
         </div>
 
         {/* Distance filter */}
@@ -238,9 +239,9 @@ export function Explore() {
               <p className="text-sm font-medium" style={{ color: textColor }}>Distance</p>
               <p className="text-sm font-bold" style={{ color: '#008CE5' }}>{maxDistance} miles</p>
             </div>
-            <input type="range" min={1} max={25} value={maxDistance} onChange={e => setMaxDistance(parseInt(e.target.value))} className="w-full accent-[#008CE5]" />
+            <input type="range" min={1} max={50} value={maxDistance} onChange={e => setMaxDistance(parseInt(e.target.value))} aria-label="Maximum search distance in miles" className="w-full accent-[#008CE5]" />
             <div className="flex justify-between text-xs mt-1" style={{ color: subColor }}>
-              <span>1 mi</span><span>10 mi</span><span>25 mi</span>
+              <span>1 mi</span><span>25 mi</span><span>50 mi</span>
             </div>
           </motion.div>
         )}
@@ -296,10 +297,7 @@ export function Explore() {
       {/* List */}
       <div className="px-6">
         {loading ? (
-          <div className="text-center py-16">
-            <div className="w-10 h-10 border-3 border-[#008CE5] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-sm" style={{ color: subColor }}>Finding nearby auto shops...</p>
-          </div>
+          <ExploreShopSkeleton count={5} />
         ) : !currentLocation ? (
           <div className="text-center py-16">
             <MapPin className="w-14 h-14 mx-auto mb-4" style={{ color: subColor }} />

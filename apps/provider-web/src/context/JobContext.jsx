@@ -1,6 +1,8 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { loadPlatformSettings } from '../lib/platformSettings';
 import { useAuth } from './AuthContext';
+import { showToast } from '../components/NotificationToast';
 
 const JobContext = createContext({});
 
@@ -44,7 +46,16 @@ export function JobProvider({ children }) {
     setCurrentJob(null);
   }
 
+  // Ref-based guards to prevent duplicate concurrent API calls from rapid clicks
+  const creatingJobRef = useRef(false);
+  const updatingStatusRef = useRef(false);
+  const cancellingJobRef = useRef(false);
+  const ratingJobRef = useRef(false);
+
   async function createJob(paymentMethodId) {
+    if (creatingJobRef.current) return undefined; // Prevent duplicate submissions
+    creatingJobRef.current = true;
+    try {
     if (!user) throw new Error('User must be authenticated');
     if (!jobDetails.serviceId) throw new Error('Service selection is required');
     if (!jobDetails.pickupLocation || !jobDetails.pickupAddress) {
@@ -75,12 +86,13 @@ export function JobProvider({ children }) {
     if (jobDetails.serviceId) {
       const { data: svc } = await supabase.from('services').select('base_price').eq('id', jobDetails.serviceId).single();
       if (svc) {
-        const hazardFee = jobDetails.isHazardLocation ? 15 : 0;
-        const schedulingFee = jobDetails.scheduledFor ? 5 : 0;
+        const settings = await loadPlatformSettings();
+        const hazardFee = jobDetails.isHazardLocation ? settings.hazard_fee : 0;
+        const schedulingFee = jobDetails.scheduledFor ? settings.scheduling_fee : 0;
         insertData.base_price = svc.base_price;
-        insertData.service_fee = Math.round(svc.base_price * 0.1 * 100) / 100;
+        insertData.service_fee = Math.round(svc.base_price * (settings.service_fee_pct / 100) * 100) / 100;
         const subtotal = svc.base_price + hazardFee + schedulingFee;
-        insertData.tax = Math.round(subtotal * 0.08 * 100) / 100;
+        insertData.tax = Math.round(subtotal * (settings.tax_rate / 100) * 100) / 100;
         // total_amount = what the customer pays (service_fee is deducted from provider earnings, not charged to customer)
         insertData.total_amount = subtotal + insertData.tax;
       }
@@ -95,6 +107,9 @@ export function JobProvider({ children }) {
     if (error) throw error;
     setCurrentJob(data);
     return data;
+    } finally {
+      creatingJobRef.current = false;
+    }
   }
 
   async function fetchJob(jobId) {
@@ -130,33 +145,39 @@ export function JobProvider({ children }) {
   }
 
   async function updateJobStatus(jobId, status) {
-    const updateData = { status };
-    if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
-    if (status === 'in_progress' || status === 'inprogress') {
-      updateData.started_at = new Date().toISOString();
+    if (updatingStatusRef.current) return undefined; // Prevent duplicate submissions
+    updatingStatusRef.current = true;
+    try {
+      const updateData = { status };
+      if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
+      if (status === 'in_progress' || status === 'inprogress') {
+        updateData.started_at = new Date().toISOString();
+      }
+      if (status === 'completed') {
+        updateData.completed_at = new Date().toISOString();
+      }
+
+      const { data, error } = await supabase
+        .from('jobs')
+        .update(updateData)
+        .eq('id', jobId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Refetch enriched job data with all relationships
+      await fetchJob(jobId);
+
+      // Send completion emails (fire-and-forget) when provider completes a job.
+      if (status === 'completed' && data) {
+        sendCompletionEmails(data).catch((e) => console.warn('Completion emails failed:', e));
+      }
+
+      return data;
+    } finally {
+      updatingStatusRef.current = false;
     }
-    if (status === 'completed') {
-      updateData.completed_at = new Date().toISOString();
-    }
-
-    const { data, error } = await supabase
-      .from('jobs')
-      .update(updateData)
-      .eq('id', jobId)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Refetch enriched job data with all relationships
-    await fetchJob(jobId);
-
-    // Send completion emails (fire-and-forget) when provider completes a job.
-    if (status === 'completed' && data) {
-      sendCompletionEmails(data).catch((e) => console.warn('Completion emails failed:', e));
-    }
-
-    return data;
   }
 
   async function sendTemplatedEmail(to, template, data = {}) {
@@ -235,103 +256,115 @@ export function JobProvider({ children }) {
   }
 
   async function cancelJob(jobId, reason) {
+    if (cancellingJobRef.current) return undefined; // Prevent duplicate submissions
     if (!user) throw new Error('User must be authenticated');
 
-    // ✅ USE ATOMIC RPC - Server-side authorization and push notifications
-    const { data, error } = await supabase.rpc('cancel_job', {
-      p_job_id: jobId,
-      p_actor_id: user.id,
-      p_actor_type: 'provider',
-      p_reason: reason
-    });
-
-    if (error) throw error;
-
-    if (!data || !data.success) {
-      throw new Error(data?.message || 'Cancellation failed');
-    }
-
-    // Push worker will automatically notify customer via pg_notify
-    console.log('Job cancelled successfully:', data);
-
-    // Refetch enriched job data
-    await fetchJob(jobId);
-
-    // Broadcast cancellation for immediate UI update
+    cancellingJobRef.current = true;
     try {
-      const channel = supabase.channel(`job-accepted-${jobId}`);
-      await channel.subscribe();
-      await channel.send({
-        type: 'broadcast',
-        event: 'job_cancelled',
-        payload: { job_id: jobId, cancelled_by: 'provider', reason },
+      // USE ATOMIC RPC - Server-side authorization and push notifications
+      const { data, error } = await supabase.rpc('cancel_job', {
+        p_job_id: jobId,
+        p_actor_id: user.id,
+        p_actor_type: 'provider',
+        p_reason: reason
       });
-      setTimeout(() => supabase.removeChannel(channel), 1500);
-    } catch (e) {
-      console.warn('Broadcast job cancellation failed:', e);
-    }
 
-    return data;
+      if (error) throw error;
+
+      if (!data || !data.success) {
+        throw new Error(data?.message || 'Cancellation failed');
+      }
+
+      // Push worker will automatically notify customer via pg_notify
+      console.log('Job cancelled successfully:', data);
+
+      // Refetch enriched job data
+      await fetchJob(jobId);
+
+      // Broadcast cancellation for immediate UI update
+      try {
+        const channel = supabase.channel(`job-accepted-${jobId}`);
+        await channel.subscribe();
+        await channel.send({
+          type: 'broadcast',
+          event: 'job_cancelled',
+          payload: { job_id: jobId, cancelled_by: 'provider', reason },
+        });
+        setTimeout(() => supabase.removeChannel(channel), 1500);
+      } catch (e) {
+        console.warn('Broadcast job cancellation failed:', e);
+      }
+
+      return data;
+    } finally {
+      cancellingJobRef.current = false;
+    }
   }
 
   async function rateJob(jobId, rating, review) {
+    if (ratingJobRef.current) return undefined; // Prevent duplicate submissions
     if (!Number.isFinite(Number(rating)) || Number(rating) < 1 || Number(rating) > 5) {
       throw new Error('A rating from 1 to 5 stars is required.');
     }
 
-    const { data, error } = await supabase
-      .from('jobs')
-      .update({
-        // Provider feedback must be stored separately from customer->provider rating.
-        provider_rating: Number(rating),
-        provider_review: review || null,
-      })
-      .eq('id', jobId)
-      .select('id, customer_id')
-      .single();
+    ratingJobRef.current = true;
+    try {
+      const { data, error } = await supabase
+        .from('jobs')
+        .update({
+          // Provider feedback must be stored separately from customer->provider rating.
+          provider_rating: Number(rating),
+          provider_review: review || null,
+        })
+        .eq('id', jobId)
+        .select('id, customer_id')
+        .single();
 
-    if (error) {
-      const message = String(error?.message || '');
-      if (message.toLowerCase().includes('provider_rating') || message.toLowerCase().includes('provider_review')) {
-        throw new Error('Provider feedback columns are missing. Please run migration 025_provider_feedback_columns.sql.');
+      if (error) {
+        const message = String(error?.message || '');
+        if (message.toLowerCase().includes('provider_rating') || message.toLowerCase().includes('provider_review')) {
+          throw new Error('Provider feedback columns are missing. Please run migration 025_provider_feedback_columns.sql.');
+        }
+        throw error;
       }
-      throw error;
-    }
 
-    // Recalculate customer rating from provider feedback.
-    if (data?.customer_id) {
-      try {
-        // Preferred path if SQL function exists.
-        await supabase.rpc('recalculate_customer_rating', { p_customer_id: data.customer_id });
-      } catch {
-        // Fallback path for environments where the RPC has not been added yet.
+      // Recalculate customer rating from provider feedback.
+      if (data?.customer_id) {
         try {
-          const { data: completedJobs } = await supabase
-            .from('jobs')
-            .select('provider_rating')
-            .eq('customer_id', data.customer_id)
-            .eq('status', 'completed')
-            .not('provider_rating', 'is', null);
+          // Preferred path if SQL function exists.
+          await supabase.rpc('recalculate_customer_rating', { p_customer_id: data.customer_id });
+        } catch {
+          // Fallback path for environments where the RPC has not been added yet.
+          try {
+            const { data: completedJobs } = await supabase
+              .from('jobs')
+              .select('provider_rating')
+              .eq('customer_id', data.customer_id)
+              .eq('status', 'completed')
+              .not('provider_rating', 'is', null);
 
-          const ratings = (completedJobs || []).map((j) => Number(j.provider_rating)).filter((n) => Number.isFinite(n));
-          const average = ratings.length > 0
-            ? Math.round((ratings.reduce((sum, n) => sum + n, 0) / ratings.length) * 100) / 100
-            : 0;
+            const ratings = (completedJobs || []).map((j) => Number(j.provider_rating)).filter((n) => Number.isFinite(n));
+            const average = ratings.length > 0
+              ? Math.round((ratings.reduce((sum, n) => sum + n, 0) / ratings.length) * 100) / 100
+              : 0;
 
-          await supabase
-            .from('profiles')
-            .update({ rating: average })
-            .eq('id', data.customer_id);
-        } catch (calcErr) {
-          console.warn('Failed to recalculate customer rating:', calcErr);
+            await supabase
+              .from('profiles')
+              .update({ rating: average })
+              .eq('id', data.customer_id);
+          } catch (calcErr) {
+            console.warn('Failed to recalculate customer rating:', calcErr);
+          }
         }
       }
+
+      // Refetch enriched job data
+      await fetchJob(jobId);
+
+      return data;
+    } finally {
+      ratingJobRef.current = false;
     }
-
-    // Refetch enriched job data
-    await fetchJob(jobId);
-
-    return data;
   }
 
   // ✅ NEW: Subscribe to real-time job updates
@@ -349,8 +382,12 @@ export function JobProvider({ children }) {
           filter: `id=eq.${jobId}` 
         },
         async () => {
-          await fetchJob(jobId);
-          callback?.();
+          try {
+            await fetchJob(jobId);
+            callback?.();
+          } catch (e) {
+            showToast('error', 'Connection Lost', 'Real-time updates unavailable');
+          }
         }
       )
       .subscribe();

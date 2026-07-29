@@ -24,7 +24,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { GoogleMap, MarkerF, DirectionsRenderer } from '@react-google-maps/api';
+import { GoogleMap, MarkerF, CircleF, DirectionsRenderer } from '@react-google-maps/api';
 import { ChatModal } from '../../components/ChatModal';
 import { CallModal } from '../../components/CallModal';
 import { callPhone, shareJobDetails } from '../../utils/communication';
@@ -36,17 +36,19 @@ import { supabase } from '../../lib/supabase';
 import { initAudio, playMessageSound, showSystemNotification } from '../../utils/audio';
 import { decryptMessage } from '../../lib/chatEncryption';
 
-type UiStatus = 'enroute' | 'arrived' | 'working' | 'photos';
+type UiStatus = 'enroute' | 'arrived' | 'dropoff' | 'working' | 'photos';
 
 const STATUS_ORDER: Record<UiStatus, number> = {
   enroute: 0,
   arrived: 1,
-  working: 2,
-  photos: 3,
+  dropoff: 2,
+  working: 3,
+  photos: 4,
 };
 
 function mapJobStatusToUi(status?: string): UiStatus {
   if (status === 'arrived') return 'arrived';
+  if (status === 'enroute_destination') return 'dropoff';
   if (status === 'inprogress' || status === 'in_progress') return 'working';
   if (status === 'completed') return 'photos'; // Don't regress if completed
   return 'enroute';
@@ -56,6 +58,13 @@ function getPickupPosition(job: any): { lat: number; lng: number } | null {
   const lat = Number(job?.pickup_latitude ?? job?.pickup_lat);
   const lng = Number(job?.pickup_longitude ?? job?.pickup_lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function getDestinationPosition(job: any): { lat: number; lng: number } | null {
+  const lat = Number(job?.destination_latitude);
+  const lng = Number(job?.destination_longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
   return { lat, lng };
 }
 
@@ -112,6 +121,7 @@ export function JobActiveRealtime() {
   const [cancelling, setCancelling] = useState(false);
   const [showProximityWarning, setShowProximityWarning] = useState(false);
   const [proximityDistance, setProximityDistance] = useState<number | null>(null);
+  const [proximityAction, setProximityAction] = useState<'arrival' | 'dropoff'>('arrival');
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [directionsError, setDirectionsError] = useState(false);
   const [eta, setEta] = useState<number | null>(null);
@@ -122,6 +132,10 @@ export function JobActiveRealtime() {
   const directionsRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialFit = useRef(false);
   const [mapMode, setMapMode] = useState<'follow' | 'overview'>('follow');
+  const [animatedProviderPos, setAnimatedProviderPos] = useState<{ lat: number; lng: number } | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const prevProviderPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [sheetExpanded, setSheetExpanded] = useState(true);
   const [lastHeading, setLastHeading] = useState(0);
   const [showCustomerCancelled, setShowCustomerCancelled] = useState(false);
   const [cancelledReason, setCancelledReason] = useState('');
@@ -136,10 +150,14 @@ export function JobActiveRealtime() {
     });
   }, []);
 
-  // Keep screen awake during active service
+  // Keep screen awake and start foreground location service during active service
   useEffect(() => {
     KeepAwake.keepAwake().catch(() => {});
-    return () => { KeepAwake.allowSleep().catch(() => {}); };
+    import('../../utils/locationService').then(({ startLocationService }) => startLocationService());
+    return () => {
+      KeepAwake.allowSleep().catch(() => {});
+      import('../../utils/locationService').then(({ stopLocationService }) => stopLocationService());
+    };
   }, []);
 
   // Provider device location (source of truth for real-time movement)
@@ -260,7 +278,50 @@ export function JobActiveRealtime() {
   }, [jobId]);
 
   const customerPos = useMemo(() => getPickupPosition(currentJob), [currentJob]);
+  const destinationPos = useMemo(() => getDestinationPosition(currentJob), [currentJob]);
+  const hasDestination = !!destinationPos;
+  const navigationTarget = (status === 'dropoff' && destinationPos) ? destinationPos : customerPos;
   const providerPos = myPosition;
+
+  // Smooth marker interpolation — animate between GPS updates like Uber
+  useEffect(() => {
+    if (!providerPos) return;
+    const prev = prevProviderPosRef.current;
+    if (!prev) {
+      setAnimatedProviderPos(providerPos);
+      prevProviderPosRef.current = { lat: providerPos.lat, lng: providerPos.lng };
+      return;
+    }
+    // Cancel any running animation
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+
+    const startLat = prev.lat;
+    const startLng = prev.lng;
+    const endLat = providerPos.lat;
+    const endLng = providerPos.lng;
+    const duration = 1000; // 1 second smooth transition
+    const startTime = performance.now();
+
+    function animate(now: number) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      // Ease out cubic for natural deceleration
+      const ease = 1 - Math.pow(1 - t, 3);
+      const lat = startLat + (endLat - startLat) * ease;
+      const lng = startLng + (endLng - startLng) * ease;
+      setAnimatedProviderPos({ lat, lng });
+      if (t < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      } else {
+        prevProviderPosRef.current = { lat: endLat, lng: endLng };
+      }
+    }
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [providerPos?.lat, providerPos?.lng]);
 
   const confirmArrival = useCallback(async () => {
     setShowProximityWarning(false);
@@ -276,6 +337,21 @@ export function JobActiveRealtime() {
       });
     }
   }, [jobId, setStatus, updateJobStatus]);
+
+  const confirmDropoffArrival = useCallback(async () => {
+    setShowProximityWarning(false);
+    setStatusRaw('working');
+    if (jobId) {
+      await updateJobStatus(jobId, 'inprogress').catch(console.warn);
+      const bc = supabase.channel(`job-accepted-${jobId}`);
+      bc.subscribe((s) => {
+        if (s === 'SUBSCRIBED') {
+          bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'inprogress' } }).catch(() => {});
+          setTimeout(() => supabase.removeChannel(bc), 2000);
+        }
+      });
+    }
+  }, [jobId, updateJobStatus]);
 
   // Begin service for scheduled jobs — transitions to enroute state
   const beginScheduledService = useCallback(async () => {
@@ -313,8 +389,8 @@ export function JobActiveRealtime() {
   };
 
   const requestDrivingDirections = useCallback((force = false) => {
-    if (!isLoaded || !providerPos || !customerPos) return;
-    if (status !== 'accepted' && status !== 'enroute') return;
+    if (!isLoaded || !providerPos || !navigationTarget) return;
+    if (status !== 'accepted' && status !== 'enroute' && status !== 'dropoff') return;
     if (directionsRunningRef.current) return;
 
     const minIntervalMs = 10000;
@@ -327,7 +403,7 @@ export function JobActiveRealtime() {
     service.route(
       {
         origin: providerPos,
-        destination: customerPos,
+        destination: navigationTarget,
         travelMode: google.maps.TravelMode.DRIVING,
       },
       (result, routeStatus) => {
@@ -346,7 +422,7 @@ export function JobActiveRealtime() {
           return;
         }
 
-        console.warn('[Directions API] Failed:', routeStatusText, 'origin:', providerPos, 'dest:', customerPos);
+        console.warn('[Directions API] Failed:', routeStatusText, 'origin:', providerPos, 'dest:', navigationTarget);
 
         const isRetryable = routeStatusText === 'OVER_QUERY_LIMIT' || routeStatusText === 'UNKNOWN_ERROR';
         if (isRetryable && directionsRetryCountRef.current < 3) {
@@ -361,16 +437,16 @@ export function JobActiveRealtime() {
         console.warn('[Directions API] Giving up after status:', routeStatusText, '- falling back to Haversine ETA');
         setDirectionsError(true);
         const R = 6371;
-        const dLat = (customerPos.lat - providerPos.lat) * Math.PI / 180;
-        const dLng = (customerPos.lng - providerPos.lng) * Math.PI / 180;
+        const dLat = (navigationTarget.lat - providerPos.lat) * Math.PI / 180;
+        const dLng = (navigationTarget.lng - providerPos.lng) * Math.PI / 180;
         const a = Math.sin(dLat / 2) ** 2 +
-          Math.cos(providerPos.lat * Math.PI / 180) * Math.cos(customerPos.lat * Math.PI / 180) *
+          Math.cos(providerPos.lat * Math.PI / 180) * Math.cos(navigationTarget.lat * Math.PI / 180) *
           Math.sin(dLng / 2) ** 2;
         const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         setEta(Math.max(1, Math.ceil((dist / 30) * 60)));
       }
     );
-  }, [isLoaded, providerPos?.lat, providerPos?.lng, customerPos?.lat, customerPos?.lng, status]);
+  }, [isLoaded, providerPos?.lat, providerPos?.lng, navigationTarget?.lat, navigationTarget?.lng, status]);
 
   useEffect(() => {
     requestDrivingDirections(false);
@@ -378,7 +454,7 @@ export function JobActiveRealtime() {
 
   // Re-fetch directions periodically, but keep request rate below quota limits.
   useEffect(() => {
-    if (status !== 'accepted' && status !== 'enroute') return;
+    if (status !== 'accepted' && status !== 'enroute' && status !== 'dropoff') return;
     const interval = setInterval(() => requestDrivingDirections(true), 15000);
     return () => clearInterval(interval);
   }, [status, requestDrivingDirections]);
@@ -391,12 +467,12 @@ export function JobActiveRealtime() {
     };
   }, []);
 
-  // Initial camera setup — follow mode when enroute, overview otherwise
+  // Initial camera setup — follow mode when enroute/dropoff, overview otherwise
   useEffect(() => {
     if (!map || !providerPos || hasInitialFit.current) return;
     hasInitialFit.current = true;
 
-    if (status === 'enroute') {
+    if (status === 'enroute' || status === 'dropoff') {
       setMapMode('follow');
       map.panTo(providerPos);
       map.setZoom(16);
@@ -413,9 +489,9 @@ export function JobActiveRealtime() {
     }
   }, [map, providerPos?.lat, providerPos?.lng, customerPos?.lat, customerPos?.lng]);
 
-  // Auto-follow camera when in follow mode and enroute
+  // Auto-follow camera when in follow mode and enroute/dropoff
   useEffect(() => {
-    if (!map || !providerPos || mapMode !== 'follow' || status !== 'enroute') return;
+    if (!map || !providerPos || mapMode !== 'follow' || (status !== 'enroute' && status !== 'dropoff')) return;
 
     map.panTo(providerPos);
     const currentZoom = map.getZoom();
@@ -428,10 +504,12 @@ export function JobActiveRealtime() {
     }
   }, [map, providerPos?.lat, providerPos?.lng, mapMode, status, lastHeading]);
 
-  // Exit follow mode when status transitions away from enroute
+  // Exit follow mode when status transitions away from enroute/dropoff
   const prevStatusRef = useRef(status);
   useEffect(() => {
-    if (prevStatusRef.current === 'enroute' && status !== 'enroute') {
+    const wasFollowing = prevStatusRef.current === 'enroute' || prevStatusRef.current === 'dropoff';
+    const isFollowing = status === 'enroute' || status === 'dropoff';
+    if (wasFollowing && !isFollowing) {
       setMapMode('overview');
       if (map) {
         map.setHeading(0);
@@ -450,7 +528,7 @@ export function JobActiveRealtime() {
   const recenterMap = useCallback(() => {
     if (!map) return;
 
-    if (status === 'enroute') {
+    if (status === 'enroute' || status === 'dropoff') {
       if (mapMode === 'overview') {
         // Switch to follow mode
         setMapMode('follow');
@@ -467,15 +545,16 @@ export function JobActiveRealtime() {
         setMapMode('overview');
         map.setHeading(0);
         map.setTilt(0);
-        if (providerPos && customerPos) {
+        const target = navigationTarget || customerPos;
+        if (providerPos && target) {
           const bounds = new google.maps.LatLngBounds();
           bounds.extend(providerPos);
-          bounds.extend(customerPos);
+          bounds.extend(target);
           map.fitBounds(bounds, { top: 120, bottom: 320, left: 40, right: 40 });
         }
       }
     } else {
-      // Non-enroute: just fit both markers
+      // Non-driving: just fit both markers
       if (providerPos && customerPos) {
         const bounds = new google.maps.LatLngBounds();
         bounds.extend(providerPos);
@@ -486,7 +565,7 @@ export function JobActiveRealtime() {
         map.setZoom(15);
       }
     }
-  }, [map, providerPos, customerPos, status, mapMode, lastHeading]);
+  }, [map, providerPos, customerPos, navigationTarget, status, mapMode, lastHeading]);
 
   // Listen for incoming chat messages — play sound + system notification when chat is closed
   const isChatOpenRef = useRef(isChatOpen);
@@ -573,8 +652,8 @@ export function JobActiveRealtime() {
             const path = `jobs/${jobId}/provider_${Date.now()}_${urls.length}.${ext}`;
             const { error } = await supabase.storage.from('job-photos').upload(path, blob, { contentType: blob.type, upsert: true });
             if (!error) {
-              const { data: urlData } = supabase.storage.from('job-photos').getPublicUrl(path);
-              if (urlData?.publicUrl) urls.push(urlData.publicUrl);
+              const { data: urlData } = await supabase.storage.from('job-photos').createSignedUrl(path, 3600);
+              if (urlData?.signedUrl) urls.push(urlData.signedUrl);
             }
           } catch { /* skip failed individual photo */ }
         }
@@ -629,8 +708,9 @@ export function JobActiveRealtime() {
   };
 
   function openNavApp(app: 'apple' | 'google' | 'waze') {
-    if (!customerPos) return;
-    const dest = `${customerPos.lat},${customerPos.lng}`;
+    const target = navigationTarget || customerPos;
+    if (!target) return;
+    const dest = `${target.lat},${target.lng}`;
     const origin = providerPos ? `${providerPos.lat},${providerPos.lng}` : '';
     let url = '';
     switch (app) {
@@ -794,43 +874,104 @@ export function JobActiveRealtime() {
               gestureHandling: 'greedy',
             }}
           >
+            {/* Customer pulsing ring */}
+            {customerPos && (
+              <CircleF
+                center={customerPos}
+                radius={45}
+                options={{
+                  fillColor: '#EF4444',
+                  fillOpacity: 0.08,
+                  strokeColor: '#EF4444',
+                  strokeOpacity: 0.2,
+                  strokeWeight: 2,
+                }}
+              />
+            )}
+            {/* Customer marker */}
             {customerPos && (
               <MarkerF
                 position={customerPos}
                 icon={{
                   path: google.maps.SymbolPath.CIRCLE,
-                  scale: 10,
-                  fillColor: '#0070B8',
+                  scale: 12,
+                  fillColor: '#EF4444',
                   fillOpacity: 1,
                   strokeColor: '#FFFFFF',
-                  strokeWeight: 3,
+                  strokeWeight: 4,
                 }}
                 title="Customer"
               />
             )}
 
-            {providerPos && (
+            {/* Provider accuracy/pulse ring */}
+            {animatedProviderPos && (
+              <CircleF
+                center={animatedProviderPos}
+                radius={30}
+                options={{
+                  fillColor: '#008CE5',
+                  fillOpacity: 0.1,
+                  strokeColor: '#008CE5',
+                  strokeOpacity: 0.25,
+                  strokeWeight: 2,
+                }}
+              />
+            )}
+            {/* Provider outer glow ring */}
+            {animatedProviderPos && (
+              <CircleF
+                center={animatedProviderPos}
+                radius={60}
+                options={{
+                  fillColor: '#008CE5',
+                  fillOpacity: 0.04,
+                  strokeColor: '#008CE5',
+                  strokeOpacity: 0.1,
+                  strokeWeight: 1,
+                }}
+              />
+            )}
+            {/* Provider marker — large arrow with white border */}
+            {animatedProviderPos && (
               <MarkerF
-                position={providerPos}
+                position={animatedProviderPos}
                 icon={{
                   path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                  scale: 7,
+                  scale: 10,
                   fillColor: '#008CE5',
                   fillOpacity: 1,
-                  strokeColor: '#0070B8',
-                  strokeWeight: 2,
+                  strokeColor: '#FFFFFF',
+                  strokeWeight: 3,
                   rotation: lastHeading || 0,
+                  anchor: new google.maps.Point(0, 2.5),
                 }}
                 title="You"
               />
             )}
 
-            {directions && (status === 'accepted' || status === 'enroute') && (
+            {/* Destination marker (for towing drop-off) */}
+            {destinationPos && (status === 'arrived' || status === 'dropoff') && (
+              <MarkerF
+                position={destinationPos}
+                icon={{
+                  path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+                  scale: 8,
+                  fillColor: '#10B981',
+                  fillOpacity: 1,
+                  strokeColor: '#FFFFFF',
+                  strokeWeight: 2,
+                }}
+                title="Drop-off"
+              />
+            )}
+
+            {directions && (status === 'accepted' || status === 'enroute' || status === 'dropoff') && (
               <DirectionsRenderer
                 directions={directions}
                 options={{
                   suppressMarkers: true,
-                  polylineOptions: { strokeColor: '#0070B8', strokeWeight: 5, strokeOpacity: 0.8 },
+                  polylineOptions: { strokeColor: '#008CE5', strokeWeight: 6, strokeOpacity: 0.9 },
                 }}
               />
             )}
@@ -848,388 +989,408 @@ export function JobActiveRealtime() {
         <button onClick={() => navigate('/home')} className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: cardBg }} title="Back to home">
           <ArrowLeft className="w-5 h-5" style={{ color: textColor }} />
         </button>
-        <button onClick={recenterMap} className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: mapMode === 'follow' && status === 'enroute' ? '#008CE5' : cardBg }} title={mapMode === 'follow' ? 'Show overview' : 'Follow me'}>
-          <RecenterIcon className="w-5 h-5" style={{ color: mapMode === 'follow' && status === 'enroute' ? '#FFFFFF' : '#008CE5' }} />
+        <button onClick={recenterMap} className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: mapMode === 'follow' && (status === 'enroute' || status === 'dropoff') ? '#008CE5' : cardBg }} title={mapMode === 'follow' ? 'Show overview' : 'Follow me'}>
+          <RecenterIcon className="w-5 h-5" style={{ color: mapMode === 'follow' && (status === 'enroute' || status === 'dropoff') ? '#FFFFFF' : '#008CE5' }} />
         </button>
       </div>
 
-      <div className="relative z-20 p-4 pt-6">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl px-5 py-4 text-center shadow-lg backdrop-blur-md"
-          style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
-        >
-          <p className="text-sm font-medium" style={{ color: subColor }}>{job.service}</p>
-          <p className="font-bold text-xl" style={{ color: textColor }}>{job.payout}</p>
-          {status === 'enroute' && (
-            <p className="text-sm mt-1" style={{ color: '#008CE5' }}>
-              {eta !== null ? `${eta} min away` : 'Calculating ETA...'}
-            </p>
-          )}
-          {status === 'arrived' && <p className="text-sm mt-1" style={{ color: '#0070B8' }}>Arrived at customer location</p>}
-          {status === 'working' && <p className="text-sm mt-1" style={{ color: '#008CE5' }}>Service in progress</p>}
-          {status === 'photos' && <p className="text-sm mt-1" style={{ color: '#008CE5' }}>Add completion photos</p>}
-        </motion.div>
+      {/* Live location sharing indicator */}
+      {myPosition && (
+        <div className="absolute z-30 flex flex-col items-center gap-1" style={{ top: '14px', left: '50%', transform: 'translateX(-50%)' }}>
+          <div className="rounded-full px-4 py-1.5 shadow-lg flex items-center gap-2" style={{ backgroundColor: 'rgba(0,140,229,0.95)', backdropFilter: 'blur(8px)' }}>
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+            </span>
+            <span className="text-white font-semibold text-xs">Live location sharing</span>
+            {myPosition.speed != null && myPosition.speed > 0.5 && (
+              <span className="text-white/70 text-xs ml-1">{Math.round(myPosition.speed * 3.6)} km/h</span>
+            )}
+          </div>
+          <div className="rounded-full px-3 py-0.5 shadow-sm" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+            <span className="text-white/80 font-mono text-[10px]">{myPosition.lat.toFixed(5)}, {myPosition.lng.toFixed(5)}</span>
+          </div>
+        </div>
+      )}
 
-        {customerConfirmed && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl px-4 py-3 mt-3 text-center shadow-md backdrop-blur-md"
-            style={{
-              backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : 'rgba(0,140,229,0.1)',
-              border: '1px solid rgba(0,140,229,0.3)',
-            }}
-          >
-            <p className="text-sm font-medium" style={{ color: '#008CE5' }}>
-              Customer has confirmed service completion
-            </p>
-          </motion.div>
-        )}
-      </div>
+      {/* ETA + Distance overlay — Uber-style */}
+      {directions && directions.routes[0]?.legs[0] && (status === 'enroute' || status === 'dropoff') && (
+        <div className="absolute z-30" style={{ top: myPosition ? '62px' : '60px', left: '50%', transform: 'translateX(-50%)' }}>
+          <div className="rounded-2xl px-5 py-2.5 shadow-xl flex items-center gap-3" style={{ backgroundColor: 'rgba(10,22,38,0.92)', backdropFilter: 'blur(12px)' }}>
+            {eta != null && (
+              <>
+                <div className="text-center">
+                  <span className="text-white font-bold text-lg">{eta}</span>
+                  <span className="text-white/60 text-xs ml-1">min</span>
+                </div>
+                <div className="w-px h-6 bg-white/20" />
+              </>
+            )}
+            <span className="text-white/80 font-semibold text-sm">{directions.routes[0].legs[0].distance?.text}</span>
+          </div>
+        </div>
+      )}
 
-      <div className="fixed bottom-0 left-0 right-0 z-30" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+      {customerConfirmed && (
+        <div className="absolute z-30" style={{ bottom: sheetExpanded ? '55%' : '180px', left: '50%', transform: 'translateX(-50%)' }}>
+          <div className="rounded-full px-4 py-2 shadow-lg" style={{ backgroundColor: 'rgba(0,140,229,0.95)', backdropFilter: 'blur(8px)' }}>
+            <p className="text-white text-xs font-semibold">Customer confirmed completion</p>
+          </div>
+        </div>
+      )}
+
+      <div className="fixed bottom-0 left-0 right-0 z-30">
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
-          className="rounded-t-3xl p-5 shadow-2xl backdrop-blur-md"
-          style={{ backgroundColor: cardBg, borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)' }}
+          className="rounded-t-3xl shadow-2xl overflow-hidden"
+          style={{ backgroundColor: '#14263D', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
         >
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-lg font-bold text-white">
-              {job.customerInitials}
+          {/* Drag handle — tap to expand/collapse */}
+          <button className="w-full flex justify-center pt-3 pb-2" onClick={() => setSheetExpanded(!sheetExpanded)}>
+            <div className="w-10 h-1 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.3)' }} />
+          </button>
+
+          {/* Collapsed header — always visible */}
+          <div className="mx-4 mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center text-sm font-bold flex-shrink-0 text-white">
+                {job.customerInitials}
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm truncate text-white">{job.customer}</h3>
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  {status === 'enroute' ? (eta !== null ? `${eta} min away` : 'Calculating...') :
+                   status === 'dropoff' ? (eta !== null ? `${eta} min to drop-off` : 'Calculating...') :
+                   status === 'arrived' ? 'Arrived' :
+                   status === 'working' ? 'Service in progress' :
+                   status === 'photos' ? 'Add photos' : job.service}
+                </p>
+              </div>
             </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-base" style={{ color: textColor }}>{job.customer}</h3>
-              <p className="text-xs" style={{ color: subColor }}>{job.location}</p>
+            <div className="text-right flex-shrink-0 ml-3">
+              <p className="font-bold text-white">{job.payout}</p>
+              <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>{job.service}</p>
             </div>
-            {/* Direct phone fallback */}
-            {job.customerPhone && (
-              <a href={`tel:${job.customerPhone.replace(/\s/g, '')}`}
-                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
-                style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : 'rgba(0,140,229,0.1)' }}
+          </div>
+
+          {/* Communication row — always visible */}
+          <div className="mx-4 mb-2">
+            <div className="grid grid-cols-4 gap-2">
+              <button
+                onClick={handleMessage}
+                className="relative flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
               >
-                <Phone className="w-5 h-5" style={{ color: '#008CE5' }} />
-              </a>
+                <MessageCircle className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Message</span>
+                {hasUnreadChat && !isChatOpen && (
+                  <div className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-red-500" />
+                )}
+              </button>
+              <button
+                onClick={handleCall}
+                className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+              >
+                <Phone className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Call</span>
+              </button>
+              <button
+                onClick={handleShare}
+                className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+              >
+                <Share2 className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Share</span>
+              </button>
+              <button
+                onClick={() => setShowNavPicker(true)}
+                className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+              >
+                <Navigation className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Navigate</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Expandable section */}
+          <motion.div
+            initial={false}
+            animate={{ height: sheetExpanded ? 'auto' : 0, opacity: sheetExpanded ? 1 : 0 }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            style={{ overflow: 'hidden' }}
+          >
+
+          {/* Location details */}
+          <div className="mx-4 mb-3 rounded-xl p-3" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+            <div className="flex items-start gap-2 mb-2">
+              <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: '#EF4444' }} />
+              <p className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>{job.location}</p>
+            </div>
+            {hasDestination && currentJob?.destination_address && (
+              <div className="flex items-start gap-2">
+                <Flag className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: '#10B981' }} />
+                <p className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>{currentJob.destination_address}</p>
+              </div>
+            )}
+            {job.notes && (
+              <div className="rounded-lg p-2 mt-2" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>{job.notes}</p>
+              </div>
             )}
           </div>
 
-          {job.notes && (
-            <div className="rounded-xl p-3 mb-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB' }}>
-              <p className="text-xs" style={{ color: subColor }}>{job.notes}</p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-4 gap-3 mb-3">
-            {[
-              { label: 'Call', icon: Phone, onClick: handleCall },
-              { label: 'Message', icon: MessageCircle, onClick: handleMessage },
-              { label: 'Share', icon: Share2, onClick: handleShare },
-              { label: 'Navigate', icon: MapPinned, onClick: () => setShowNavPicker(true) },
-            ].map((btn) => {
-              const BtnIcon = btn.icon;
+          {/* Step Progress */}
+          <div className="mx-4 mb-3">
+            {(() => {
+              // Map each step to the UiStatus that activates it
+              const steps = hasDestination
+                ? [
+                    { label: 'Arrive', Icon: MapPin, activateAt: 'arrived' as UiStatus },
+                    { label: 'Drop-off', Icon: Flag, activateAt: 'dropoff' as UiStatus },
+                    { label: 'Service', Icon: Wrench, activateAt: 'working' as UiStatus },
+                    { label: 'Photos', Icon: Camera, activateAt: 'photos' as UiStatus },
+                  ]
+                : [
+                    { label: 'Arrive', Icon: MapPin, activateAt: 'arrived' as UiStatus },
+                    { label: 'Service', Icon: Wrench, activateAt: 'working' as UiStatus },
+                    { label: 'Photos', Icon: Camera, activateAt: 'photos' as UiStatus },
+                    { label: 'Complete', Icon: Flag, activateAt: 'photos' as UiStatus },
+                  ];
+              const currentOrder = STATUS_ORDER[status];
+              const maxOrder = hasDestination ? STATUS_ORDER.photos : STATUS_ORDER.working;
+              const progressFraction = Math.min(1, currentOrder / STATUS_ORDER.photos);
               return (
-                <button
-                  key={btn.label}
-                  onClick={btn.onClick}
-                  className="flex flex-col items-center gap-1.5 py-2 active:scale-95 transition-transform"
-                >
-                  <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center relative"
-                    style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.15)' : '#EAF4FD' }}
-                  >
-                    <BtnIcon className="w-5 h-5" style={{ color: '#008CE5' }} />
-                    {btn.label === 'Message' && hasUnreadChat && !isChatOpen && (
-                      <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
-                    )}
-                  </div>
-                  <span className="text-xs font-medium" style={{ color: subColor }}>{btn.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Step Progress Buttons */}
-          <div className="mb-3">
-            <div
-              className="h-1.5 rounded-full mb-2.5 overflow-hidden"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB' }}
-            >
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${(STATUS_ORDER[status] / 3) * 100}%`,
-                  background: 'linear-gradient(90deg, #008CE5, #0070B8)',
-                }}
-              />
-            </div>
-
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                { label: 'Arrive', Icon: MapPin },
-                { label: 'Service', Icon: Wrench },
-                { label: 'Photos', Icon: Camera },
-                { label: 'Complete', Icon: Flag },
-              ].map((step, idx) => {
-                const currentIdx = STATUS_ORDER[status];
-                const isDone = idx < currentIdx;
-                const isCurrent = idx === currentIdx;
-                const StepIcon = step.Icon;
-
-                const cardStyle = isDone
-                  ? {
-                      backgroundColor: 'rgba(0,140,229,0.1)',
-                      border: '1px solid rgba(0,140,229,0.3)',
-                    }
-                  : isCurrent
-                    ? {
-                        background: 'linear-gradient(135deg, rgba(0,140,229,0.18), rgba(0,112,184,0.18))',
-                        border: '1px solid rgba(0,140,229,0.42)',
-                        boxShadow: '0 8px 18px rgba(0,140,229,0.15)',
-                      }
-                    : {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F3F4F6',
-                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#E5E7EB'}`,
-                      };
-
-                return (
-                  <div
-                    key={step.label}
-                    className="rounded-2xl py-2.5 px-1 flex flex-col items-center justify-center gap-1.5 transition-all duration-300"
-                    style={cardStyle}
-                  >
+                <>
+                  <div className="h-1 rounded-full mb-2 overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
                     <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center"
-                      style={{
-                        background: isDone || isCurrent
-                          ? 'linear-gradient(135deg, #008CE5, #0070B8)'
-                          : 'rgba(156,163,175,0.22)',
-                      }}
-                    >
-                      {isDone ? (
-                        <Check className="w-4 h-4 text-white" />
-                      ) : (
-                        <StepIcon className="w-4 h-4" style={{ color: isCurrent ? '#FFFFFF' : '#6B7280' }} />
-                      )}
-                    </div>
-                    <span
-                      className="text-[11px] font-semibold leading-none"
-                      style={{
-                        color: isDone || isCurrent ? '#0070B8' : isDark ? 'rgba(255,255,255,0.45)' : '#9CA3AF',
-                      }}
-                    >
-                      {step.label}
-                    </span>
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${progressFraction * 100}%`, background: 'linear-gradient(90deg, #008CE5, #0070B8)' }}
+                    />
                   </div>
-                );
-              })}
-            </div>
+                  <div className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+                    {steps.map((step) => {
+                      const stepOrder = STATUS_ORDER[step.activateAt];
+                      const isDone = currentOrder > stepOrder;
+                      const isCurrent = currentOrder === stepOrder;
+                      const active = isDone || isCurrent;
+                      const StepIcon = step.Icon;
+                      return (
+                        <div key={step.label} className="flex flex-col items-center gap-1">
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center"
+                            style={{
+                              background: active ? 'linear-gradient(135deg, #008CE5, #0070B8)' : 'rgba(255,255,255,0.1)',
+                            }}
+                          >
+                            {isDone ? <Check className="w-4 h-4" style={{ color: '#FFFFFF' }} /> : <StepIcon className="w-4 h-4" style={{ color: active ? '#FFFFFF' : 'rgba(255,255,255,0.4)' }} />}
+                          </div>
+                          <span className="text-[10px] font-semibold" style={{ color: active ? '#008CE5' : 'rgba(255,255,255,0.4)' }}>{step.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
-          {status === 'enroute' && (
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                // Check proximity before confirming arrival
-                if (providerPos && customerPos) {
-                  const dist = distanceMiles(providerPos, customerPos);
-                  if (dist > ARRIVAL_PROXIMITY_MILES) {
-                    setProximityDistance(dist);
-                    setShowProximityWarning(true);
-                    return;
-                  }
-                }
-                // Within proximity or no location data — proceed
-                confirmArrival();
-              }}
-              className="w-full flex items-center justify-center gap-2"
-              style={{
-                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
-                color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: '16px',
-                padding: '16px 0',
-                borderRadius: '16px',
-                marginBottom: '8px',
-              }}
-            >
-              <MapPin className="w-5 h-5" />
-              <span>I&apos;ve Arrived</span>
-            </motion.button>
-          )}
+          </motion.div>
 
-          {status === 'arrived' && (
-            <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={async () => {
-                setStatus('working');
-                if (jobId) {
-                  await updateJobStatus(jobId, 'inprogress').catch(console.warn);
-                  // Broadcast to customer for instant UI update
-                  const bc = supabase.channel(`job-accepted-${jobId}`);
-                  bc.subscribe((s) => {
-                    if (s === 'SUBSCRIBED') {
-                      bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'inprogress' } }).catch(() => {});
-                      setTimeout(() => supabase.removeChannel(bc), 2000);
-                    }
-                  });
-                }
-              }}
-              className="w-full flex items-center justify-center gap-2"
-              style={{
-                background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
-                color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: '16px',
-                padding: '16px 0',
-                borderRadius: '16px',
-                marginBottom: '8px',
-              }}
-            >
-              <Wrench className="w-5 h-5" />
-              <span>Start Service</span>
-            </motion.button>
-          )}
-
-          {status === 'working' && (
-            <>
+          {/* Action buttons — always visible */}
+          <div className="px-4">
+            {status === 'enroute' && (
               <motion.button
-                whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={uploadPhotosAndComplete}
-                disabled={uploadingPhotos}
-                className="w-full flex items-center justify-center gap-2"
-                style={{
-                  background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                  boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
-                  color: '#FFFFFF',
-                  fontWeight: 700,
-                  fontSize: '16px',
-                  padding: '16px 0',
-                  borderRadius: '16px',
-                  marginBottom: '8px',
+                onClick={() => {
+                  if (providerPos && customerPos) {
+                    const dist = distanceMiles(providerPos, customerPos);
+                    if (dist > ARRIVAL_PROXIMITY_MILES) {
+                      setProximityDistance(dist);
+                      setProximityAction('arrival');
+                      setShowProximityWarning(true);
+                      return;
+                    }
+                  }
+                  confirmArrival();
                 }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-4 mb-2"
+                style={{ backgroundColor: '#008CE5', color: '#FFFFFF', fontWeight: 700, fontSize: '16px' }}
+              >
+                <MapPin className="w-5 h-5" />
+                <span>I&apos;ve Arrived</span>
+              </motion.button>
+            )}
+
+            {status === 'arrived' && (
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={async () => {
+                  if (hasDestination) {
+                    // Towing: transition to dropoff (drive to destination)
+                    setStatusRaw('dropoff');
+                    setMapMode('follow');
+                    if (jobId) {
+                      await updateJobStatus(jobId, 'enroute_destination').catch(console.warn);
+                      const bc = supabase.channel(`job-accepted-${jobId}`);
+                      bc.subscribe((s) => {
+                        if (s === 'SUBSCRIBED') {
+                          bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'enroute_destination' } }).catch(() => {});
+                          setTimeout(() => supabase.removeChannel(bc), 2000);
+                        }
+                      });
+                    }
+                  } else {
+                    // Non-towing: go straight to working
+                    setStatus('working');
+                    if (jobId) {
+                      await updateJobStatus(jobId, 'inprogress').catch(console.warn);
+                      const bc = supabase.channel(`job-accepted-${jobId}`);
+                      bc.subscribe((s) => {
+                        if (s === 'SUBSCRIBED') {
+                          bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'inprogress' } }).catch(() => {});
+                          setTimeout(() => supabase.removeChannel(bc), 2000);
+                        }
+                      });
+                    }
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-4 mb-2"
+                style={{ backgroundColor: '#008CE5', color: '#FFFFFF', fontWeight: 700, fontSize: '16px' }}
+              >
+                <Wrench className="w-5 h-5" />
+                <span>Start Service</span>
+              </motion.button>
+            )}
+
+            {status === 'dropoff' && (
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={async () => {
+                  // Proximity check against destination
+                  if (providerPos && destinationPos) {
+                    const dist = distanceMiles(providerPos, destinationPos);
+                    if (dist > ARRIVAL_PROXIMITY_MILES) {
+                      setProximityDistance(dist);
+                      setProximityAction('dropoff');
+                      setShowProximityWarning(true);
+                      return;
+                    }
+                  }
+                  setStatusRaw('working');
+                  if (jobId) {
+                    await updateJobStatus(jobId, 'inprogress').catch(console.warn);
+                    const bc = supabase.channel(`job-accepted-${jobId}`);
+                    bc.subscribe((s) => {
+                      if (s === 'SUBSCRIBED') {
+                        bc.send({ type: 'broadcast', event: 'status_update', payload: { job_id: jobId, status: 'inprogress' } }).catch(() => {});
+                        setTimeout(() => supabase.removeChannel(bc), 2000);
+                      }
+                    });
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl py-4 mb-2"
+                style={{ backgroundColor: '#008CE5', color: '#FFFFFF', fontWeight: 700, fontSize: '16px' }}
               >
                 <Flag className="w-5 h-5" />
-                <span>Complete Job</span>
+                <span>Arrived at Drop-off</span>
               </motion.button>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => takePhoto(CameraSource.Camera)}
-                  className="flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm"
-                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>Take Picture</span>
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => takePhoto(CameraSource.Photos)}
-                  className="flex items-center justify-center gap-2 py-3 rounded-2xl font-semibold text-sm"
-                  style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
-                >
-                  <ImagePlus className="w-4 h-4" />
-                  <span>Upload Image</span>
-                </motion.button>
-              </div>
-            </>
-          )}
+            )}
 
-          {status === 'photos' && (
-            <>
-              {/* Hidden file input fallback */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                aria-label="Upload completion photo"
-                title="Upload completion photo"
-                className="hidden"
-                onChange={handleFileInput}
-              />
-
-              {/* Photo thumbnails */}
-              {photos.length > 0 && (
-                <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-                  {photos.map((photo, idx) => (
-                    <div key={idx} className="relative flex-shrink-0">
-                      <img
-                        src={photo}
-                        alt={`Completion photo ${idx + 1}`}
-                        className="w-16 h-16 rounded-xl object-cover border-2"
-                        style={{ borderColor: '#008CE5' }}
-                      />
-                      <button
-                        onClick={() => setPhotos((prev) => prev.filter((_, i) => i !== idx))}
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+            {status === 'working' && (
+              <>
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={uploadPhotosAndComplete}
+                  disabled={uploadingPhotos}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl py-4 mb-2"
+                  style={{ backgroundColor: '#008CE5', color: '#FFFFFF', fontWeight: 700, fontSize: '16px' }}
+                >
+                  <Flag className="w-5 h-5" />
+                  <span>Complete Job</span>
+                </motion.button>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => takePhoto(CameraSource.Camera)}
+                    className="flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#FFFFFF' }}
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Take Picture</span>
+                  </motion.button>
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => takePhoto(CameraSource.Photos)}
+                    className="flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#FFFFFF' }}
+                  >
+                    <ImagePlus className="w-4 h-4" />
+                    <span>Upload Image</span>
+                  </motion.button>
                 </div>
-              )}
+              </>
+            )}
 
-              <motion.button
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={takePhoto}
-                className="w-full rounded-2xl py-4 font-semibold text-sm mb-2 flex items-center justify-center gap-2"
-                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
-              >
-                {photos.length > 0 ? <ImagePlus className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
-                {photos.length > 0 ? `Add another photo (${photos.length} added)` : 'Take a photo'}
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={uploadPhotosAndComplete}
-                disabled={uploadingPhotos}
-                className="w-full flex items-center justify-center gap-2"
-                style={{
-                  background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                  boxShadow: '0 10px 24px rgba(0,140,229,0.34)',
-                  color: '#FFFFFF',
-                  fontWeight: 700,
-                  fontSize: '16px',
-                  padding: '16px 0',
-                  borderRadius: '16px',
-                  marginBottom: '8px',
-                  cursor: uploadingPhotos ? 'not-allowed' : 'pointer',
-                  opacity: uploadingPhotos ? 0.7 : 1,
-                }}
-              >
-                {uploadingPhotos ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Uploading Photos...</span>
-                  </>
-                ) : (
-                  <>
-                    <Flag className="w-5 h-5" />
-                    <span>{photos.length > 0 ? 'Upload & Complete Job' : 'Complete Job'}</span>
-                  </>
+            {status === 'photos' && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  aria-label="Upload completion photo"
+                  title="Upload completion photo"
+                  className="hidden"
+                  onChange={handleFileInput}
+                />
+                {photos.length > 0 && (
+                  <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                    {photos.map((photo, idx) => (
+                      <div key={idx} className="relative flex-shrink-0">
+                        <img src={photo} alt={`Photo ${idx + 1}`} className="w-16 h-16 rounded-xl object-cover border-2" style={{ borderColor: '#008CE5' }} />
+                        <button onClick={() => setPhotos((prev) => prev.filter((_, i) => i !== idx))} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">×</button>
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </motion.button>
-            </>
-          )}
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={takePhoto}
+                  className="w-full rounded-xl py-3 font-semibold text-sm mb-2 flex items-center justify-center gap-2"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#FFFFFF' }}
+                >
+                  {photos.length > 0 ? <ImagePlus className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+                  {photos.length > 0 ? `Add another photo (${photos.length} added)` : 'Take a photo'}
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={uploadPhotosAndComplete}
+                  disabled={uploadingPhotos}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl py-4 mb-2"
+                  style={{ backgroundColor: '#008CE5', color: '#FFFFFF', fontWeight: 700, fontSize: '16px', opacity: uploadingPhotos ? 0.7 : 1 }}
+                >
+                  {uploadingPhotos ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /><span>Uploading Photos...</span></>
+                  ) : (
+                    <><Flag className="w-5 h-5" /><span>{photos.length > 0 ? 'Upload & Complete Job' : 'Complete Job'}</span></>
+                  )}
+                </motion.button>
+              </>
+            )}
 
-          {(status === 'enroute' || status === 'arrived' || status === 'working') && (
-            <button
-              onClick={() => setShowCancelModal(true)}
-              className="w-full rounded-2xl py-3 font-semibold text-sm"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}
-            >
-              Cancel Job
-            </button>
-          )}
+            {(status === 'enroute' || status === 'arrived' || status === 'dropoff' || status === 'working') && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="w-full rounded-xl py-3 font-semibold text-sm"
+                style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#EF4444' }}
+              >
+                Cancel Job
+              </button>
+            )}
+          </div>
         </motion.div>
       </div>
 
@@ -1297,16 +1458,18 @@ export function JobActiveRealtime() {
                 <AlertTriangle className="w-6 h-6" style={{ color: '#F59E0B' }} />
               </div>
               <div>
-                <h3 className="font-bold text-lg" style={{ color: textColor }}>Not Near Customer</h3>
+                <h3 className="font-bold text-lg" style={{ color: textColor }}>{proximityAction === 'dropoff' ? 'Not Near Drop-off' : 'Not Near Customer'}</h3>
                 <p className="text-sm" style={{ color: subColor }}>
-                  You appear to be {proximityDistance !== null ? `${proximityDistance.toFixed(1)} miles` : 'far'} from the pickup location
+                  You appear to be {proximityDistance !== null ? `${proximityDistance.toFixed(1)} miles` : 'far'} from the {proximityAction === 'dropoff' ? 'drop-off' : 'pickup'} location
                 </p>
               </div>
             </div>
 
             <div className="rounded-xl p-4 mb-5" style={{ backgroundColor: isDark ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.06)', border: `1px solid ${isDark ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.15)'}` }}>
               <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : '#374151' }}>
-                Please make sure you are at the customer&apos;s location before confirming arrival. If you&apos;re already there, your GPS may be inaccurate.
+                {proximityAction === 'dropoff'
+                  ? 'Please make sure you are at the drop-off location before confirming. If you\'re already there, your GPS may be inaccurate.'
+                  : 'Please make sure you are at the customer\'s location before confirming arrival. If you\'re already there, your GPS may be inaccurate.'}
               </p>
             </div>
 
@@ -1323,7 +1486,7 @@ export function JobActiveRealtime() {
                 Go Back
               </button>
               <button
-                onClick={() => confirmArrival()}
+                onClick={() => proximityAction === 'dropoff' ? confirmDropoffArrival() : confirmArrival()}
                 className="h-12 rounded-2xl font-bold text-sm text-white active:scale-[0.98] transition-transform"
                 style={{
                   background: 'linear-gradient(135deg, #F59E0B, #D97706)',

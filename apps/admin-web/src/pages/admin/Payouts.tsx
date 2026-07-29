@@ -1,14 +1,16 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { Pagination } from '../../components/Pagination';
+import { PayoutsTableSkeleton } from '../../components/PageSkeleton';
 import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
+import { logAudit } from '../../lib/auditLog';
 import {
   DollarSign, TrendingUp, Users, Search, RefreshCw,
   Send, X, Loader2, CreditCard, Building2, Wallet,
   Clock, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
-  FileText,
+  FileText, XCircle, ShieldCheck,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -116,7 +118,7 @@ export function AdminPayouts() {
   const [providers, setProviders] = useState<ProviderBalance[]>([]);
   const [payoutHistory, setPayoutHistory] = useState<PayoutRecord[]>([]);
   const [allMethods, setAllMethods] = useState<Record<string, PayoutMethod[]>>({});
-  const [platformFee, setPlatformFee] = useState(15);
+  const [serviceFee, setServiceFee] = useState(10);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,6 +139,9 @@ export function AdminPayouts() {
   const [payMethodId, setPayMethodId] = useState<string | null>(null);
   const [payProcessing, setPayProcessing] = useState(false);
 
+  /* Pending payouts awaiting approval */
+  const [pendingPayouts, setPendingPayouts] = useState<PayoutRecord[]>([]);
+
   /* Expanded history rows */
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
@@ -149,8 +154,8 @@ export function AdminPayouts() {
     setError(null);
     try {
       const settings = await loadPlatformSettings();
-      const fee = settings.platformFee;
-      setPlatformFee(fee);
+      const sFee = settings.serviceFee;
+      setServiceFee(sFee);
 
       /* 1) All completed jobs grouped by provider */
       const { data: jobs, error: jobsErr } = await supabase
@@ -205,18 +210,19 @@ export function AdminPayouts() {
         if (!pid) continue;
         const basePrice = deriveBasePrice(job as any);
         const tip = Number((job as any).tip) || 0;
-        const pFee = basePrice * (fee / 100);
-        const net = basePrice - pFee + tip;
+        const svcFee = basePrice * (sFee / 100);
+        const net = basePrice - svcFee + tip;
 
+        const totalFee = svcFee;
         const existing = provMap.get(pid);
         if (existing) {
           existing.jobs += 1;
           existing.earned += basePrice;
           existing.tips += tip;
-          existing.fee += pFee;
+          existing.fee += totalFee;
           existing.net += net;
         } else {
-          provMap.set(pid, { jobs: 1, earned: basePrice, tips: tip, fee: pFee, net });
+          provMap.set(pid, { jobs: 1, earned: basePrice, tips: tip, fee: totalFee, net });
         }
       }
 
@@ -258,6 +264,10 @@ export function AdminPayouts() {
         return { ...p, provider_name: name || 'Unknown' };
       });
       setPayoutHistory(history);
+
+      /* 9) Separate pending payouts for approval queue */
+      const pending = history.filter((p) => p.status === 'pending');
+      setPendingPayouts(pending);
     } catch (err: any) {
       console.error('Failed to load payout data:', err);
       setError(err.message || 'Failed to load data');
@@ -309,11 +319,14 @@ export function AdminPayouts() {
   const payoutsThisMonth = payoutHistory.filter((p) => p.status === 'paid' && p.paid_at && new Date(p.paid_at) >= thisMonth);
   const monthlyTotal = payoutsThisMonth.reduce((s, p) => s + Number(p.net_payout || 0), 0);
 
+  const pendingTotal = pendingPayouts.reduce((s, p) => s + Number(p.net_payout || 0), 0);
+
   const statCards = [
     { label: 'Total Owed', value: fmt(totalOwed), icon: DollarSign, gradient: 'linear-gradient(135deg, #EF4444, #DC2626)' },
     { label: 'Providers with Balance', value: String(providersWithBalance), icon: Users, gradient: 'linear-gradient(135deg, #008CE5, #0070B8)' },
+    { label: 'Pending Approval', value: `${pendingPayouts.length} (${fmt(pendingTotal)})`, icon: Clock, gradient: 'linear-gradient(135deg, #F59E0B, #D97706)' },
     { label: 'Payouts This Month', value: `${payoutsThisMonth.length} (${fmt(monthlyTotal)})`, icon: CheckCircle, gradient: 'linear-gradient(135deg, #22C55E, #16A34A)' },
-    { label: 'Platform Fee Rate', value: `${platformFee}%`, icon: TrendingUp, gradient: 'linear-gradient(135deg, #8B5CF6, #7C3AED)' },
+    { label: 'Torc Fee Rate', value: `${serviceFee}%`, icon: TrendingUp, gradient: 'linear-gradient(135deg, #8B5CF6, #7C3AED)' },
   ];
 
   const filterTabs: { key: FilterTab; label: string; count: number }[] = [
@@ -341,12 +354,18 @@ export function AdminPayouts() {
 
   async function handleCompletePayout() {
     if (!payingProvider) return;
+    if (payProcessing) return; // Prevent duplicate submissions from rapid clicks
     const amount = payingProvider.balance;
     if (!amount || amount <= 0) return;
-    if (!payRef.trim()) {
-      alert('Please enter a payment reference ID.');
+    if (!payRef.trim() || payRef.trim().length < 4) {
+      alert('Please enter a valid payment reference ID (at least 4 characters).');
       return;
     }
+
+    const confirmed = window.confirm(
+      `Queue payout of $${payingProvider.balance.toFixed(2)} to ${payingProvider.provider_name} for approval?\n\nReference: ${payRef.trim()}`
+    );
+    if (!confirmed) return;
 
     setPayProcessing(true);
     try {
@@ -368,8 +387,7 @@ export function AdminPayouts() {
         total_tips: payingProvider.total_tips,
         platform_fee: payingProvider.platform_fee,
         net_payout: amount,
-        status: 'paid',
-        paid_at: now.toISOString(),
+        status: 'pending',
         reference_id: payRef.trim(),
         payment_method: methodType,
         notes: payNotes.trim() || null,
@@ -377,32 +395,136 @@ export function AdminPayouts() {
 
       if (insertErr) throw insertErr;
 
-      // Try to log audit (non-blocking)
-      try {
-        const { data: session } = await supabase.auth.getSession();
-        if (session?.session?.user?.id) {
-          await supabase.from('admin_audit_logs').insert({
-            actor_id: session.session.user.id,
-            action: 'process_payout',
-            entity_type: 'provider_payout',
-            entity_id: payingProvider.provider_id,
-            details: {
-              amount,
-              reference_id: payRef.trim(),
-              payment_method: methodType,
-              provider_name: payingProvider.provider_name,
-            },
-          });
-        }
-      } catch { /* audit log is best-effort */ }
+      await logAudit({
+        action: 'queue_payout',
+        entity_type: 'provider_payout',
+        entity_id: payingProvider.provider_id,
+        details: {
+          amount,
+          reference_id: payRef.trim(),
+          payment_method: methodType,
+          provider_name: payingProvider.provider_name,
+        },
+      });
 
       setPayingProvider(null);
+      alert('Payout queued for approval.');
       await loadData();
     } catch (err: any) {
-      console.error('Failed to process payout:', err);
+      console.error('Failed to queue payout:', err);
       alert(`Payout failed: ${err.message || 'Unknown error'}`);
     } finally {
       setPayProcessing(false);
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Approve a pending payout                                         */
+  /* ---------------------------------------------------------------- */
+
+  const approvingRef = useRef(false);
+  const rejectingRef = useRef(false);
+
+  async function handleApprovePayout(payout: PayoutRecord) {
+    if (approvingRef.current) return; // Prevent duplicate submissions from rapid clicks
+
+    const confirmed = window.confirm(
+      `Approve payout of ${fmt(Number(payout.net_payout))} to ${payout.provider_name}?\n\nReference: ${payout.reference_id || '--'}\n\nThis will mark the payout as paid.`
+    );
+    if (!confirmed) return;
+
+    approvingRef.current = true;
+    try {
+      const { error: updateErr } = await supabase
+        .from('provider_payouts')
+        .update({ status: 'paid', paid_at: new Date().toISOString() })
+        .eq('id', payout.id);
+
+      if (updateErr) throw updateErr;
+
+      await logAudit({
+        action: 'approve_payout',
+        entity_type: 'provider_payout',
+        entity_id: payout.id,
+        details: {
+          provider_id: payout.provider_id,
+          provider_name: payout.provider_name,
+          amount: payout.net_payout,
+          reference_id: payout.reference_id,
+        },
+      });
+
+      // Send payout confirmation email (fire-and-forget)
+      supabase
+        .from('profiles')
+        .select('email, first_name')
+        .eq('id', payout.provider_id)
+        .maybeSingle()
+        .then(({ data: providerProfile }) => {
+          if (providerProfile?.email) {
+            supabase.functions.invoke('send-email', {
+              body: {
+                to: providerProfile.email,
+                template: 'payout_paid',
+                data: {
+                  providerName: providerProfile.first_name || 'there',
+                  amount: fmt(Number(payout.net_payout)),
+                  referenceId: payout.reference_id || '--',
+                  paymentMethod: payout.payment_method || 'Bank Transfer',
+                  paidAt: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+                },
+              },
+            }).catch((err: any) => console.warn('Payout email failed:', err));
+          }
+        });
+
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to approve payout:', err);
+      alert(`Approval failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      approvingRef.current = false;
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Reject a pending payout                                          */
+  /* ---------------------------------------------------------------- */
+
+  async function handleRejectPayout(payout: PayoutRecord) {
+    if (rejectingRef.current) return; // Prevent duplicate submissions from rapid clicks
+
+    const reason = window.prompt('Reason for rejection:');
+    if (reason === null) return; // user cancelled
+
+    rejectingRef.current = true;
+    try {
+      const { error: updateErr } = await supabase
+        .from('provider_payouts')
+        .update({ status: 'failed', notes: `Rejected: ${reason || 'No reason provided'}` })
+        .eq('id', payout.id);
+
+      if (updateErr) throw updateErr;
+
+      await logAudit({
+        action: 'reject_payout',
+        entity_type: 'provider_payout',
+        entity_id: payout.id,
+        details: {
+          provider_id: payout.provider_id,
+          provider_name: payout.provider_name,
+          amount: payout.net_payout,
+          reference_id: payout.reference_id,
+          rejection_reason: reason || 'No reason provided',
+        },
+      });
+
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to reject payout:', err);
+      alert(`Rejection failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      rejectingRef.current = false;
     }
   }
 
@@ -443,7 +565,7 @@ export function AdminPayouts() {
         )}
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           {statCards.map((card, i) => {
             const Icon = card.icon;
             return (
@@ -471,6 +593,7 @@ export function AdminPayouts() {
             <input
               type="text"
               placeholder="Search providers by name or email..."
+              aria-label="Search providers by name or email"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
@@ -494,18 +617,104 @@ export function AdminPayouts() {
           </div>
         </div>
 
+        {/* Pending Payouts Approval Queue */}
+        {pendingPayouts.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white shadow-sm border border-amber-200 rounded-[24px] overflow-hidden mb-6"
+          >
+            <div className="px-6 py-4 border-b border-amber-100 bg-amber-50/50">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-500" />
+                Pending Approval ({pendingPayouts.length})
+              </h2>
+              <p className="text-gray-500 text-sm">These payouts are queued and require approval before being marked as paid</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b border-amber-100 bg-amber-50/30">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Provider</th>
+                    <th className="px-4 py-3 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Amount</th>
+                    <th className="px-4 py-3 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Method</th>
+                    <th className="px-4 py-3 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Reference</th>
+                    <th className="px-4 py-3 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Queued</th>
+                    <th className="px-4 py-3 text-left text-gray-500 text-xs font-semibold uppercase tracking-wider">Notes</th>
+                    <th className="px-6 py-3 text-center text-gray-500 text-xs font-semibold uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {pendingPayouts.map((rec, i) => (
+                    <motion.tr
+                      key={rec.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      className="hover:bg-amber-50/30 transition-colors"
+                    >
+                      <td className="px-6 py-4">
+                        <p className="text-gray-900 font-semibold text-sm">{rec.provider_name}</p>
+                      </td>
+                      <td className="px-4 py-4 text-right font-bold" style={{ color: '#008CE5' }}>
+                        {fmt(Number(rec.net_payout))}
+                      </td>
+                      <td className="px-4 py-4 text-gray-600 text-sm">
+                        {rec.payment_method ? methodLabel(rec.payment_method) : '--'}
+                      </td>
+                      <td className="px-4 py-4">
+                        {rec.reference_id ? (
+                          <span className="px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-mono">{rec.reference_id}</span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">--</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-gray-700 text-sm whitespace-nowrap">
+                        {new Date(rec.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td className="px-4 py-4 text-gray-500 text-sm max-w-[150px] truncate">
+                        {rec.notes || '--'}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleApprovePayout(rec)}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-sm"
+                            style={{ background: 'linear-gradient(to right, #22C55E, #16A34A)' }}
+                          >
+                            <ShieldCheck className="w-4 h-4" />
+                            Approve & Pay
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleRejectPayout(rec)}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            Reject
+                          </motion.button>
+                        </div>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )}
+
         {/* Provider balance table */}
         <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] overflow-hidden mb-8">
           <div className="px-6 py-4 border-b border-gray-100">
             <h2 className="text-gray-900 font-bold text-xl">Provider Balances</h2>
-            <p className="text-gray-500 text-sm">Earnings calculated using {platformFee}% platform commission on base price</p>
+            <p className="text-gray-500 text-sm">Earnings calculated using {serviceFee}% Torc fee on base price</p>
           </div>
 
           {loading ? (
-            <div className="p-16 flex flex-col items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin mb-4" style={{ color: '#008CE5' }} />
-              <p className="text-gray-500 text-sm">Loading provider data...</p>
-            </div>
+            <PayoutsTableSkeleton />
           ) : filteredProviders.length === 0 ? (
             <div className="p-16 flex flex-col items-center justify-center">
               <Users className="w-12 h-12 text-gray-300 mb-4" />
@@ -524,7 +733,7 @@ export function AdminPayouts() {
                       <th className="w-[7%] px-3 py-4 text-center text-gray-500 text-xs font-semibold uppercase tracking-wider">Jobs</th>
                       <th className="w-[11%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Earned</th>
                       <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Tips</th>
-                      <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Fee ({platformFee}%)</th>
+                      <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Fees</th>
                       <th className="w-[11%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Net Owed</th>
                       <th className="w-[10%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Paid</th>
                       <th className="w-[11%] px-3 py-4 text-right text-gray-500 text-xs font-semibold uppercase tracking-wider">Balance</th>
@@ -627,7 +836,11 @@ export function AdminPayouts() {
                           className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors align-top"
                         >
                           <td className="px-6 py-4 text-gray-700 text-sm whitespace-nowrap">
-                            {rec.paid_at ? new Date(rec.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '--'}
+                            {rec.paid_at
+                              ? new Date(rec.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                              : rec.created_at
+                              ? new Date(rec.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                              : '--'}
                           </td>
                           <td className="px-4 py-4 text-gray-900 font-medium">{rec.provider_name}</td>
                           <td className="px-4 py-4 text-right font-bold" style={{ color: '#008CE5' }}>{fmt(Number(rec.net_payout))}</td>
@@ -641,10 +854,12 @@ export function AdminPayouts() {
                           </td>
                           <td className="px-4 py-4">
                             <span
-                              className="px-3 py-1 rounded-full text-xs font-semibold"
+                              className="px-3 py-1 rounded-full text-xs font-semibold capitalize"
                               style={rec.status === 'paid'
                                 ? { backgroundColor: '#DEF7EC', color: '#03543F' }
                                 : rec.status === 'processing'
+                                ? { backgroundColor: '#DBEAFE', color: '#1E40AF' }
+                                : rec.status === 'pending'
                                 ? { backgroundColor: '#FEF3C7', color: '#92400E' }
                                 : rec.status === 'failed'
                                 ? { backgroundColor: '#FEE2E2', color: '#991B1B' }
@@ -666,7 +881,7 @@ export function AdminPayouts() {
                                 <p><span className="font-semibold">Period:</span> {rec.period_start} to {rec.period_end}</p>
                                 <p><span className="font-semibold">Earnings:</span> {fmt(Number(rec.total_earnings))}</p>
                                 <p><span className="font-semibold">Tips:</span> {fmt(Number(rec.total_tips))}</p>
-                                <p><span className="font-semibold">Platform Fee:</span> {fmt(Number(rec.platform_fee))}</p>
+                                <p><span className="font-semibold">Torc Fee:</span> {fmt(Number(rec.platform_fee))}</p>
                                 {rec.notes && <p><span className="font-semibold">Notes:</span> {rec.notes}</p>}
                                 <p className="text-gray-400">ID: {rec.id}</p>
                               </div>
@@ -692,10 +907,11 @@ export function AdminPayouts() {
         <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6 mt-8">
           <h3 className="text-gray-900 font-semibold mb-3">How Payouts Work</h3>
           <ul className="space-y-2 text-gray-500 text-sm">
-            <li>Provider earnings = base service price - platform fee ({platformFee}%) + tips (100% passed through)</li>
-            <li>Click "Pay" to record an external payment (bank transfer, PayPal, Venmo)</li>
-            <li>Enter the external transaction reference ID to track the payment</li>
-            <li>The provider's balance updates automatically after recording a payout</li>
+            <li>Provider earnings = base service price - Torc fee ({serviceFee}%) + tips (100% passed through)</li>
+            <li><strong>Step 1:</strong> Click "Pay" to queue a payout for approval (status: pending)</li>
+            <li><strong>Step 2:</strong> Review in the "Pending Approval" section, then Approve & Pay or Reject</li>
+            <li><strong>Step 3:</strong> Approved payouts are marked as paid; rejected payouts are marked as failed</li>
+            <li>The provider's balance updates only after a payout is approved (pending payouts do not reduce balance)</li>
           </ul>
         </div>
       </div>
@@ -706,6 +922,10 @@ export function AdminPayouts() {
       {payingProvider && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payout-modal-title"
+          onKeyDown={(e) => { if (e.key === 'Escape' && !payProcessing) setPayingProvider(null); }}
           onClick={() => !payProcessing && setPayingProvider(null)}
         >
           <motion.div
@@ -717,10 +937,10 @@ export function AdminPayouts() {
             {/* Modal header */}
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-gray-900 font-bold text-2xl">Process Payout</h2>
+                <h2 id="payout-modal-title" className="text-gray-900 font-bold text-2xl">Process Payout</h2>
                 <p className="text-gray-500 text-sm mt-1">{payingProvider.provider_name}</p>
               </div>
-              <button onClick={() => setPayingProvider(null)} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">
+              <button onClick={() => setPayingProvider(null)} aria-label="Close payout dialog" className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -833,7 +1053,7 @@ export function AdminPayouts() {
                 style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
               >
                 {payProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                {payProcessing ? 'Processing...' : 'Complete Payout'}
+                {payProcessing ? 'Queuing...' : 'Queue for Approval'}
               </motion.button>
             </div>
           </motion.div>

@@ -18,6 +18,10 @@ function getCorsHeaders(req: Request): Record<string, string> {
     origin.startsWith('http://localhost:') ||
     origin.startsWith('http://127.0.0.1:') ||
     origin === 'capacitor://localhost' ||
+    origin === 'capacitor://app.torcapp.com' ||
+    origin === 'capacitor://app.torcpro.com' ||
+    origin === 'https://app.torcapp.com' ||
+    origin === 'https://app.torcpro.com' ||
     origin === 'http://localhost' ||
     origin === 'https://localhost';
   return {
@@ -239,6 +243,49 @@ function providerCompletionEmail(data: { providerName: string; customerName: str
   };
 }
 
+function payoutPaidEmail(data: { providerName: string; amount: string; referenceId: string; paymentMethod: string; paidAt: string; }): { subject: string; html: string } {
+  return {
+    subject: `Your Payout Has Been Processed — ${data.amount}`,
+    html: baseLayout(`
+      <div class="header"><h1>Payout Processed</h1><p>Your earnings are on the way</p></div>
+      <div class="body">
+        <h2>Hi ${data.providerName},</h2>
+        <p>Great news! Your payout has been approved and processed. Here are the details:</p>
+        <div class="card">
+          <div style="text-align:center; margin-bottom: 16px;"><p class="amount-label">Payout Amount</p><p class="amount" style="color: #22C55E;">${data.amount}</p><span class="badge badge-success">Paid</span></div>
+          <div class="divider"></div>
+          <div class="card-row"><span class="card-label">Reference ID</span><span class="card-value">${data.referenceId}</span></div>
+          <div class="card-row"><span class="card-label">Payment Method</span><span class="card-value">${data.paymentMethod}</span></div>
+          <div class="card-row"><span class="card-label">Date Processed</span><span class="card-value">${data.paidAt}</span></div>
+        </div>
+        <p>Funds typically arrive within 1-3 business days depending on your bank. Keep up the great work!</p>
+        <p style="text-align:center; margin-top: 24px;"><a href="https://torcapp.com" class="btn">View Earnings</a></p>
+      </div>
+    `),
+  };
+}
+
+function passwordChangedEmail(data: { name: string; changedAt: string; }): { subject: string; html: string } {
+  return {
+    subject: 'Your Password Has Been Changed — TORC',
+    html: baseLayout(`
+      <div class="header" style="background: linear-gradient(135deg, #F59E0B, #D97706);"><h1>Password Changed</h1><p>Security notification</p></div>
+      <div class="body">
+        <h2>Hi ${data.name},</h2>
+        <p>Your TORC account password was successfully changed.</p>
+        <div class="card">
+          <div class="card-row"><span class="card-label">Date &amp; Time</span><span class="card-value">${data.changedAt}</span></div>
+          <div class="card-row"><span class="card-label">Action</span><span class="card-value">Password Updated</span></div>
+        </div>
+        <div class="card" style="background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3);">
+          <p style="font-size: 14px; font-weight: 600; color: #D97706; margin: 0 0 8px;">Didn't make this change?</p>
+          <p style="font-size: 13px; color: #4B5563; margin: 0;">If you did not change your password, please contact our support team immediately at <a href="mailto:support@torcapp.com" style="color: #D97706; font-weight: 600;">support@torcapp.com</a> to secure your account.</p>
+        </div>
+      </div>
+    `),
+  };
+}
+
 // ─── Template Router ────────────────────────────────────────────────
 
 function getEmailContent(
@@ -266,6 +313,10 @@ function getEmailContent(
       return customerInvoiceEmail(safeData);
     case 'provider_completion':
       return providerCompletionEmail(safeData);
+    case 'payout_paid':
+      return payoutPaidEmail(safeData);
+    case 'password_changed':
+      return passwordChangedEmail(safeData);
     default:
       throw new Error(`Unknown email template: ${template}`);
   }

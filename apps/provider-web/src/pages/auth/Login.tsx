@@ -20,7 +20,7 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#081427] flex flex-col p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#081427] flex flex-col p-6 relative overflow-y-auto">
       {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-[#008CE5] opacity-10 blur-[120px] rounded-full" />
@@ -32,6 +32,7 @@ export function Login() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate('/role-selection')}
+          aria-label="Go back to role selection"
           className="glass rounded-full p-3"
         >
           <ArrowLeft className="w-6 h-6 text-white" />
@@ -78,6 +79,7 @@ export function Login() {
                 <input
                   type="tel"
                   placeholder="+1 (555) 123-4567"
+                  aria-label="Phone number"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-lg placeholder-white/40 focus:outline-none focus:border-[#008CE5] transition-colors"
@@ -95,6 +97,7 @@ export function Login() {
                 <input
                   type="email"
                   placeholder="your@email.com"
+                  aria-label="Email address"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-lg placeholder-white/40 focus:outline-none focus:border-[#008CE5] transition-colors"
@@ -131,6 +134,7 @@ export function Login() {
               <input
                 type="text"
                 placeholder="000000"
+                aria-label="Verification code"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 maxLength={6}

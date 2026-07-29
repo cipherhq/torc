@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { sendPasswordChangedEmail } from '../../services/email.service';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
 function InputField({
@@ -52,7 +53,7 @@ function InputField({
 
 export function AccountSecurity() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { isDark } = useTheme();
 
   const [newEmail, setNewEmail] = useState('');
@@ -142,6 +143,11 @@ export function AccountSecurity() {
       setNewPassword('');
       setConfirmPassword('');
       setPasswordMessage('Password updated successfully.');
+
+      // Fire-and-forget security notification email
+      if (user.email) {
+        sendPasswordChangedEmail(user.email, profile?.first_name || 'there').catch(() => {});
+      }
     } catch (error: any) {
       setPasswordError(error?.message || 'Could not update password right now.');
     } finally {

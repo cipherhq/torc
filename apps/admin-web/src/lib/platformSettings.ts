@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 
 export type PlatformSettingsMap = {
   platformFee: number;
+  serviceFee: number;
   currency: string;
   emailNotifications: boolean;
   smsNotifications: boolean;
@@ -22,6 +23,7 @@ export type PlatformSettingsMap = {
 
 export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
   platformFee: 15,
+  serviceFee: 10,
   currency: 'USD',
   emailNotifications: true,
   smsNotifications: true,
@@ -46,6 +48,7 @@ const CACHE_TTL_MS = 60_000;
 // Map camelCase cache keys → snake_case DB keys written by Settings.tsx
 const DB_KEY_ALIASES: Record<string, string> = {
   platformFee: 'platform_commission_pct',
+  serviceFee: 'service_fee_pct',
   emailNotifications: 'email_notifications',
   smsNotifications: 'sms_notifications',
   autoApproveProviders: 'auto_approve_providers',

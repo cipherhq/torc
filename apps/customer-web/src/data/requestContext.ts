@@ -17,6 +17,8 @@ export interface RequestContext {
   notes: string;
   photos: string[];
   destinationAddress?: string;
+  destinationCoords?: { lat: number; lng: number } | null;
+  fuelType?: string;
   scheduledFor: Date | null;
   paymentMethodId: string | null;
   estimatedPrice: number;
@@ -36,6 +38,7 @@ let requestContext: RequestContext = {
   vehicleId: null,
   notes: '',
   photos: [],
+  destinationCoords: null,
   scheduledFor: null,
   paymentMethodId: null,
   estimatedPrice: 0,
@@ -62,6 +65,7 @@ export const resetRequestContext = () => {
     vehicleId: null,
     notes: '',
     photos: [],
+    destinationCoords: null,
     scheduledFor: null,
     paymentMethodId: null,
     estimatedPrice: 0,

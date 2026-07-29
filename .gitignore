@@ -66,3 +66,16 @@ Thumbs.db
 *.keystore
 **/keystore.properties
 .vercel
+
+# Claude Code (personal agent config/memory)
+.claude/
+
+# Binary build artifacts
+*.apk
+*.aab
+*.ipa
+demo-builds/*.png
+demo-builds/play-store/
+
+# Supabase CLI temp
+supabase/.temp/

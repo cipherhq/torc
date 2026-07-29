@@ -10,8 +10,7 @@ import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import type { PaymentMethod as StripePaymentMethod, StripeCardElementOptions } from '@stripe/stripe-js';
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+import { loadPlatformSettings } from '../../lib/platformSettings';
 
 interface SavedPaymentMethod {
   id: string;
@@ -53,9 +52,9 @@ function AddCardForm({
     style: {
       base: {
         color: isDark ? '#FFFFFF' : '#1F2937',
-        fontSize: '16px',
+        fontSize: '18px',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        lineHeight: '24px',
+        lineHeight: '28px',
         '::placeholder': { color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' },
       },
       invalid: { color: '#EF4444' },
@@ -190,6 +189,7 @@ export function PaymentMethods() {
   const [saving, setSaving] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -201,6 +201,13 @@ export function PaymentMethods() {
   useEffect(() => {
     if (!user) return;
     void fetchPaymentMethods();
+    loadPlatformSettings().then(s => {
+      const key = s.stripe_publishable_key || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+      if (key) setStripePromise(loadStripe(key));
+    }).catch(() => {
+      const key = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+      if (key) setStripePromise(loadStripe(key));
+    });
   }, [user]);
 
   async function fetchPaymentMethods() {
@@ -361,18 +368,28 @@ export function PaymentMethods() {
                 <X className="w-4 h-4" style={{ color: subColor }} />
               </button>
             </div>
-            <Elements stripe={stripePromise}>
-              <AddCardForm
-                onCancel={() => setShowAddModal(false)}
-                onSubmit={handleAddCard}
-                saving={saving}
-                isDark={isDark}
-                textColor={textColor}
-                subColor={subColor}
-                inputBg={inputBg}
-                inputBorder={inputBorder}
-              />
-            </Elements>
+            {stripePromise ? (
+              <Elements stripe={stripePromise}>
+                <AddCardForm
+                  onCancel={() => setShowAddModal(false)}
+                  onSubmit={handleAddCard}
+                  saving={saving}
+                  isDark={isDark}
+                  textColor={textColor}
+                  subColor={subColor}
+                  inputBg={inputBg}
+                  inputBorder={inputBorder}
+                />
+              </Elements>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8">
+                <svg className="animate-spin h-8 w-8 mb-3" style={{ color: '#008CE5' }} viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <p className="text-sm" style={{ color: subColor }}>Loading payment form...</p>
+              </div>
+            )}
           </motion.div>
         </div>
       )}

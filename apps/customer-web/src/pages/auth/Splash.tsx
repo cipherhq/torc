@@ -34,6 +34,7 @@ export function Splash() {
             .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
             .eq('customer_id', user.id)
             .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress', 'pending', 'matching'])
+            .is('customer_completed_at', null)
             .lt('created_at', twelveHoursAgo);
 
           const { data } = await supabase
@@ -41,6 +42,7 @@ export function Splash() {
             .select('id')
             .eq('customer_id', user.id)
             .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress', 'pending', 'matching'])
+            .is('customer_completed_at', null)
             .gte('created_at', twelveHoursAgo)
             .limit(1)
             .maybeSingle();

@@ -13,7 +13,7 @@ export function ProviderLogin() {
   // Redirect if already authenticated
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      navigate('/home', { replace: true });
+      navigate('/permissions', { replace: true });
     }
   }, [authLoading, isAuthenticated, navigate]);
   const [email, setEmail] = useState('');
@@ -28,7 +28,7 @@ export function ProviderLogin() {
     setLoading(true);
     try {
       await signIn(email, password);
-      navigate('/home');
+      navigate('/permissions');
     } catch (err: any) {
       setError(err.message || 'Failed to sign in.');
     } finally {
@@ -87,13 +87,16 @@ export function ProviderLogin() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
                   className="flex-1 bg-transparent border-none outline-none text-base"
                   style={{
                     color: isDark ? '#FFFFFF' : '#1F2937',
+                    WebkitTextFillColor: isDark ? '#FFFFFF' : '#1F2937',
                     border: 'none',
                     boxShadow: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
+                    opacity: 1,
                   }}
                 />
               </div>
@@ -108,13 +111,16 @@ export function ProviderLogin() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                   className="flex-1 bg-transparent border-none outline-none text-base"
                   style={{
                     color: isDark ? '#FFFFFF' : '#1F2937',
+                    WebkitTextFillColor: isDark ? '#FFFFFF' : '#1F2937',
                     border: 'none',
                     boxShadow: 'none',
                     appearance: 'none',
                     WebkitAppearance: 'none',
+                    opacity: 1,
                   }}
                 />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="p-1">

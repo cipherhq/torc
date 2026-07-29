@@ -1,5 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '../lib/supabase';
+import { showToast } from '../components/NotificationToast';
+import { decryptMessage } from '../lib/chatEncryption';
 
 let listenersAttached = false;
 let registrationInFlight = null;
@@ -78,8 +80,37 @@ async function attachListeners() {
   });
 
   // Show banner when notification arrives while app is in the foreground
-  await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+  await PushNotifications.addListener('pushNotificationReceived', async (notification) => {
     console.log('[Push] Received in foreground:', notification);
+    const title = notification?.title || 'TORC';
+    let body = notification?.body || '';
+    const data = notification?.data || {};
+    const type = String(data.notificationType || data.notification_type || '').toLowerCase();
+    const isMessage = type === 'new_message';
+    const jobId = data.jobId || data.job_id;
+    const targetPath = resolveRouteFromPayload(data, currentRole);
+
+    // Decrypt encrypted message bodies
+    if (body.startsWith('enc:') && jobId) {
+      try {
+        const decrypted = await decryptMessage(jobId, body);
+        body = decrypted?.slice(0, 80) || 'Sent you a message';
+      } catch {
+        body = 'Sent you a message';
+      }
+    }
+
+    showToast(
+      isMessage ? 'message' : 'notification',
+      title,
+      body,
+      5000,
+      targetPath ? () => {
+        if (window.location.pathname !== targetPath) {
+          window.location.assign(targetPath);
+        }
+      } : undefined,
+    );
   });
 
   await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {

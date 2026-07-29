@@ -31,6 +31,11 @@
  * - APNS_CUSTOMER_BUNDLE_ID (e.g. com.torc.customer)
  * - APNS_PROVIDER_BUNDLE_ID (e.g. com.torc.provider)
  * - APNS_USE_SANDBOX=true for development
+ *
+ * Optional for Twilio SMS (notifying "someone else" requesters):
+ * - TWILIO_ACCOUNT_SID
+ * - TWILIO_AUTH_TOKEN
+ * - TWILIO_MESSAGING_SERVICE_SID
  */
 
 require('dotenv').config();
@@ -47,6 +52,56 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// Twilio SMS configuration (optional — for notifying "someone else" requesters)
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
+const twilioConfigured = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_MESSAGING_SERVICE_SID);
+
+if (!twilioConfigured) {
+  console.warn('⚠️ Twilio credentials not configured. SMS to requesters will be skipped.');
+}
+
+/**
+ * Send an SMS to the person at the vehicle (requester_type='other').
+ * Calls Twilio REST API directly. Skips gracefully if Twilio is not configured.
+ */
+async function sendSmsToRequester(phone, message) {
+  if (!twilioConfigured) return;
+  if (!phone) return;
+
+  try {
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+    const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+
+    const body = new URLSearchParams({
+      To: phone,
+      MessagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
+      Body: message,
+    });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.error(`❌ Twilio SMS failed (${response.status}):`, result.message || result);
+      return;
+    }
+
+    console.log(`📱 SMS sent to requester ${phone} (SID: ${result.sid})`);
+  } catch (error) {
+    console.error('❌ Error sending SMS to requester:', error.message || error);
+  }
+}
 
 // Track pending Expo tickets for delivery confirmation
 const pendingTickets = new Map();
@@ -529,99 +584,150 @@ async function sendViaApns(pushToken, notification, userRole) {
  * Main worker loop — uses Supabase Realtime instead of direct pg connection.
  * No DATABASE_URL required; only SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
  */
+let activeChannel = null;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let isShuttingDown = false;
+
+/**
+ * Create and subscribe to the Realtime channel.
+ * Returns the channel object.
+ */
+function createRealtimeSubscription() {
+  const channel = supabase
+    .channel('job-status-changes')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'jobs' },
+      async (payload) => {
+        try {
+          const newRow = payload.new;
+          if (newRow.status === 'pending') {
+            console.log(`📬 New job created: ${newRow.id} (pending)`);
+            await handleNewJobRequest(newRow);
+          }
+        } catch (error) {
+          console.error('❌ Error handling new job INSERT:', error);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'jobs' },
+      async (payload) => {
+        try {
+          const oldRow = payload.old;
+          const newRow = payload.new;
+          const oldStatus = oldRow?.status;
+          const newStatus = newRow?.status;
+
+          // Only react to actual status changes
+          if (!newStatus || oldStatus === newStatus) return;
+
+          const eventData = {
+            job_id: newRow.id,
+            customer_id: newRow.customer_id,
+            provider_id: newRow.provider_id,
+            requester_type: newRow.requester_type,
+            requester_phone: newRow.requester_phone,
+            requester_name: newRow.requester_name,
+            service_id: newRow.service_id,
+          };
+
+          console.log(`📬 Job ${newRow.id}: ${oldStatus} -> ${newStatus}`);
+
+          if (newStatus === 'accepted') {
+            await handleJobEvent('job_accepted', eventData);
+          } else if (newStatus === 'enroute' || newStatus === 'en_route') {
+            await handleJobEvent('provider_enroute', eventData);
+          } else if (newStatus === 'arrived') {
+            await handleJobEvent('provider_arrived', eventData);
+          } else if (newStatus === 'in_progress' || newStatus === 'inprogress') {
+            await handleJobEvent('service_started', eventData);
+          } else if (newStatus === 'completed') {
+            await handleJobEvent('job_completed', eventData);
+          } else if (newStatus === 'cancelled') {
+            // Use cancelled_by field to determine who actually cancelled
+            let actorType = 'customer';
+            if (newRow.cancelled_by && newRow.provider_id && newRow.cancelled_by === newRow.provider_id) {
+              actorType = 'provider';
+            }
+            await handleJobEvent('job_cancelled', {
+              ...eventData,
+              actor_type: actorType,
+              reason: newRow.cancellation_reason || '',
+            });
+          }
+        } catch (error) {
+          console.error('❌ Error handling realtime event:', error);
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+      async (payload) => {
+        try {
+          const msg = payload.new;
+          if (msg) {
+            await handleNewChatMessage(msg);
+          }
+        } catch (error) {
+          console.error('❌ Error handling chat message INSERT:', error);
+        }
+      }
+    )
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        reconnectAttempts = 0;
+        console.log('✅ Connected to Supabase Realtime');
+        console.log('🎧 Listening for new jobs, status changes, and messages...\n');
+      } else if (status === 'CLOSED' || status === 'TIMED_OUT') {
+        console.warn(`⚠️ Realtime channel ${status} — scheduling reconnect...`);
+        scheduleReconnect();
+      } else if (status === 'CHANNEL_ERROR') {
+        // Channel errors often resolve on their own via built-in retry,
+        // but if we see many in a row the subscribe callback for
+        // CLOSED/TIMED_OUT will fire and trigger our reconnect.
+      }
+    });
+
+  return channel;
+}
+
+/**
+ * Tear down current channel and reconnect after a delay with exponential backoff.
+ */
+function scheduleReconnect() {
+  if (isShuttingDown) return;
+  if (reconnectTimer) return; // already scheduled
+
+  const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), 60000); // 5s, 10s, 20s, 40s, 60s max
+  reconnectAttempts++;
+  console.log(`🔄 Reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts})...`);
+
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    try {
+      if (activeChannel) {
+        await supabase.removeChannel(activeChannel).catch(() => {});
+        activeChannel = null;
+      }
+      activeChannel = createRealtimeSubscription();
+    } catch (err) {
+      console.error('❌ Reconnect failed:', err);
+      scheduleReconnect();
+    }
+  }, delay);
+}
+
 async function main() {
   console.log('🚀 Starting push notification worker...');
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 
   try {
     // Subscribe to job changes via Supabase Realtime (INSERT + UPDATE)
-    const channel = supabase
-      .channel('job-status-changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'jobs' },
-        async (payload) => {
-          try {
-            const newRow = payload.new;
-            if (newRow.status === 'pending') {
-              console.log(`📬 New job created: ${newRow.id} (pending)`);
-              await handleNewJobRequest(newRow);
-            }
-          } catch (error) {
-            console.error('❌ Error handling new job INSERT:', error);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'jobs' },
-        async (payload) => {
-          try {
-            const oldRow = payload.old;
-            const newRow = payload.new;
-            const oldStatus = oldRow?.status;
-            const newStatus = newRow?.status;
-
-            // Only react to actual status changes
-            if (!newStatus || oldStatus === newStatus) return;
-
-            const eventData = {
-              job_id: newRow.id,
-              customer_id: newRow.customer_id,
-              provider_id: newRow.provider_id,
-            };
-
-            console.log(`📬 Job ${newRow.id}: ${oldStatus} -> ${newStatus}`);
-
-            if (newStatus === 'accepted') {
-              await handleJobEvent('job_accepted', eventData);
-            } else if (newStatus === 'enroute' || newStatus === 'en_route') {
-              await handleJobEvent('provider_enroute', eventData);
-            } else if (newStatus === 'arrived') {
-              await handleJobEvent('provider_arrived', eventData);
-            } else if (newStatus === 'in_progress' || newStatus === 'inprogress') {
-              await handleJobEvent('service_started', eventData);
-            } else if (newStatus === 'completed') {
-              await handleJobEvent('job_completed', eventData);
-            } else if (newStatus === 'cancelled') {
-              // Use cancelled_by field to determine who actually cancelled
-              let actorType = 'customer';
-              if (newRow.cancelled_by && newRow.provider_id && newRow.cancelled_by === newRow.provider_id) {
-                actorType = 'provider';
-              }
-              await handleJobEvent('job_cancelled', {
-                ...eventData,
-                actor_type: actorType,
-                reason: newRow.cancellation_reason || '',
-              });
-            }
-          } catch (error) {
-            console.error('❌ Error handling realtime event:', error);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
-        async (payload) => {
-          try {
-            const msg = payload.new;
-            if (msg) {
-              await handleNewChatMessage(msg);
-            }
-          } catch (error) {
-            console.error('❌ Error handling chat message INSERT:', error);
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Connected to Supabase Realtime');
-          console.log('🎧 Listening for new jobs, status changes, and messages...\n');
-        } else {
-          console.log(`Realtime status: ${status}`);
-        }
-      });
+    activeChannel = createRealtimeSubscription();
 
     // Periodically check ticket receipts (every 15 minutes)
     setInterval(checkTicketReceipts, 15 * 60 * 1000);
@@ -631,15 +737,26 @@ async function main() {
     // Run once on startup after a short delay
     setTimeout(expireStaleJobs, 10 * 1000);
 
+    // Periodically verify Realtime is still connected (every 2 minutes)
+    setInterval(() => {
+      if (!activeChannel || activeChannel.state !== 'joined') {
+        console.warn('⚠️ Realtime channel not in joined state — triggering reconnect');
+        scheduleReconnect();
+      }
+    }, 2 * 60 * 1000);
+
     // Keep alive - log heartbeat every 5 minutes
     setInterval(() => {
-      console.log(`💓 Worker alive - ${new Date().toISOString()}`);
+      const state = activeChannel ? activeChannel.state : 'none';
+      console.log(`💓 Worker alive - ${new Date().toISOString()} (channel: ${state})`);
     }, 5 * 60 * 1000);
 
     // Handle graceful shutdown
     const shutdown = async () => {
       console.log('\n🛑 Shutting down gracefully...');
-      await supabase.removeChannel(channel);
+      isShuttingDown = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (activeChannel) await supabase.removeChannel(activeChannel);
       process.exit(0);
     };
     process.on('SIGINT', shutdown);
@@ -868,7 +985,9 @@ async function handleNewChatMessage(msg) {
     const senderName = `${senderFirst}${senderLastInitial}`.trim() || 'Someone';
 
     // Use preview text (already stored on the message, truncated)
-    const preview = msg.message ? msg.message.slice(0, 80) : 'Sent you a message';
+    const preview = (msg.message && !msg.message.startsWith('enc:'))
+      ? msg.message.slice(0, 80)
+      : 'Sent you a message';
 
     console.log(`💬 Chat message in job ${jobId}: ${senderRole} -> ${senderRole === 'customer' ? 'provider' : 'customer'}`);
 
@@ -893,7 +1012,7 @@ async function handleNewChatMessage(msg) {
  * Send push when a job is accepted by a provider
  */
 async function handleJobAccepted(data) {
-  const { job_id, provider_id, customer_id } = data;
+  const { job_id, provider_id, customer_id, requester_type, requester_phone, requester_name, service_id } = data;
 
   // Get provider name for the notification
   const { data: provider } = await supabase
@@ -918,6 +1037,24 @@ async function handleJobAccepted(data) {
     sound: 'accepted.wav',
     priority: 'high',
   });
+
+  // SMS the person at the vehicle if this is a "someone else" request
+  if (requester_type === 'other' && requester_phone) {
+    const name = requester_name || 'there';
+    let serviceName = 'roadside assistance';
+    if (service_id) {
+      const { data: service } = await supabase
+        .from('services')
+        .select('name')
+        .eq('id', service_id)
+        .maybeSingle();
+      if (service?.name) serviceName = service.name;
+    }
+    await sendSmsToRequester(
+      requester_phone,
+      `Hi ${name}! A TORC roadside provider has been dispatched to help you with ${serviceName}. They'll be on their way shortly. — TORC Roadside`
+    );
+  }
 }
 
 /**
@@ -980,7 +1117,7 @@ async function handleJobCompleted(data) {
  * Send push when provider is en route
  */
 async function handleProviderEnroute(data) {
-  const { job_id, customer_id } = data;
+  const { job_id, customer_id, provider_id, requester_type, requester_phone } = data;
 
   await sendPushToUser(customer_id, {
     notificationType: 'provider_enroute',
@@ -994,13 +1131,33 @@ async function handleProviderEnroute(data) {
     sound: 'default',
     priority: 'high',
   });
+
+  // SMS the person at the vehicle if this is a "someone else" request
+  if (requester_type === 'other' && requester_phone) {
+    let providerName = 'Your TORC provider';
+    if (provider_id) {
+      const { data: provider } = await supabase
+        .from('profiles')
+        .select('first_name, last_name')
+        .eq('id', provider_id)
+        .maybeSingle();
+      const firstName = provider?.first_name || '';
+      const lastInitial = provider?.last_name ? ` ${provider.last_name.charAt(0)}.` : '';
+      const name = `${firstName}${lastInitial}`.trim();
+      if (name) providerName = `Your TORC provider ${name}`;
+    }
+    await sendSmsToRequester(
+      requester_phone,
+      `${providerName} is on the way to your location now. — TORC Roadside`
+    );
+  }
 }
 
 /**
  * Send push when provider arrives at location
  */
 async function handleProviderArrived(data) {
-  const { job_id, customer_id } = data;
+  const { job_id, customer_id, requester_type, requester_phone } = data;
 
   await sendPushToUser(customer_id, {
     notificationType: 'provider_arrived',
@@ -1014,6 +1171,14 @@ async function handleProviderArrived(data) {
     sound: 'default',
     priority: 'high',
   });
+
+  // SMS the person at the vehicle if this is a "someone else" request
+  if (requester_type === 'other' && requester_phone) {
+    await sendSmsToRequester(
+      requester_phone,
+      'Your TORC provider has arrived at your location. — TORC Roadside'
+    );
+  }
 }
 
 /**

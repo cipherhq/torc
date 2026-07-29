@@ -36,6 +36,7 @@ export function ProviderDocuments() {
   const { user } = useAuth() as any;
   const [documents, setDocuments] = useState<Record<string, DocumentRecord | null>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [savingDocId, setSavingDocId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -69,7 +70,7 @@ export function ProviderDocuments() {
         table: 'documents',
         filter: `provider_id=eq.${user.id}`,
       }, () => {
-        loadDocuments();
+        loadDocuments(true);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -137,14 +138,17 @@ export function ProviderDocuments() {
     };
     if (email) profilePayload.email = email;
 
-    await supabase.from('profiles').upsert(profilePayload, { onConflict: 'id', ignoreDuplicates: true }).catch(() => {});
-    await supabase.from('provider_profiles').upsert({ id: providerId }, { onConflict: 'id', ignoreDuplicates: true }).catch(() => {});
+    const { error: profileErr } = await supabase.from('profiles').upsert(profilePayload, { onConflict: 'id', ignoreDuplicates: true });
+    if (profileErr) console.warn('Profile upsert fallback failed:', profileErr.message);
+    const { error: ppErr } = await supabase.from('provider_profiles').upsert({ id: providerId }, { onConflict: 'id', ignoreDuplicates: true });
+    if (ppErr) console.warn('Provider profile upsert fallback failed:', ppErr.message);
   }
 
-  async function loadDocuments() {
+  async function loadDocuments(isRefresh = false) {
     if (!user) return;
     try {
-      setLoading(true);
+      if (!isRefresh) setLoading(true);
+      if (isRefresh) setRefreshing(true);
       setPageError(null);
       const authUser = await getActiveProviderUser();
       // Proactively ensure provider rows exist so uploads won't fail
@@ -169,6 +173,7 @@ export function ProviderDocuments() {
       setPageError(error?.message || 'Could not load documents right now.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -201,8 +206,8 @@ export function ProviderDocuments() {
       const upload = await supabase.storage.from('provider-documents').upload(storagePath, file, { upsert: false });
       if (upload.error) throw upload.error;
 
-      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
-      const fileUrl = publicData?.publicUrl || null;
+      const { data: signedData } = await supabase.storage.from('provider-documents').createSignedUrl(storagePath, 3600);
+      const fileUrl = signedData?.signedUrl || null;
 
       const basePayload = {
         provider_id: providerId,
@@ -300,7 +305,7 @@ export function ProviderDocuments() {
 
       if (upsertError) throw upsertError;
 
-      await loadDocuments();
+      await loadDocuments(true);
     } catch (error: any) {
       setPageError(error?.message || 'Could not upload this document.');
     } finally {
@@ -347,8 +352,8 @@ export function ProviderDocuments() {
       const uploadRes = await supabase.storage.from('provider-documents').upload(storagePath, blob, { upsert: false, contentType: mimeType });
       if (uploadRes.error) throw uploadRes.error;
 
-      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
-      const fileUrl = publicData?.publicUrl || null;
+      const { data: signedData } = await supabase.storage.from('provider-documents').createSignedUrl(storagePath, 3600);
+      const fileUrl = signedData?.signedUrl || null;
 
       const payload = {
         provider_id: providerId,
@@ -374,7 +379,7 @@ export function ProviderDocuments() {
       }
 
       if (upsertError) throw upsertError;
-      await loadDocuments();
+      await loadDocuments(true);
     } catch (error: any) {
       // User cancelled camera — not an error
       if (error?.message?.includes('User cancelled') || error?.message?.includes('canceled')) return;
@@ -404,7 +409,7 @@ export function ProviderDocuments() {
         .eq('provider_id', authUser.id)
         .eq('type', docId);
       if (error) throw error;
-      await loadDocuments();
+      await loadDocuments(true);
     } catch (error: any) {
       setPageError(error?.message || 'Could not remove this document.');
     } finally {
@@ -473,6 +478,14 @@ export function ProviderDocuments() {
   };
 
   const allRequiredUploaded = documentConfig.filter(d => d.required).every(d => !!documents[d.id]);
+  // Only show consent + submit when there are documents needing action (new, rejected, or expired)
+  const hasDocsNeedingAction = documentConfig.some(d => {
+    const doc = documents[d.id];
+    if (!doc) return d.required; // required doc not uploaded yet
+    if (doc.status === 'rejected') return true;
+    if (doc.expires_at && new Date(doc.expires_at + 'T00:00:00') < new Date(new Date().toDateString())) return true;
+    return false;
+  });
   const canSubmit = allRequiredUploaded && consentChecked;
 
   return (
@@ -495,6 +508,13 @@ export function ProviderDocuments() {
         {pageError && (
           <div className="rounded-2xl p-4 mb-4 border border-red-500/30" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF' }}>
             <p className="text-red-400 text-sm">{pageError}</p>
+          </div>
+        )}
+
+        {refreshing && (
+          <div className="rounded-2xl p-3 mb-4 flex items-center gap-2" style={{ backgroundColor: 'rgba(0,140,229,0.08)', border: '1px solid rgba(0,140,229,0.2)' }}>
+            <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#008CE5' }} />
+            <p className="text-sm font-medium" style={{ color: '#008CE5' }}>Updating documents...</p>
           </div>
         )}
 
@@ -713,7 +733,8 @@ export function ProviderDocuments() {
           })}
         </div>
 
-        {/* Consent */}
+        {/* Consent — only show when documents need action */}
+        {hasDocsNeedingAction && (
         <div
           id="documents-consent-card"
           className="rounded-2xl p-5 mb-6"
@@ -729,10 +750,12 @@ export function ProviderDocuments() {
             </div>
           </label>
         </div>
+        )}
 
       </div>
 
-      {/* Fixed bottom submit button — sits above the tab bar */}
+      {/* Fixed bottom submit button — only show when documents need action */}
+      {hasDocsNeedingAction && (
       <div className="fixed left-0 right-0 z-20 px-6 pt-4" style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', backgroundColor: isDark ? '#14263D' : '#FFFFFF', borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2'}`, paddingBottom: '12px' }}>
         <motion.button
           whileTap={{ scale: !canSubmit || loading || !!savingDocId ? 1 : 0.97 }}
@@ -752,6 +775,7 @@ export function ProviderDocuments() {
           {savingDocId ? 'Uploading...' : 'Submit Documents'}
         </motion.button>
       </div>
+      )}
 
       {/* Preview Modal */}
       {previewDoc && (

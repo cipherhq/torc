@@ -33,7 +33,14 @@ export function ForgotPassword() {
       if (error) throw error;
       setSent(true);
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset email. Please try again.');
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('too many')) {
+        setError('Too many reset attempts. Please wait a few minutes before trying again.');
+      } else if (msg.toLowerCase().includes('sending recovery') || msg.toLowerCase().includes('sending email')) {
+        setError('Unable to send reset email right now. Please try again in a few minutes.');
+      } else {
+        setError(msg || 'Failed to send reset email. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -41,7 +48,7 @@ export function ForgotPassword() {
 
   return (
     <div
-      className="min-h-screen flex flex-col relative overflow-hidden"
+      className="min-h-screen flex flex-col relative overflow-y-auto"
       style={{
         background: isDark
           ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
@@ -79,7 +86,12 @@ export function ForgotPassword() {
             <p className="mb-2" style={{ color: subColor }}>
               We sent a password reset link to
             </p>
-            <p className="font-semibold text-lg mb-8" style={{ color: '#008CE5' }}>{email}</p>
+            <p className="font-semibold text-lg mb-4" style={{ color: '#008CE5' }}>{email}</p>
+
+            <div className="rounded-xl p-3 mb-6 flex items-center gap-2" style={{ backgroundColor: isDark ? 'rgba(255,170,0,0.1)' : 'rgba(255,170,0,0.08)', border: `1px solid ${isDark ? 'rgba(255,170,0,0.25)' : 'rgba(255,170,0,0.2)'}` }}>
+              <Mail className="w-4 h-4 flex-shrink-0" style={{ color: '#F59E0B' }} />
+              <p className="text-xs" style={{ color: isDark ? '#FBBF24' : '#B45309' }}>Don't see the email? Please check your spam or junk folder.</p>
+            </div>
 
             <div
               className="rounded-[24px] p-6 mb-6 text-left"
@@ -92,7 +104,7 @@ export function ForgotPassword() {
               <ol className="space-y-2 text-sm" style={{ color: subColor }}>
                 <li className="flex gap-3">
                   <span className="font-bold" style={{ color: '#008CE5' }}>1.</span>
-                  <span>Check your email inbox (and spam folder)</span>
+                  <span>Check your email inbox and spam folder</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="font-bold" style={{ color: '#008CE5' }}>2.</span>

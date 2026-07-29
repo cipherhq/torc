@@ -87,8 +87,8 @@ export function ServiceCompletion() {
       const path = `jobs/${jId}/completion_${Date.now()}.${ext}`;
       const { error } = await supabase.storage.from('job-photos').upload(path, blob, { contentType: blob.type, upsert: true });
       if (error) { console.warn('Photo upload error:', error); return null; }
-      const { data: urlData } = supabase.storage.from('job-photos').getPublicUrl(path);
-      return urlData?.publicUrl || null;
+      const { data: urlData } = await supabase.storage.from('job-photos').createSignedUrl(path, 3600);
+      return urlData?.signedUrl || null;
     } catch (e) { console.warn('Photo upload failed:', e); return null; }
   };
 
@@ -102,14 +102,15 @@ export function ServiceCompletion() {
         photoUrl = await uploadPhoto(afterPhoto, jobId);
       }
 
-      // Save tip and photo to the job
+      // Save tip, photo, and ensure job is marked completed
       if (jobId) {
-        const updateData: any = {};
+        const updateData: any = {
+          status: 'completed',
+          customer_completed_at: new Date().toISOString(),
+        };
         if (tip > 0) updateData.tip = tip;
         if (photoUrl) updateData.completion_photo_url = photoUrl;
-        if (Object.keys(updateData).length > 0) {
-          await supabase.from('jobs').update(updateData).eq('id', jobId);
-        }
+        await supabase.from('jobs').update(updateData).eq('id', jobId);
 
         // Notify the provider they received a tip
         if (tip > 0) {
@@ -194,6 +195,7 @@ export function ServiceCompletion() {
                 <img src={afterPhoto} alt="After service" className="w-full aspect-[4/3] object-cover" />
                 <button
                   onClick={() => setAfterPhoto(null)}
+                  aria-label="Remove photo"
                   className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
                   style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
                 >
@@ -240,7 +242,7 @@ export function ServiceCompletion() {
               <span style={{ color: textColor }}>${Number(basePrice).toFixed(2)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span style={{ color: subColor }}>Service Fee</span>
+              <span style={{ color: subColor }}>Torc Fee</span>
               <span style={{ color: textColor }}>${Number(serviceFee).toFixed(2)}</span>
             </div>
             <div className="flex items-center justify-between">
@@ -340,6 +342,7 @@ export function ServiceCompletion() {
                 whileHover={{ scale: 1.2 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setRating(star)}
+                aria-label={`Rate ${star} star${star !== 1 ? 's' : ''}`}
                 className="rounded-full p-1.5 border"
                 style={star <= rating
                   ? {
@@ -370,6 +373,7 @@ export function ServiceCompletion() {
           {/* Feedback */}
           <textarea
             placeholder="Share your experience (optional)"
+            aria-label="Share your experience"
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
             rows={3}

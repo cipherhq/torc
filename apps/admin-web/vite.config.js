@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
@@ -16,5 +17,10 @@ export default defineConfig({
       '@torc/types': path.resolve(__dirname, '../../packages/types/src'),
       '@torc/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
   },
 });

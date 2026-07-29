@@ -18,6 +18,10 @@ function getCorsHeaders(req: Request): Record<string, string> {
     origin.startsWith('http://localhost:') ||
     origin.startsWith('http://127.0.0.1:') ||
     origin === 'capacitor://localhost' ||
+    origin === 'capacitor://app.torcapp.com' ||
+    origin === 'capacitor://app.torcpro.com' ||
+    origin === 'https://app.torcapp.com' ||
+    origin === 'https://app.torcpro.com' ||
     origin === 'http://localhost' ||
     origin === 'https://localhost';
   return {

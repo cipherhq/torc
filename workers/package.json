@@ -6,7 +6,9 @@
   "main": "push-notification-worker.js",
   "scripts": {
     "start": "node push-notification-worker.js",
+    "start:staging": "node -e \"require('dotenv').config({path:'.env.staging'})\" && DOTENV_CONFIG_PATH=.env.staging node -r dotenv/config push-notification-worker.js",
     "dev": "nodemon push-notification-worker.js",
+    "dev:staging": "DOTENV_CONFIG_PATH=.env.staging nodemon -r dotenv/config push-notification-worker.js",
     "pm2:start": "pm2 start push-notification-worker.js --name torc-push-worker",
     "pm2:stop": "pm2 stop torc-push-worker",
     "pm2:restart": "pm2 restart torc-push-worker",

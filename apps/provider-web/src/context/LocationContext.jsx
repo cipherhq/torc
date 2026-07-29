@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 const LocationContext = createContext({});
 
@@ -7,37 +7,79 @@ export function LocationProvider({ children }) {
   const [locationError, setLocationError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [address, setAddress] = useState('');
-  const [permissionStatus, setPermissionStatus] = useState('prompt'); // 'granted' | 'denied' | 'prompt'
+  const [permissionStatus, setPermissionStatus] = useState('prompt');
+  const watchIdRef = useRef(null);
 
   useEffect(() => {
-    checkPermission();
+    startWatching();
+    return () => {
+      if (watchIdRef.current) {
+        import('../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchIdRef.current));
+      }
+    };
   }, []);
 
-  async function checkPermission() {
+  async function startWatching() {
     try {
-      if (navigator.permissions) {
-        const result = await navigator.permissions.query({ name: 'geolocation' });
-        setPermissionStatus(result.state);
+      const { safeWatchPosition, getSafePosition } = await import('../utils/safeLocation');
 
-        result.addEventListener('change', () => {
-          setPermissionStatus(result.state);
-          if (result.state === 'granted') {
-            getCurrentLocation();
-          }
-        });
-
-        if (result.state === 'granted') {
-          getCurrentLocation();
-        } else {
+      watchIdRef.current = await safeWatchPosition(
+        (pos) => {
+          const location = {
+            latitude: pos.lat,
+            longitude: pos.lng,
+            accuracy: null,
+          };
+          setCurrentLocation(location);
+          setPermissionStatus('granted');
           setLoading(false);
+        },
+        (err) => {
+          console.warn('Location watch error:', err);
         }
-      } else {
-        // Fallback: just try to get location
-        getCurrentLocation();
+      );
+
+      if (!watchIdRef.current) {
+        // Watch didn't start (no permission) — try one-shot fallback
+        const fallback = await getSafePosition();
+        if (fallback) {
+          setCurrentLocation({ latitude: fallback.lat, longitude: fallback.lng, accuracy: null });
+          setPermissionStatus('granted');
+        } else {
+          // Try browser API as last resort
+          fallbackBrowserLocation();
+          return;
+        }
       }
+      setLoading(false);
     } catch {
-      getCurrentLocation();
+      fallbackBrowserLocation();
     }
+  }
+
+  function fallbackBrowserLocation() {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported');
+      setLoading(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setCurrentLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        });
+        setPermissionStatus('granted');
+        setLoading(false);
+      },
+      (error) => {
+        setLocationError(error.message);
+        if (error.code === 1) setPermissionStatus('denied');
+        setLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   }
 
   function requestPermission() {
@@ -71,51 +113,13 @@ export function LocationProvider({ children }) {
           setLoading(false);
           resolve(false);
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
   }
 
   function getCurrentLocation() {
-    setLoading(true);
-    setLocationError(null);
-
-    if (!navigator.geolocation) {
-      setLocationError('Geolocation is not supported by your browser');
-      setLoading(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const location = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        };
-        setCurrentLocation(location);
-        setPermissionStatus('granted');
-
-        await reverseGeocode(location);
-        setLoading(false);
-      },
-      (error) => {
-        setLocationError(error.message);
-        if (error.code === 1) {
-          setPermissionStatus('denied');
-        }
-        setLoading(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    );
+    startWatching();
   }
 
   async function reverseGeocode(location) {
@@ -125,7 +129,6 @@ export function LocationProvider({ children }) {
         `https://maps.googleapis.com/maps/api/geocode/json?latlng=${location.latitude},${location.longitude}&key=${apiKey}`
       );
       const data = await response.json();
-
       if (data.results && data.results[0]) {
         setAddress(data.results[0].formatted_address);
       }
@@ -141,13 +144,9 @@ export function LocationProvider({ children }) {
         `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(searchAddress)}&key=${apiKey}`
       );
       const data = await response.json();
-
       if (data.results && data.results[0]) {
         const { lat, lng } = data.results[0].geometry.location;
-        const location = {
-          latitude: lat,
-          longitude: lng,
-        };
+        const location = { latitude: lat, longitude: lng };
         setCurrentLocation(location);
         setAddress(data.results[0].formatted_address);
         return location;
@@ -161,9 +160,7 @@ export function LocationProvider({ children }) {
 
   function updateLocation(location, newAddress) {
     setCurrentLocation(location);
-    if (newAddress) {
-      setAddress(newAddress);
-    }
+    if (newAddress) setAddress(newAddress);
   }
 
   function calculateDistance(lat1, lon1, lat2, lon2) {

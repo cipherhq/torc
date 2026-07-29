@@ -1,8 +1,10 @@
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
+import { AdminButton } from '../../components/AdminButton';
 import { Settings as SettingsIcon, DollarSign, Bell, Shield, Globe, Save, Loader2, CheckCircle, Percent, MessageCircle, FileText } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { logAudit } from '../../lib/auditLog';
 
 interface PlatformSettings {
   cancellation_fee_pct: number;
@@ -96,8 +98,26 @@ type SettingSection = {
   items: SettingItem[];
 };
 
+const SETTINGS_BOUNDS: Partial<Record<keyof PlatformSettings, { min: number; max: number }>> = {
+  cancellation_fee_pct: { min: 0, max: 100 },
+  platform_commission_pct: { min: 0, max: 50 },
+  tax_rate_pct: { min: 0, max: 30 },
+  service_fee_pct: { min: 0, max: 50 },
+  hazard_fee: { min: 0, max: 500 },
+  scheduling_fee: { min: 0, max: 100 },
+  max_job_radius: { min: 1, max: 500 },
+  provider_timeout: { min: 1, max: 60 },
+  document_grace_period_days: { min: 1, max: 365 },
+  chat_max_message_length: { min: 50, max: 5000 },
+  chat_messages_per_page: { min: 10, max: 100 },
+  chat_history_retention_days: { min: 7, max: 365 },
+  chat_conversations_per_page: { min: 5, max: 50 },
+  chat_max_image_size_mb: { min: 1, max: 20 },
+};
+
 export function AdminSettings() {
   const [settings, setSettings] = useState<PlatformSettings>(DEFAULTS);
+  const [savedSnapshot, setSavedSnapshot] = useState<PlatformSettings>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -118,6 +138,7 @@ export function AdminSettings() {
             }
           });
           setSettings(loaded);
+          setSavedSnapshot(loaded);
         }
       } catch (e) {
         console.warn('Failed to load platform settings, using defaults:', e);
@@ -146,6 +167,25 @@ export function AdminSettings() {
         .upsert(entries, { onConflict: 'key' });
 
       if (error) throw error;
+
+      // Compute what actually changed for audit trail
+      const changes: Record<string, { old: any; new: any }> = {};
+      for (const key of Object.keys(settings) as (keyof PlatformSettings)[]) {
+        if (savedSnapshot[key] !== settings[key]) {
+          changes[key] = { old: savedSnapshot[key], new: settings[key] };
+        }
+      }
+
+      if (Object.keys(changes).length > 0) {
+        logAudit({
+          action: 'update_settings',
+          entity_type: 'platform_settings',
+          entity_id: 'global',
+          details: { changes },
+        });
+      }
+
+      setSavedSnapshot({ ...settings });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -161,7 +201,9 @@ export function AdminSettings() {
   };
 
   const handleNumberChange = (key: keyof PlatformSettings, value: number) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    const bounds = SETTINGS_BOUNDS[key];
+    const clamped = bounds ? Math.min(bounds.max, Math.max(bounds.min, value)) : value;
+    setSettings(prev => ({ ...prev, [key]: clamped }));
   };
 
   const settingSections: SettingSection[] = [
@@ -186,8 +228,8 @@ export function AdminSettings() {
           suffix: '%',
         },
         {
-          label: 'Service Fee',
-          description: 'Percentage added as service fee on base price',
+          label: 'Torc Fee',
+          description: 'Percentage added as Torc fee on base price',
           type: 'number' as const,
           key: 'service_fee_pct' as keyof PlatformSettings,
           suffix: '%',
@@ -417,30 +459,23 @@ export function AdminSettings() {
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Platform Settings</h1>
             <p className="text-gray-500">Configure fees, commissions, and system-wide preferences</p>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+          <AdminButton
+            variant="primary"
+            size="lg"
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-base shadow-lg transition-all"
+            loading={saving}
+            icon={!saving ? (saved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />) : undefined}
+            className="shadow-lg"
             style={{
               background: saved
                 ? 'linear-gradient(to right, #22C55E, #16A34A)'
                 : 'linear-gradient(to right, #008CE5, #0070B8)',
-              color: '#FFFFFF',
               boxShadow: saved ? '0 8px 24px rgba(34,197,94,0.4)' : '0 8px 24px rgba(0,140,229,0.3)',
-              opacity: saving ? 0.7 : 1,
             }}
           >
-            {saving ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : saved ? (
-              <CheckCircle className="w-5 h-5" />
-            ) : (
-              <Save className="w-5 h-5" />
-            )}
             {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
-          </motion.button>
+          </AdminButton>
         </div>
 
         {/* Settings Sections */}
@@ -479,6 +514,9 @@ export function AdminSettings() {
                             <motion.button
                               whileTap={{ scale: 0.9 }}
                               onClick={() => handleToggle(item.key)}
+                              role="switch"
+                              aria-checked={!!settings[item.key]}
+                              aria-label={`Toggle ${item.label} ${settings[item.key] ? 'off' : 'on'}`}
                               style={{
                                 width: 56,
                                 height: 32,
@@ -512,6 +550,7 @@ export function AdminSettings() {
                                 inputMode="decimal"
                                 step="any"
                                 min="0"
+                                aria-label={item.label}
                                 value={settings[item.key] as number}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -529,6 +568,7 @@ export function AdminSettings() {
                             <select
                               value={settings[item.key] as string}
                               onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: e.target.value }))}
+                              aria-label={item.label}
                               className="px-4 py-2.5 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
                             >
                               {item.options?.map((option) => (
@@ -544,6 +584,7 @@ export function AdminSettings() {
                               type="text"
                               value={String(settings[item.key] ?? '')}
                               onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: e.target.value }))}
+                              aria-label={item.label}
                               className="w-64 px-3 py-2.5 bg-white border-2 border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
                             />
                           )}
@@ -553,6 +594,7 @@ export function AdminSettings() {
                               value={String(settings[item.key] ?? '')}
                               onChange={(e) => setSettings(prev => ({ ...prev, [item.key]: e.target.value }))}
                               rows={item.rows || 8}
+                              aria-label={item.label}
                               className="w-[30rem] max-w-[70vw] px-3 py-2.5 bg-white border-2 border-gray-200 rounded-xl text-gray-900 text-sm leading-relaxed focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all resize-y"
                             />
                           )}
@@ -568,30 +610,23 @@ export function AdminSettings() {
 
         {/* Bottom Save Button (mobile friendly) */}
         <div className="mt-8 pb-8">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+          <AdminButton
+            variant="primary"
+            size="lg"
             onClick={handleSave}
             disabled={saving}
-            className="w-full flex items-center justify-center gap-2 px-8 py-4 rounded-[24px] font-bold text-lg shadow-lg"
+            loading={saving}
+            icon={!saving ? (saved ? <CheckCircle className="w-5 h-5" /> : <Save className="w-5 h-5" />) : undefined}
+            className="w-full text-lg shadow-lg rounded-[24px] px-8 py-4"
             style={{
               background: saved
                 ? 'linear-gradient(to right, #22C55E, #16A34A)'
                 : 'linear-gradient(to right, #008CE5, #0070B8)',
-              color: '#FFFFFF',
               boxShadow: saved ? '0 8px 24px rgba(34,197,94,0.4)' : '0 8px 24px rgba(0,140,229,0.3)',
-              opacity: saving ? 0.7 : 1,
             }}
           >
-            {saving ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : saved ? (
-              <CheckCircle className="w-5 h-5" />
-            ) : (
-              <Save className="w-5 h-5" />
-            )}
             {saving ? 'Saving...' : saved ? 'Changes Saved!' : 'Save All Changes'}
-          </motion.button>
+          </AdminButton>
         </div>
       </div>
     </AdminLayout>

@@ -22,6 +22,8 @@ import {
   UsersRound,
   BookOpen,
 } from 'lucide-react';
+import { useAdminSession } from './AdminLayout';
+import { getVisibleRoutes } from '../lib/rbac';
 
 const navSections = [
   {
@@ -79,11 +81,26 @@ const navSections = [
 export function AdminSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const session = useAdminSession();
+
+  const visibleRoutes = getVisibleRoutes(session?.adminRole || 'admin');
+  const isAllAccess = visibleRoutes.includes('*');
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
+  // Filter sections: only show items the user has permission for.
+  // If a section ends up with zero visible items, hide it entirely.
+  const filteredSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) => isAllAccess || visibleRoutes.includes(item.path)
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
+
   return (
-    <div className="w-72 h-screen bg-white border-r border-gray-200 flex flex-col">
+    <nav className="w-72 h-screen bg-white border-r border-gray-200 flex flex-col" role="navigation" aria-label="Admin navigation">
       {/* Logo */}
       <div className="p-6 border-b border-gray-200">
         <motion.button
@@ -101,7 +118,7 @@ export function AdminSidebar() {
 
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {navSections.map((section) => (
+        {filteredSections.map((section) => (
           <div key={section.label}>
             <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
               {section.label}
@@ -116,6 +133,7 @@ export function AdminSidebar() {
                     whileHover={{ x: 4 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => navigate(item.path)}
+                    aria-current={active ? 'page' : undefined}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm cursor-pointer"
                     style={active
                       ? { backgroundColor: 'rgba(0,140,229,0.1)', border: '1px solid rgba(0,140,229,0.2)' }
@@ -144,6 +162,6 @@ export function AdminSidebar() {
           <span className="text-gray-600">Back to Website</span>
         </motion.a>
       </div>
-    </div>
+    </nav>
   );
 }

@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, X } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { updateRequestContext } from '../../data/requestContext';
@@ -79,7 +79,11 @@ export function ServiceSelection() {
         </div>
       )}
 
-      <PageHeader title="Select Service" onBack={() => navigate('/confirm-location')} />
+      <PageHeader title="Select Service" onBack={() => navigate('/confirm-location')} rightAction={
+        <button onClick={() => navigate('/customer/home')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+          <X className="w-5 h-5 text-white" />
+        </button>
+      } />
 
       <div className="relative z-10 flex-1 px-6 pb-6 overflow-y-auto" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Search */}
@@ -103,7 +107,7 @@ export function ServiceSelection() {
             <p style={{ color: subColor }}>Loading services...</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-3">
             {filteredServices.map((service, index) => {
               const Icon = (service.icon && (Icons as any)[service.icon]) || Icons.Wrench;
               return (
@@ -114,15 +118,17 @@ export function ServiceSelection() {
                   transition={{ delay: index * 0.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => handleServiceSelect(service)}
-                  className="rounded-2xl p-4 text-left active:opacity-80 cursor-pointer transition-colors"
+                  className="w-full rounded-2xl p-4 flex items-center gap-4 active:opacity-80 cursor-pointer transition-colors"
                   style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
                 >
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center mb-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center flex-shrink-0">
                     <Icon className="w-6 h-6 text-white" />
                   </div>
-                  <p className="font-semibold text-sm" style={{ color: textColor }}>{service.name}</p>
-                  <p className="text-xs mt-1 line-clamp-2" style={{ color: subColor }}>{service.description || 'Roadside support service'}</p>
-                  <p className="text-[#008CE5] text-sm font-semibold mt-2">${Number(service.base_price || 0)}</p>
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="font-semibold text-sm" style={{ color: textColor }}>{service.name}</p>
+                    <p className="text-xs mt-0.5 line-clamp-2" style={{ color: subColor }}>{service.description || 'Roadside support service'}</p>
+                  </div>
+                  <p className="text-[#008CE5] text-sm font-bold flex-shrink-0">${Number(service.base_price || 0)}</p>
                 </motion.button>
               );
             })}

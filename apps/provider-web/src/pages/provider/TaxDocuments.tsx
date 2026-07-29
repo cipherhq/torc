@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 interface YearlySummary {
   year: number;
   grossEarnings: number;
-  platformFees: number;
+  serviceFees: number;
   tips: number;
   netEarnings: number;
   jobCount: number;
@@ -35,7 +35,7 @@ function generateTaxCsv(summary: YearlySummary, providerName: string, providerEm
     [''],
     ['Category', 'Amount'],
     ['Gross Earnings (1099 Income)', `$${fmt(summary.grossEarnings)}`],
-    ['Platform Fees (Deductible Expense)', `$${fmt(summary.platformFees)}`],
+    ['Torc Fees (Deductible Expense)', `$${fmt(summary.serviceFees)}`],
     ['Tips Received', `$${fmt(summary.tips)}`],
     ['Net Earnings', `$${fmt(summary.netEarnings)}`],
     [''],
@@ -77,7 +77,7 @@ export function TaxDocuments() {
   const { user, profile } = useAuth() as any;
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [platformFee, setPlatformFee] = useState(15);
+  const [serviceFee, setServiceFee] = useState(10);
 
   useEffect(() => {
     if (!user) {
@@ -101,7 +101,7 @@ export function TaxDocuments() {
         loadPlatformSettings(),
       ]);
       if (jobsRes.data) setJobs(jobsRes.data);
-      setPlatformFee(settings.platformFee);
+      setServiceFee(settings.service_fee_pct);
     } catch (error) {
       console.warn('Failed to load tax data:', error);
     } finally {
@@ -126,12 +126,12 @@ export function TaxDocuments() {
         const year = Number(yearStr);
         const grossBase = yearJobs.reduce((s, j) => s + deriveBasePrice(j), 0);
         const tips = yearJobs.reduce((s, j) => s + (Number(j.tip) || 0), 0);
-        const fees = grossBase * (platformFee / 100);
+        const fees = grossBase * (serviceFee / 100);
         const net = grossBase - fees + tips;
         return {
           year,
           grossEarnings: grossBase + tips,
-          platformFees: fees,
+          serviceFees: fees,
           tips,
           netEarnings: net,
           jobCount: yearJobs.length,
@@ -142,7 +142,7 @@ export function TaxDocuments() {
       .slice(0, 4); // Current year + last 3 completed years max
 
     return summaries;
-  }, [jobs, platformFee]);
+  }, [jobs, serviceFee]);
 
   const currentYearSummary = yearlySummaries.find((s) => s.year === new Date().getFullYear());
 
@@ -246,9 +246,9 @@ export function TaxDocuments() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <div className="w-4 h-4 rounded-full" style={{ backgroundColor: '#EF4444', opacity: 0.5 }} />
-                            <span className="text-sm" style={{ color: subColor }}>Platform Fees ({platformFee}%)</span>
+                            <span className="text-sm" style={{ color: subColor }}>Torc Fees ({serviceFee}%)</span>
                           </div>
-                          <span className="font-semibold text-sm text-red-500">-${fmt(summary.platformFees)}</span>
+                          <span className="font-semibold text-sm text-red-500">-${fmt(summary.serviceFees)}</span>
                         </div>
 
                         <div className="border-t pt-2.5" style={{ borderColor: cardBorder }}>
@@ -293,7 +293,7 @@ export function TaxDocuments() {
                   <ul className="text-xs space-y-1.5" style={{ color: subColor }}>
                     <li>Tax summaries are finalized on December 31st of each year.</li>
                     <li>If your annual gross earnings exceed $600, you may receive a 1099-NEC form from Torc.</li>
-                    <li>Platform fees are typically deductible as business expenses.</li>
+                    <li>Torc fees are typically deductible as business expenses.</li>
                     <li>Download your summary and share it with your tax professional.</li>
                   </ul>
                 </div>
