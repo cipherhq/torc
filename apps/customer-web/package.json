@@ -55,7 +55,7 @@
     "@sentry/react": "^10.12.0",
     "@stripe/react-stripe-js": "^5.6.0",
     "@stripe/stripe-js": "^8.7.0",
-    "@supabase/supabase-js": "^2.95.3",
+    "@supabase/supabase-js": "^2.97.0",
     "capacitor-native-settings": "^8.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "*",
@@ -66,7 +66,7 @@
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.55.0",
-    "react-router": "*",
+    "react-router": "^7.13.0",
     "recharts": "^2.15.2",
     "sonner": "^2.0.3",
     "tailwind-merge": "*"
