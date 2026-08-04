@@ -35,17 +35,17 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Run customer-web tests
-        run: npx vitest run --config apps/customer-web/vite.config.js --reporter=verbose
+        run: npm run test --workspace=apps/customer-web
         env:
           VITE_SUPABASE_URL: https://test.supabase.co
           VITE_SUPABASE_ANON_KEY: test-anon-key
       - name: Run provider-web tests
-        run: npx vitest run --config apps/provider-web/vite.config.js --reporter=verbose
+        run: npm run test --workspace=apps/provider-web
         env:
           VITE_SUPABASE_URL: https://test.supabase.co
           VITE_SUPABASE_ANON_KEY: test-anon-key
       - name: Run admin-web tests
-        run: npx vitest run --config apps/admin-web/vite.config.js --reporter=verbose
+        run: npm run test --workspace=apps/admin-web
         env:
           VITE_SUPABASE_URL: https://test.supabase.co
           VITE_SUPABASE_ANON_KEY: test-anon-key
@@ -74,39 +74,115 @@ jobs:
           VITE_APP_URL: https://torcapp.com
 
   migration-validation:
-    name: Validate Migrations
+    name: Validate Migrations (Ephemeral Postgres)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: torc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - name: Validate SQL migration files
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create auth schema stub
         run: |
-          set -euo pipefail
-          ERRORS=0
-          for f in database/migrations/*.sql supabase/migrations/*.sql; do
-            [ -f "$f" ] || continue
-            echo "Checking: $f"
-            # Must not be empty
-            if [ ! -s "$f" ]; then
-              echo "ERROR: Empty migration file: $f"
-              ERRORS=$((ERRORS + 1))
-              continue
-            fi
-            # Must contain at least one SQL keyword
-            if ! grep -qiE '(CREATE|ALTER|INSERT|UPDATE|DROP|SELECT|GRANT|REVOKE|SET)' "$f"; then
-              echo "ERROR: No SQL keywords found in: $f"
-              ERRORS=$((ERRORS + 1))
-              continue
-            fi
-            # Must not contain syntax errors detectable by simple checks
-            if grep -qP '^\s*$\n\s*$\n\s*$' "$f"; then
-              echo "WARNING: Excessive blank lines in: $f"
-            fi
-          done
-          if [ "$ERRORS" -gt 0 ]; then
-            echo "FAILED: $ERRORS migration file(s) have errors"
-            exit 1
-          fi
-          echo "All migration files validated."
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT
+          );
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN;
+          GRANT USAGE ON SCHEMA public TO authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated, service_role;
+          SQL
+      - name: Create prerequisite tables
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
+          CREATE TABLE IF NOT EXISTS public.profiles (
+            id UUID PRIMARY KEY REFERENCES auth.users(id),
+            role TEXT,
+            email TEXT
+          );
+          CREATE TABLE IF NOT EXISTS public.jobs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            customer_id UUID,
+            provider_id UUID,
+            service_id UUID,
+            status TEXT DEFAULT 'pending',
+            payment_status TEXT DEFAULT 'unpaid',
+            payment_intent_id TEXT,
+            paid_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            accepted_at TIMESTAMPTZ,
+            started_at TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ,
+            cancelled_at TIMESTAMPTZ
+          );
+          ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+          SQL
+      - name: Execute audit migration
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" \
+            -f supabase/migrations/20260804000000_checkout_and_payment_integrity.sql
+      - name: Assert RLS and privilege restrictions
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Assert checkouts has RLS enabled
+          DO $$ BEGIN
+            ASSERT (SELECT rowsecurity FROM pg_tables WHERE tablename = 'checkouts' AND schemaname = 'public'),
+              'checkouts must have RLS enabled';
+          END $$;
+
+          -- Assert no UPDATE policy on checkouts for authenticated
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM pg_policies
+              WHERE tablename = 'checkouts' AND schemaname = 'public'
+              AND cmd = 'UPDATE'
+              AND roles @> ARRAY['authenticated']::name[]
+            ), 'checkouts must NOT have UPDATE policy for authenticated';
+          END $$;
+
+          -- Assert transition_job_status is NOT executable by authenticated
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'transition_job_status'
+              AND grantee IN ('PUBLIC', 'authenticated')
+            ), 'transition_job_status must not be executable by PUBLIC or authenticated';
+          END $$;
+
+          -- Assert expire_stale_jobs is NOT executable by authenticated
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'expire_stale_jobs'
+              AND grantee IN ('PUBLIC', 'authenticated')
+            ), 'expire_stale_jobs must not be executable by PUBLIC or authenticated';
+          END $$;
+
+          -- Assert processed_webhook_events has RLS blocking all access
+          DO $$ BEGIN
+            ASSERT (SELECT rowsecurity FROM pg_tables WHERE tablename = 'processed_webhook_events'),
+              'processed_webhook_events must have RLS enabled';
+          END $$;
+
+          RAISE NOTICE 'All RLS and privilege assertions passed.';
+          SQL
 
   security-scan:
     name: Security Scan
@@ -117,7 +193,6 @@ jobs:
         run: |
           set -euo pipefail
           FOUND=0
-          # Check for actual secret values (not env.get references)
           for pattern in 'sk_live_[a-zA-Z0-9]{10,}' 'eyJhbGci[a-zA-Z0-9_=-]{20,}'; do
             MATCHES=$(grep -rnE "$pattern" apps/ packages/ supabase/functions/ \
               --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
@@ -128,7 +203,6 @@ jobs:
               FOUND=1
             fi
           done
-          # Check for committed .env files
           if find . -name '.env' -not -name '.env.example' -not -path '*/node_modules/*' | grep -q .; then
             echo "ERROR: .env file found in repository"
             FOUND=1

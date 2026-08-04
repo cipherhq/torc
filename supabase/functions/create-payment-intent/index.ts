@@ -44,6 +44,14 @@ async function stripeGet(path: string, secretKey: string) {
   return payload;
 }
 
+/** Compare two values that may be date strings or null */
+function scheduledForMatches(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  // Compare as ISO strings (trim to second precision to avoid ms drift)
+  return new Date(a).toISOString() === new Date(b).toISOString();
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -113,56 +121,7 @@ Deno.serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    // --- Idempotency: check existing checkout ---
-    const { data: existingCheckout } = await supabaseAdmin
-      .from('checkouts')
-      .select('id, status, payment_intent_id, total_amount, service_id, vehicle_id, is_hazardous')
-      .eq('id', checkoutId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (existingCheckout && existingCheckout.payment_intent_id) {
-      // Validate stored checkout matches current request inputs
-      if (existingCheckout.service_id !== serviceId) {
-        return new Response(JSON.stringify({ error: 'Checkout service mismatch. Start a new checkout.' }), {
-          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      // If already paid, return success
-      if (existingCheckout.status === 'paid') {
-        return new Response(JSON.stringify({
-          paymentIntentId: existingCheckout.payment_intent_id,
-          checkoutId: existingCheckout.id,
-          status: 'paid',
-          priceBreakdown: { totalCents: Math.round(Number(existingCheckout.total_amount) * 100) },
-        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-
-      // If requires_action or pending, retrieve the PaymentIntent and return its clientSecret
-      if (existingCheckout.status === 'payment_processing' || existingCheckout.status === 'pending') {
-        try {
-          const pi = await stripeGet(`/v1/payment_intents/${existingCheckout.payment_intent_id}`, stripeSecretKey);
-          return new Response(JSON.stringify({
-            paymentIntentId: pi.id,
-            clientSecret: pi.client_secret,
-            checkoutId: existingCheckout.id,
-            status: pi.status,
-            priceBreakdown: { totalCents: Math.round(Number(existingCheckout.total_amount) * 100) },
-          }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        } catch {
-          // PaymentIntent retrieval failed — fall through to create new one
-        }
-      }
-
-      // If failed, allow retry with same checkoutId
-      if (existingCheckout.status === 'failed') {
-        // Reset to pending for retry
-        await supabaseAdmin.from('checkouts').update({ status: 'pending', payment_intent_id: null }).eq('id', checkoutId);
-      }
-    }
-
-    // --- Server-authoritative pricing ---
+    // --- Server-authoritative pricing (computed early for validation) ---
     const { data: service, error: serviceError } = await supabaseAdmin
       .from('services')
       .select('id, name, base_price')
@@ -207,6 +166,134 @@ Deno.serve(async (req) => {
       });
     }
 
+    // --- Idempotency: check existing checkout ---
+    const { data: existingCheckout } = await supabaseAdmin
+      .from('checkouts')
+      .select('id, status, payment_intent_id, total_amount, service_id, vehicle_id, is_hazardous, scheduled_for, currency, user_id, attempt_number')
+      .eq('id', checkoutId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existingCheckout) {
+      // --- Item 6: Full checkout validation ---
+      if (existingCheckout.service_id !== serviceId) {
+        return new Response(JSON.stringify({ error: 'Checkout service mismatch. Start a new checkout.' }), {
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if ((existingCheckout.vehicle_id || null) !== (vehicleId || null)) {
+        return new Response(JSON.stringify({ error: 'Checkout vehicle mismatch. Start a new checkout.' }), {
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (Boolean(existingCheckout.is_hazardous) !== Boolean(isHazardous)) {
+        return new Response(JSON.stringify({ error: 'Checkout hazardous flag mismatch. Start a new checkout.' }), {
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (!scheduledForMatches(existingCheckout.scheduled_for, scheduledFor || null)) {
+        return new Response(JSON.stringify({ error: 'Checkout scheduled time mismatch. Start a new checkout.' }), {
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (existingCheckout.currency && existingCheckout.currency !== 'USD') {
+        return new Response(JSON.stringify({ error: 'Only USD currency is supported.' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (existingCheckout.user_id !== user.id) {
+        // Already filtered by .eq('user_id', user.id), but be explicit
+        return new Response(JSON.stringify({ error: 'Checkout does not belong to this user.' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      // Validate total_amount matches server-recalculated amount
+      const existingTotalCents = Math.round(Number(existingCheckout.total_amount) * 100);
+      if (existingTotalCents !== totalCents) {
+        return new Response(JSON.stringify({ error: 'Checkout amount mismatch with current pricing. Start a new checkout.' }), {
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // If already paid (set by webhook), return success
+      if (existingCheckout.status === 'paid') {
+        return new Response(JSON.stringify({
+          paymentIntentId: existingCheckout.payment_intent_id,
+          checkoutId: existingCheckout.id,
+          status: 'paid',
+          priceBreakdown: { totalCents },
+        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      // --- Item 7: Explicit PI retrieval with safe recovery ---
+      if (existingCheckout.payment_intent_id) {
+        let pi;
+        try {
+          pi = await stripeGet(`/v1/payment_intents/${existingCheckout.payment_intent_id}`, stripeSecretKey);
+        } catch (retrievalError: any) {
+          // Item 7: Retrieval failed — return error, do NOT fall through
+          console.error('PaymentIntent retrieval failed:', retrievalError?.message);
+          return new Response(JSON.stringify({
+            error: 'Unable to retrieve existing payment. Please try again or start a new checkout.',
+          }), {
+            status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // PI retrieved successfully — handle by status
+        if (pi.status === 'succeeded') {
+          // Item 4: Do NOT mark as paid — webhook is the authority
+          return new Response(JSON.stringify({
+            paymentIntentId: pi.id,
+            checkoutId: existingCheckout.id,
+            status: pi.status,
+            priceBreakdown: { totalCents },
+          }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        if (pi.status === 'requires_action' || pi.status === 'requires_confirmation' || pi.status === 'processing') {
+          // Still in progress — return clientSecret for frontend to continue
+          return new Response(JSON.stringify({
+            paymentIntentId: pi.id,
+            clientSecret: pi.client_secret,
+            checkoutId: existingCheckout.id,
+            status: pi.status,
+            priceBreakdown: { totalCents },
+          }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        if (pi.status === 'canceled' || pi.status === 'requires_payment_method') {
+          // Item 5: Cancelled/failed PI — increment attempt_number for new idempotency key
+          const newAttempt = (existingCheckout.attempt_number || 1) + 1;
+          await supabaseAdmin.from('checkouts').update({
+            status: 'pending',
+            payment_intent_id: null,
+            attempt_number: newAttempt,
+          }).eq('id', checkoutId);
+          // Fall through to create new PaymentIntent with updated attempt_number
+          existingCheckout.attempt_number = newAttempt;
+        } else {
+          // Unknown PI status — return error, don't fall through
+          return new Response(JSON.stringify({
+            error: `Payment is in an unexpected state (${pi.status}). Please contact support.`,
+          }), {
+            status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      // If status is 'failed' with no PI (e.g. cleared above or webhook set failed)
+      if (existingCheckout.status === 'failed' && !existingCheckout.payment_intent_id) {
+        const newAttempt = (existingCheckout.attempt_number || 1) + 1;
+        await supabaseAdmin.from('checkouts').update({
+          status: 'pending',
+          payment_intent_id: null,
+          attempt_number: newAttempt,
+        }).eq('id', checkoutId);
+        existingCheckout.attempt_number = newAttempt;
+      }
+    }
+
     // --- Create/update checkout record BEFORE payment ---
     if (!existingCheckout) {
       const { error: insertError } = await supabaseAdmin.from('checkouts').insert({
@@ -223,6 +310,7 @@ Deno.serve(async (req) => {
         total_amount: totalDollars,
         currency: 'USD',
         status: 'pending',
+        attempt_number: 1,
       });
       if (insertError && !String(insertError.code).includes('23505')) {
         throw new Error('Failed to create checkout record.');
@@ -264,6 +352,10 @@ Deno.serve(async (req) => {
       await stripeRequest(`/v1/payment_methods/${paymentMethodId}/attach`, attachBody, stripeSecretKey);
     }
 
+    // --- Item 5: Idempotency key includes attempt_number ---
+    const attemptNumber = existingCheckout?.attempt_number || 1;
+    const idempotencyKey = `${checkoutId}:${attemptNumber}`;
+
     // --- Create PaymentIntent with idempotency ---
     const intentBody = new URLSearchParams();
     intentBody.append('amount', String(totalCents));
@@ -281,15 +373,16 @@ Deno.serve(async (req) => {
 
     const paymentIntent = await stripeRequest(
       '/v1/payment_intents', intentBody, stripeSecretKey,
-      { idempotencyKey: checkoutId }
+      { idempotencyKey }
     );
 
-    // --- Update checkout with PaymentIntent ID ---
+    // --- Item 4: Always set status to payment_processing, never 'paid' ---
+    // The verified Stripe webhook is the sole authority for marking payments as paid.
     await supabaseAdmin.from('checkouts').update({
       payment_intent_id: paymentIntent.id,
       payment_method_id: paymentMethodId,
       stripe_customer_id: stripeCustomerId,
-      status: paymentIntent.status === 'succeeded' ? 'paid' : 'payment_processing',
+      status: 'payment_processing',
     }).eq('id', checkoutId);
 
     return new Response(
