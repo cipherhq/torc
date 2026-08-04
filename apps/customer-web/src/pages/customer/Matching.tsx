@@ -73,14 +73,22 @@ export function Matching() {
 
     function handleJobFound(job: any) {
       if (cancelled) return;
-      cancelled = true; // prevent double-handling
 
       setCreatedJobId(job.id);
       if (job.pickup_latitude && job.pickup_longitude) {
         setPickupCoords({ lat: job.pickup_latitude, lng: job.pickup_longitude });
       }
 
-      // Start tiered dispatch to providers
+      // BLOCKER FIX: Only dispatch to providers when the job is
+      // server-finalized with payment_status='paid' and dispatchable.
+      // If still processing, keep polling — do NOT broadcast to providers.
+      if (job.payment_status !== 'paid') {
+        // Job exists but payment not yet confirmed by webhook.
+        // Keep polling — the webhook will update payment_status.
+        return;
+      }
+
+      cancelled = true; // prevent double-handling after dispatch
       dispatchToProviders(job);
     }
 
@@ -105,11 +113,13 @@ export function Matching() {
     pollForJob(); // immediate first check
     pollTimer = setInterval(pollForJob, 2000);
 
-    // Subscribe to real-time inserts on jobs filtered by checkout_id
+    // Subscribe to real-time changes on jobs filtered by checkout_id.
+    // Listen for both INSERT (webhook creates job) and UPDATE (webhook
+    // marks existing job as paid after client-created unpaid job).
     realtimeChannel = supabase
       .channel(`checkout-job-${checkoutId}`)
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'jobs',
         filter: `checkout_id=eq.${checkoutId}`,

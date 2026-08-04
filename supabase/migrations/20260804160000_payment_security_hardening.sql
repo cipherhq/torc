@@ -76,7 +76,7 @@ DECLARE
   v_job_id UUID;
   v_snapshot JSONB;
 BEGIN
-  -- 1. Claim event
+  -- 1. Claim event (unique constraint prevents concurrent duplicates)
   BEGIN
     INSERT INTO processed_webhook_events (event_id, event_type, gateway)
     VALUES (p_event_id, p_event_type, 'stripe');
@@ -84,45 +84,76 @@ BEGIN
     RETURN json_build_object('success', true, 'duplicate', true);
   END;
 
-  -- 2. Find and lock checkout
-  IF p_checkout_id IS NOT NULL THEN
-    SELECT * INTO v_checkout FROM checkouts WHERE id = p_checkout_id::uuid FOR UPDATE;
-  ELSIF p_payment_intent_id IS NOT NULL THEN
-    SELECT * INTO v_checkout FROM checkouts WHERE payment_intent_id = p_payment_intent_id FOR UPDATE;
-  END IF;
-
-  IF v_checkout IS NULL THEN
-    RETURN json_build_object('success', true, 'message', 'No checkout found');
-  END IF;
-
+  -- ================================================================
+  -- payment_intent.succeeded — strict validation, atomic job creation
+  -- ================================================================
   IF p_event_type = 'payment_intent.succeeded' THEN
-    -- 3. Validate
-    IF v_checkout.payment_intent_id IS DISTINCT FROM p_payment_intent_id THEN
-      RAISE EXCEPTION 'PaymentIntent ID mismatch: expected %, got %', v_checkout.payment_intent_id, p_payment_intent_id;
+
+    -- BLOCKER 3: Strictly require checkout_id metadata
+    IF p_checkout_id IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: checkout_id metadata is required';
     END IF;
-    IF p_amount IS NOT NULL AND p_amount != ROUND(v_checkout.total_amount * 100) THEN
-      RAISE EXCEPTION 'Amount mismatch: expected % cents, got %', ROUND(v_checkout.total_amount * 100), p_amount;
+
+    -- Find and lock checkout
+    SELECT * INTO v_checkout FROM checkouts WHERE id = p_checkout_id::uuid FOR UPDATE;
+    IF v_checkout IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: checkout % not found', p_checkout_id;
     END IF;
-    IF p_currency IS NOT NULL AND LOWER(p_currency) != LOWER(v_checkout.currency) THEN
-      RAISE EXCEPTION 'Currency mismatch: expected %, got %', v_checkout.currency, p_currency;
-    END IF;
+
+    -- Already paid — idempotent return (no state change)
     IF v_checkout.status = 'paid' THEN
-      -- Already paid (idempotent)
       RETURN json_build_object('success', true, 'already_paid', true);
     END IF;
 
-    -- 4. Mark checkout paid
-    UPDATE checkouts SET status = 'paid', paid_at = now() WHERE id = v_checkout.id;
+    -- BLOCKER 3: Require and validate exact PaymentIntent ID
+    IF v_checkout.payment_intent_id IS NULL OR v_checkout.payment_intent_id != p_payment_intent_id THEN
+      RAISE EXCEPTION 'PaymentIntent ID mismatch: checkout has %, event has %',
+        v_checkout.payment_intent_id, p_payment_intent_id;
+    END IF;
 
-    -- 5. Create or update job
+    -- BLOCKER 3: Require and validate non-null exact amount (in cents)
+    IF p_amount IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: amount is required';
+    END IF;
+    IF p_amount != ROUND(v_checkout.total_amount * 100) THEN
+      RAISE EXCEPTION 'Amount mismatch: checkout expects % cents, Stripe sent %',
+        ROUND(v_checkout.total_amount * 100), p_amount;
+    END IF;
+
+    -- BLOCKER 3: Require and validate non-null exact currency
+    IF p_currency IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: currency is required';
+    END IF;
+    IF LOWER(p_currency) != LOWER(v_checkout.currency) THEN
+      RAISE EXCEPTION 'Currency mismatch: checkout expects %, Stripe sent %',
+        v_checkout.currency, p_currency;
+    END IF;
+
+    -- BLOCKER 3: Require and validate exact Stripe customer ID
+    IF p_stripe_customer_id IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: stripe_customer_id is required';
+    END IF;
+    IF v_checkout.stripe_customer_id IS NOT NULL AND v_checkout.stripe_customer_id != p_stripe_customer_id THEN
+      RAISE EXCEPTION 'Stripe customer mismatch: checkout has %, event has %',
+        v_checkout.stripe_customer_id, p_stripe_customer_id;
+    END IF;
+
+    -- BLOCKER 2: Require valid booking_snapshot with required fields
+    v_snapshot := v_checkout.booking_snapshot;
+    IF v_snapshot IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: booking_snapshot is NULL — cannot create job';
+    END IF;
+    IF v_snapshot->>'pickup_address' IS NULL THEN
+      RAISE EXCEPTION 'payment_intent.succeeded: booking_snapshot missing pickup_address';
+    END IF;
+
+    -- Create or find the job
     SELECT id INTO v_job_id FROM jobs WHERE checkout_id = v_checkout.id LIMIT 1;
 
     IF v_job_id IS NULL THEN
-      -- Create job from booking_snapshot
-      v_snapshot := v_checkout.booking_snapshot;
-      IF v_snapshot IS NOT NULL THEN
-        INSERT INTO jobs (
-          customer_id, service_id, vehicle_id,
+      -- BLOCKER 2: Create job from booking_snapshot atomically
+      INSERT INTO jobs (
+        customer_id, service_id, vehicle_id,
           pickup_latitude, pickup_longitude, pickup_address,
           destination_address,
           requester_type, requester_name, requester_phone,
@@ -146,22 +177,39 @@ BEGIN
 
         -- Link job back to checkout
         UPDATE checkouts SET job_id = v_job_id WHERE id = v_checkout.id;
-      END IF;
     ELSE
       -- Job already exists — mark paid
       UPDATE jobs SET payment_status = 'paid', paid_at = now() WHERE id = v_job_id AND payment_status != 'paid';
     END IF;
 
+    -- BLOCKER 2: Mark checkout paid ONLY after job is confirmed created/linked
+    UPDATE checkouts SET status = 'paid', paid_at = now() WHERE id = v_checkout.id;
+
     RETURN json_build_object('success', true, 'duplicate', false, 'job_id', v_job_id);
 
   ELSIF p_event_type = 'payment_intent.payment_failed' THEN
-    UPDATE checkouts SET status = 'failed' WHERE id = v_checkout.id;
-    UPDATE jobs SET payment_status = 'failed' WHERE checkout_id = v_checkout.id;
+    -- Find and lock checkout for failed events
+    IF p_checkout_id IS NOT NULL THEN
+      SELECT * INTO v_checkout FROM checkouts WHERE id = p_checkout_id::uuid FOR UPDATE;
+    ELSIF p_payment_intent_id IS NOT NULL THEN
+      SELECT * INTO v_checkout FROM checkouts WHERE payment_intent_id = p_payment_intent_id FOR UPDATE;
+    END IF;
+    IF v_checkout IS NOT NULL THEN
+      UPDATE checkouts SET status = 'failed' WHERE id = v_checkout.id;
+      UPDATE jobs SET payment_status = 'failed' WHERE checkout_id = v_checkout.id;
+    END IF;
     RETURN json_build_object('success', true, 'duplicate', false);
 
   ELSIF p_event_type = 'charge.refunded' THEN
-    UPDATE checkouts SET status = 'refunded' WHERE id = v_checkout.id;
-    UPDATE jobs SET payment_status = 'refunded' WHERE checkout_id = v_checkout.id;
+    IF p_checkout_id IS NOT NULL THEN
+      SELECT * INTO v_checkout FROM checkouts WHERE id = p_checkout_id::uuid FOR UPDATE;
+    ELSIF p_payment_intent_id IS NOT NULL THEN
+      SELECT * INTO v_checkout FROM checkouts WHERE payment_intent_id = p_payment_intent_id FOR UPDATE;
+    END IF;
+    IF v_checkout IS NOT NULL THEN
+      UPDATE checkouts SET status = 'refunded' WHERE id = v_checkout.id;
+      UPDATE jobs SET payment_status = 'refunded' WHERE checkout_id = v_checkout.id;
+    END IF;
     RETURN json_build_object('success', true, 'duplicate', false);
   END IF;
 

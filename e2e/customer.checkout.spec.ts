@@ -505,13 +505,34 @@ test.describe('Payment Interruption — Webhook-Driven Job Recovery', () => {
       });
     });
 
-    // Mock RPCs
+    // Track ALL RPC calls — specifically watching for provider lookup/broadcast
+    let providerRpcCalls = 0;
+    let broadcastCalls = 0;
+
+    await page.route(`${SUPABASE_URL}/rest/v1/rpc/get_nearby_providers*`, (route) => {
+      providerRpcCalls++;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
     await page.route(`${SUPABASE_URL}/rest/v1/rpc/**`, (route) => {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify([]),
       });
+    });
+
+    // Track broadcast channel subscriptions (provider dispatch)
+    await page.route(`${SUPABASE_URL}/realtime/**`, (route) => {
+      const url = route.request().url();
+      if (url.includes('provider-job-') || url.includes('new-job-broadcast')) {
+        broadcastCalls++;
+      }
+      return route.abort('connectionrefused');
     });
 
     // Seed booking context
@@ -545,5 +566,10 @@ test.describe('Payment Interruption — Webhook-Driven Job Recovery', () => {
     // The page should still show matching content (not error)
     const bodyText = await page.locator('body').innerText();
     expect(bodyText.length).toBeGreaterThan(0);
+
+    // CRITICAL ASSERTION: ZERO provider lookup RPCs should have been called.
+    // An unpaid job must never trigger get_nearby_providers or broadcast.
+    expect(providerRpcCalls).toBe(0);
+    expect(broadcastCalls).toBe(0);
   });
 });
