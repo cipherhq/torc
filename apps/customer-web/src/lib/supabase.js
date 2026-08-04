@@ -5,9 +5,9 @@ import { Preferences } from '@capacitor/preferences';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
-}
+// Validation is handled by configValidation.ts at mount time.
+// Do NOT throw here -- throwing at import time causes a blank white screen
+// with no actionable error message.
 
 // When running inside the native app wrapper, the native side handles token refresh.
 const isNative = typeof window !== 'undefined' && window.__TORC_NATIVE__ === true;

@@ -13,7 +13,7 @@
     "pm2:logs": "pm2 logs torc-push-worker"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.47.10",
+    "@supabase/supabase-js": "^2.97.0",
     "dotenv": "^16.4.7",
     "expo-server-sdk": "^3.11.0",
     "pg": "^8.13.1"

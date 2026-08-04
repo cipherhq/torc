@@ -7,6 +7,7 @@
     "dev": "vite --port 7001",
     "build": "vite build",
     "preview": "vite preview --port 7001",
+    "test": "vitest run",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android",
@@ -27,13 +28,13 @@
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
     "@react-google-maps/api": "^2.20.8",
-    "@supabase/supabase-js": "^2.49.4",
+    "@supabase/supabase-js": "^2.97.0",
     "capacitor-native-settings": "^8.0.0",
     "lucide-react": "^0.487.0",
     "motion": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router": "*",
+    "react-router": "^7.13.0",
     "recharts": "^2.15.3"
   },
   "devDependencies": {

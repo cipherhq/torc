@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
@@ -16,28 +16,79 @@ export function AuthProvider({ children }) {
   const [providerProfile, setProviderProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Once initial auth check completes, never revert to loading screen
+  const [initialAuthDone, setInitialAuthDone] = useState(false);
+  const initialAuthDoneRef = useRef(false);
+
+  // Track the current user id to detect same-user vs new-user SIGNED_IN events
+  const currentUserIdRef = useRef(null);
+
+  // Monotonic counter for stale fetch cancellation
+  const profileFetchIdRef = useRef(0);
+
   useEffect(() => {
     // Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+      const sessionUser = session?.user ?? null;
+      setUser(sessionUser);
+      currentUserIdRef.current = sessionUser?.id || null;
+      if (sessionUser) {
+        fetchProfile(sessionUser.id);
       } else {
         setLoading(false);
+        setInitialAuthDone(true);
+        initialAuthDoneRef.current = true;
       }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        setLoading(true);
-        fetchProfile(session.user.id);
-      } else {
+      const sessionUser = session?.user ?? null;
+
+      // TOKEN_REFRESHED: same session, skip entirely
+      if (event === 'TOKEN_REFRESHED') {
+        return;
+      }
+
+      // SIGNED_IN with same user: skip (duplicate event from token refresh)
+      if (event === 'SIGNED_IN' && sessionUser?.id === currentUserIdRef.current) {
+        // Silent profile refresh in background (no loading state)
+        if (sessionUser) {
+          fetchProfile(sessionUser.id, { silent: true });
+        }
+        return;
+      }
+
+      // USER_UPDATED: silent refresh
+      if (event === 'USER_UPDATED') {
+        setUser(sessionUser);
+        if (sessionUser) {
+          fetchProfile(sessionUser.id, { silent: true });
+        }
+        return;
+      }
+
+      // SIGNED_OUT
+      if (!sessionUser) {
+        setUser(null);
         setProfile(null);
         setProviderProfile(null);
+        currentUserIdRef.current = null;
         setLoading(false);
+        if (!initialAuthDoneRef.current) {
+          setInitialAuthDone(true);
+          initialAuthDoneRef.current = true;
+        }
+        return;
       }
+
+      // New user SIGNED_IN
+      setUser(sessionUser);
+      currentUserIdRef.current = sessionUser.id;
+      if (!initialAuthDoneRef.current) {
+        setLoading(true);
+      }
+      fetchProfile(sessionUser.id);
     });
 
     return () => subscription.unsubscribe();
@@ -130,14 +181,16 @@ export function AuthProvider({ children }) {
     function handleVisibility() {
       if (document.visibilityState === 'visible') {
         fetchProviderProfile(user.id);
-        fetchProfile(user.id);
+        fetchProfile(user.id, { silent: true });
       }
     }
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [user?.id, fetchProviderProfile]);
 
-  async function fetchProfile(userId) {
+  async function fetchProfile(userId, { silent = false } = {}) {
+    const fetchId = ++profileFetchIdRef.current;
+
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -145,9 +198,16 @@ export function AuthProvider({ children }) {
         .eq('id', userId)
         .maybeSingle();
 
+      // Stale fetch guard
+      if (fetchId !== profileFetchIdRef.current) return;
+
       if (error) throw error;
 
       const { data: { user: authUser } } = await supabase.auth.getUser();
+
+      // Stale fetch guard
+      if (fetchId !== profileFetchIdRef.current) return;
+
       const meta = authUser?.user_metadata || {};
       const profileBase = data || { id: userId, email: authUser?.email || '' };
 
@@ -157,9 +217,10 @@ export function AuthProvider({ children }) {
         last_name: profileBase.last_name || meta.last_name || '',
         full_name: profileBase.full_name || meta.full_name || '',
         phone: profileBase.phone || meta.phone || '',
-        role: profileBase.role || meta.role || 'provider',
+        role: profileBase.role || meta.role || null,
       };
 
+      if (fetchId !== profileFetchIdRef.current) return;
       setProfile(merged);
 
       // Fetch provider profile for verification status
@@ -167,20 +228,33 @@ export function AuthProvider({ children }) {
         await fetchProviderProfile(userId);
       }
     } catch (error) {
+      if (fetchId !== profileFetchIdRef.current) return;
       console.warn('Error fetching profile:', error);
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      const meta = authUser?.user_metadata || {};
-      setProfile({
-        id: userId,
-        email: authUser?.email || '',
-        first_name: meta.first_name || '',
-        last_name: meta.last_name || '',
-        full_name: meta.full_name || '',
-        phone: meta.phone || '',
-        role: meta.role || 'provider',
-      });
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (fetchId !== profileFetchIdRef.current) return;
+        const meta = authUser?.user_metadata || {};
+        setProfile({
+          id: userId,
+          email: authUser?.email || '',
+          first_name: meta.first_name || '',
+          last_name: meta.last_name || '',
+          full_name: meta.full_name || '',
+          phone: meta.phone || '',
+          role: meta.role || null,
+        });
+      } catch {
+        if (fetchId !== profileFetchIdRef.current) return;
+        setProfile({ id: userId, role: null });
+      }
     } finally {
-      setLoading(false);
+      if (fetchId === profileFetchIdRef.current) {
+        setLoading(false);
+        if (!initialAuthDoneRef.current) {
+          setInitialAuthDone(true);
+          initialAuthDoneRef.current = true;
+        }
+      }
     }
   }
 
@@ -243,7 +317,7 @@ export function AuthProvider({ children }) {
 
   const updateProfile = async (updates) => {
     if (!user) throw new Error('No user logged in');
-    
+
     const { data, error } = await supabase
       .from('profiles')
       .update(updates)
@@ -279,6 +353,15 @@ export function AuthProvider({ children }) {
     refreshProviderProfile,
   };
 
+  // Only show loading screen before initial auth check completes
+  if (!initialAuthDone) {
+    return (
+      <AuthContext.Provider value={value}>
+        <LoadingScreen />
+      </AuthContext.Provider>
+    );
+  }
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -294,12 +377,22 @@ export function useAuth() {
 export function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
+  const hasRenderedRef = useRef(false);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       navigate('/login');
     }
   }, [isAuthenticated, loading, navigate]);
+
+  if (isAuthenticated) {
+    hasRenderedRef.current = true;
+  }
+
+  // Once rendered while authenticated, keep rendering during background refreshes
+  if (hasRenderedRef.current && isAuthenticated) {
+    return children;
+  }
 
   if (loading) {
     return <LoadingScreen />;
@@ -312,6 +405,7 @@ export function ProviderProtectedRoute({ children }) {
   const { isAuthenticated, loading, profile } = useAuth();
   const navigate = useNavigate();
   const isAuthorized = profile?.role === 'provider';
+  const hasRenderedRef = useRef(false);
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -321,6 +415,14 @@ export function ProviderProtectedRoute({ children }) {
       navigate('/login');
     }
   }, [isAuthenticated, loading, isAuthorized, navigate]);
+
+  if (isAuthenticated && isAuthorized) {
+    hasRenderedRef.current = true;
+  }
+
+  if (hasRenderedRef.current && isAuthenticated) {
+    return children;
+  }
 
   if (loading) {
     return <LoadingScreen />;

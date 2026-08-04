@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useTheme } from '../../context/ThemeContext';
-import { getRequestContext, updateRequestContext } from '../../data/requestContext';
+import { getRequestContext, updateRequestContext } from '../../data/bookingDraftStore';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Icons from 'lucide-react';
 

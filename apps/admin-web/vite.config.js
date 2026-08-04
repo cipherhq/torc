@@ -17,4 +17,9 @@ export default defineConfig({
       '@torc/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.js'],
+  },
 });

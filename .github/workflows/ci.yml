@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Clean install (frozen lockfile)
+        run: npm ci
+
+  unit-tests:
+    name: Unit Tests
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run customer-web tests
+        run: npx vitest run --config apps/customer-web/vite.config.js --reporter=verbose
+        env:
+          VITE_SUPABASE_URL: https://test.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+      - name: Run provider-web tests
+        run: npx vitest run --config apps/provider-web/vite.config.js --reporter=verbose
+        env:
+          VITE_SUPABASE_URL: https://test.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+      - name: Run admin-web tests
+        run: npx vitest run --config apps/admin-web/vite.config.js --reporter=verbose
+        env:
+          VITE_SUPABASE_URL: https://test.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+
+  build:
+    name: Build All Apps
+    needs: install
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [customer-web, provider-web, admin-web, website]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build ${{ matrix.app }}
+        run: npm run build --workspace=apps/${{ matrix.app }}
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-key
+          VITE_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+          VITE_GOOGLE_MAPS_API_KEY: placeholder
+          VITE_APP_URL: https://torcapp.com
+
+  migration-validation:
+    name: Validate Migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate SQL migration files
+        run: |
+          set -euo pipefail
+          ERRORS=0
+          for f in database/migrations/*.sql supabase/migrations/*.sql; do
+            [ -f "$f" ] || continue
+            echo "Checking: $f"
+            # Must not be empty
+            if [ ! -s "$f" ]; then
+              echo "ERROR: Empty migration file: $f"
+              ERRORS=$((ERRORS + 1))
+              continue
+            fi
+            # Must contain at least one SQL keyword
+            if ! grep -qiE '(CREATE|ALTER|INSERT|UPDATE|DROP|SELECT|GRANT|REVOKE|SET)' "$f"; then
+              echo "ERROR: No SQL keywords found in: $f"
+              ERRORS=$((ERRORS + 1))
+              continue
+            fi
+            # Must not contain syntax errors detectable by simple checks
+            if grep -qP '^\s*$\n\s*$\n\s*$' "$f"; then
+              echo "WARNING: Excessive blank lines in: $f"
+            fi
+          done
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "FAILED: $ERRORS migration file(s) have errors"
+            exit 1
+          fi
+          echo "All migration files validated."
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for secrets in source code
+        run: |
+          set -euo pipefail
+          FOUND=0
+          # Check for actual secret values (not env.get references)
+          for pattern in 'sk_live_[a-zA-Z0-9]{10,}' 'eyJhbGci[a-zA-Z0-9_=-]{20,}'; do
+            MATCHES=$(grep -rnE "$pattern" apps/ packages/ supabase/functions/ \
+              --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
+              | grep -v node_modules | grep -v '.test.' | grep -v 'pk_test_placeholder' || true)
+            if [ -n "$MATCHES" ]; then
+              echo "ERROR: Secret pattern '$pattern' found:"
+              echo "$MATCHES"
+              FOUND=1
+            fi
+          done
+          # Check for committed .env files
+          if find . -name '.env' -not -name '.env.example' -not -path '*/node_modules/*' | grep -q .; then
+            echo "ERROR: .env file found in repository"
+            FOUND=1
+          fi
+          if [ "$FOUND" -eq 1 ]; then
+            echo "FAILED: Secrets or .env files detected"
+            exit 1
+          fi
+          echo "Security scan passed."

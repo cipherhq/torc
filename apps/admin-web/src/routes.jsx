@@ -22,9 +22,19 @@ import { AdminServices } from "./pages/admin/Services";
 import { AdminTeam } from "./pages/admin/Team";
 import { AdminDirectory } from "./pages/admin/Directory";
 import { AppSelector } from "./pages/AppSelector";
+import { RouteErrorElement } from "./components/RouteErrorElement";
+import { Outlet } from "react-router";
+
+function RootLayout() {
+  return <Outlet />;
+}
 
 export const router = createBrowserRouter(
   [
+  {
+    Component: RootLayout,
+    errorElement: <RouteErrorElement />,
+    children: [
   {
     path: "/",
     element: <Navigate to="/dashboard" replace />,
@@ -128,6 +138,8 @@ export const router = createBrowserRouter(
   {
     path: "*",
     element: <Navigate to="/dashboard" replace />,
+  },
+    ],
   },
 ],
   { basename: '/' }
