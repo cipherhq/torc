@@ -204,7 +204,7 @@ jobs:
               'processed_webhook_events must have RLS enabled';
           END $$;
 
-          RAISE NOTICE 'All RLS and privilege assertions passed.';
+          DO $$ BEGIN RAISE NOTICE 'All RLS and privilege assertions passed.'; END $$;
           SQL
 
   security-scan:

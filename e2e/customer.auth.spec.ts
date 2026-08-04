@@ -85,10 +85,9 @@ test.describe('Customer Auth — Token Refresh Preserves Route & Form', () => {
 
     // Seed the Supabase session in localStorage BEFORE any navigation
     // so AuthContext.getSession() finds a valid session immediately.
-    await page.goto('about:blank');
+    // Navigate to the app root first so localStorage is accessible on the correct origin
+    await page.goto('/');
     await page.evaluate((session) => {
-      // Supabase stores sessions with key sb-<project-ref>-auth-token
-      // The ref comes from the URL: https://<ref>.supabase.co → ref = 'test'
       localStorage.setItem(
         'sb-test-auth-token',
         JSON.stringify({
