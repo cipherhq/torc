@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --port 8082",
     "build": "vite build",
-    "preview": "vite preview --port 8082"
+    "build:staging": "vite build --mode staging",
+    "preview": "vite preview --port 8082",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",
@@ -14,11 +17,15 @@
     "motion": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router": "*",
+    "react-router": "^7.13.0",
     "recharts": "^2.15.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react-swc": "^3.10.2",
-    "vite": "6.3.5"
+    "jsdom": "^29.0.1",
+    "vite": "6.3.5",
+    "vitest": "^4.1.0"
   }
 }

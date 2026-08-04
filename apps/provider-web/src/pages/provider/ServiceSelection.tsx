@@ -49,7 +49,6 @@ export function ProviderServiceSelection() {
         }
       } catch (error) {
         console.warn('Failed to load provider services:', error);
-        setServices([]);
       } finally {
         setLoading(false);
       }

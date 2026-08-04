@@ -5,14 +5,12 @@ import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { getRequestContext, updateRequestContext } from '../../data/requestContext';
+import { getRequestContext, updateRequestContext } from '../../data/bookingDraftStore';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import type { StripeCardNumberElementOptions, PaymentMethod } from '@stripe/stripe-js';
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
 interface AddCardFormProps {
   onCancel: () => void;
@@ -47,7 +45,9 @@ function AddCardForm({
   const elementStyle: StripeCardNumberElementOptions['style'] = {
     base: {
       color: isDark ? '#FFFFFF' : '#1F2937',
-      fontSize: '15px',
+      fontSize: '18px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      lineHeight: '28px',
       '::placeholder': { color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' },
     },
     invalid: { color: '#EF4444' },
@@ -103,45 +103,45 @@ function AddCardForm({
           </div>
         )}
         <div>
-          <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>Cardholder Name</label>
+          <label className="text-sm font-medium mb-1.5 block" style={{ color: textColor }}>Cardholder Name</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name on card"
-            className="w-full px-3 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/50"
-            style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
+            className="w-full h-14 px-4 rounded-lg text-lg outline-none transition-colors"
+            style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }}
           />
         </div>
         <div>
-          <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>Card Number *</label>
+          <label className="text-sm font-medium mb-1.5 block" style={{ color: textColor }}>Card Number <span style={{ color: '#EF4444' }}>*</span></label>
           <div
-            className="w-full px-3 py-3 rounded-xl"
-            style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
+            className="w-full h-14 px-4 flex items-center rounded-lg transition-colors"
+            style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}` }}
             onClick={() => elements?.getElement(CardNumberElement)?.focus()}
           >
-            <CardNumberElement options={{ style: elementStyle, showIcon: true }} />
+            <CardNumberElement options={{ style: elementStyle, showIcon: true }} className="w-full" />
           </div>
         </div>
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>Expiry *</label>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" style={{ color: textColor }}>Expiry Date <span style={{ color: '#EF4444' }}>*</span></label>
             <div
-              className="w-full px-3 py-3 rounded-xl"
-              style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
+              className="w-full h-14 px-4 flex items-center rounded-lg transition-colors"
+              style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}` }}
               onClick={() => elements?.getElement(CardExpiryElement)?.focus()}
             >
-              <CardExpiryElement options={{ style: elementStyle }} />
+              <CardExpiryElement options={{ style: elementStyle, placeholder: 'MM / YY' }} className="w-full" />
             </div>
           </div>
-          <div className="flex-1">
-            <label className="text-xs font-medium mb-1 block" style={{ color: subColor }}>CVC *</label>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" style={{ color: textColor }}>Security Code <span style={{ color: '#EF4444' }}>*</span></label>
             <div
-              className="w-full px-3 py-3 rounded-xl"
-              style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}` }}
+              className="w-full h-14 px-4 flex items-center rounded-lg transition-colors"
+              style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}` }}
               onClick={() => elements?.getElement(CardCvcElement)?.focus()}
             >
-              <CardCvcElement options={{ style: elementStyle }} />
+              <CardCvcElement options={{ style: elementStyle, placeholder: 'CVC' }} className="w-full" />
             </div>
           </div>
         </div>
@@ -152,13 +152,13 @@ function AddCardForm({
       </div>
 
       <div className="flex gap-3 mt-5">
-        <button onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}>
+        <button onClick={onCancel} className="flex-1 h-12 rounded-lg font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: textColor }}>
           {cancelLabel}
         </button>
         <button
           onClick={submit}
           disabled={saving}
-          className="flex-1 px-4 py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50"
+          className="flex-1 h-12 rounded-lg font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50"
         >
           {saving ? 'Processing...' : submitLabel}
         </button>
@@ -169,7 +169,7 @@ function AddCardForm({
 
 export function PricingPayment() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { isDark } = useTheme();
   const context = getRequestContext();
 
@@ -182,6 +182,9 @@ export function PricingPayment() {
   const [saving, setSaving] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [taxRate, setTaxRate] = useState(8);
+  const [hazardFeeAmount, setHazardFeeAmount] = useState(15);
+  const [schedulingFeeAmount, setSchedulingFeeAmount] = useState(5);
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -193,7 +196,16 @@ export function PricingPayment() {
   useEffect(() => {
     if (!user) return;
     fetchPaymentMethods();
-    loadPlatformSettings().then(s => setTaxRate(s.tax_rate)).catch(() => {});
+    loadPlatformSettings().then(s => {
+      setTaxRate(s.tax_rate);
+      setHazardFeeAmount(s.hazard_fee);
+      setSchedulingFeeAmount(s.scheduling_fee);
+      const key = s.stripe_publishable_key || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+      if (key) setStripePromise(loadStripe(key));
+    }).catch(() => {
+      const key = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+      if (key) setStripePromise(loadStripe(key));
+    });
   }, [user]);
 
   useEffect(() => {
@@ -201,6 +213,7 @@ export function PricingPayment() {
   }, [context.serviceId, navigate]);
 
   const fetchPaymentMethods = async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase.from('payment_methods').select('*').eq('user_id', user.id);
       if (error) throw error;
@@ -239,8 +252,8 @@ export function PricingPayment() {
   };
 
   const basePrice = Number(context.serviceBasePrice || 0);
-  const hazardFee = context.isHazardous ? 15 : 0;
-  const schedulingFee = context.scheduledFor ? 5 : 0;
+  const hazardFee = context.isHazardous ? hazardFeeAmount : 0;
+  const schedulingFee = context.scheduledFor ? schedulingFeeAmount : 0;
   const subtotal = basePrice + hazardFee + schedulingFee;
   const tax = subtotal * (taxRate / 100);
   const total = subtotal + tax;
@@ -258,9 +271,12 @@ export function PricingPayment() {
       const selected = paymentMethods.find((m: any) => m.id === selectedPayment);
       stripePaymentMethodId = selected?.stripe_payment_method_id || null;
       if (!stripePaymentMethodId) {
-        setErrors(['Selected payment method is not linked to Stripe. Please add the card again.']);
+        setErrors(['This saved card is missing its payment link. Please remove it and add the card again.']);
         return;
       }
+    } else if (paymentMethods.length > 0 && !selectedPayment) {
+      setErrors(['Please select a payment method to continue']);
+      return;
     } else {
       setErrors(['Please enter your card details to continue']);
       return;
@@ -270,55 +286,59 @@ export function PricingPayment() {
       setProcessingPayment(true);
       setErrors([]);
 
-      // Get a fresh token via refresh, fallback to current session
-      const { data: refreshData } = await supabase.auth.refreshSession();
-      let token = refreshData?.session?.access_token;
-      if (!token) {
-        const { data: { session } } = await supabase.auth.getSession();
-        token = session?.access_token;
-      }
-      if (!token) throw new Error('Please sign in again to continue.');
-
-      // Direct fetch to guarantee the fresh token is used (--no-verify-jwt deployed)
-      const fnRes = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      // Use supabase.functions.invoke() which handles auth headers automatically.
+      // It attaches the current session token and apikey correctly.
+      const { data, error: fnError } = await supabase.functions.invoke('create-payment-intent', {
+        body: {
+          amount: Number(total.toFixed(2)),
+          currency: 'usd',
+          paymentMethodId: stripePaymentMethodId,
+          savePaymentMethod: saveCard,
+          metadata: {
+            service_id: context.serviceId,
+            flow: 'customer_checkout',
           },
-          body: JSON.stringify({
-            amount: Number(total.toFixed(2)),
-            currency: 'usd',
-            paymentMethodId: stripePaymentMethodId,
-            savePaymentMethod: saveCard,
-            metadata: {
-              service_id: context.serviceId,
-              flow: 'customer_checkout',
-            },
-          }),
-        }
-      );
-      const data = await fnRes.json();
-      if (!fnRes.ok) throw new Error(data?.error || `Payment failed (${fnRes.status})`);
-      if (!data?.clientSecret) throw new Error(data?.error || 'Missing client secret from payment intent.');
-
-      const stripe = await stripePromise;
-      if (!stripe) throw new Error('Stripe is not available right now.');
-
-      const confirmResult = await stripe.confirmCardPayment(data.clientSecret, {
-        payment_method: stripePaymentMethodId,
+        },
       });
 
-      if (confirmResult.error) {
-        throw new Error(confirmResult.error.message || 'Payment confirmation failed.');
+      if (fnError) {
+        const msg = fnError.message || '';
+        if (msg.includes('card was declined') || msg.includes('card_declined')) {
+          throw new Error('Your card was declined. Please try a different card.');
+        } else if (msg.includes('insufficient_funds')) {
+          throw new Error('Insufficient funds. Please try a different card.');
+        } else if (msg.includes('expired_card')) {
+          throw new Error('Your card has expired. Please use a different card.');
+        } else if (msg.includes('incorrect_cvc') || msg.includes('incorrect_number')) {
+          throw new Error('Card details are incorrect. Please check and try again.');
+        } else if (msg.includes('processing_error')) {
+          throw new Error('Your card could not be processed. Please try again or use a different card.');
+        } else if (msg.includes('authentication_required') || msg.includes('requires_action')) {
+          throw new Error('Additional verification is required by your bank. Please try again.');
+        } else if (msg.includes('live mode') || msg.includes('test mode')) {
+          throw new Error('Payment system configuration error. Please contact support.');
+        } else {
+          throw new Error(`Payment error: ${msg || JSON.stringify(fnError) || 'Unknown error'}`);
+        }
       }
+      if (!data?.paymentIntentId) throw new Error(data?.error || 'Payment could not be completed. Please try again.');
 
-      const paymentIntent = confirmResult.paymentIntent;
-      if (!paymentIntent || paymentIntent.status !== 'succeeded') {
-        throw new Error(`Payment not completed (status: ${paymentIntent?.status || 'unknown'}).`);
+      // Payment is confirmed server-side. Only use client confirmation as
+      // fallback if Stripe requires additional action (e.g. 3D Secure).
+      if (data.status === 'requires_action' && data.clientSecret) {
+        const stripe = await stripePromise;
+        if (!stripe) throw new Error('Stripe is not available right now.');
+        const confirmResult = await stripe.confirmCardPayment(data.clientSecret, {
+          payment_method: stripePaymentMethodId,
+        });
+        if (confirmResult.error) {
+          throw new Error(confirmResult.error.message || 'Payment confirmation failed.');
+        }
+        if (!confirmResult.paymentIntent || confirmResult.paymentIntent.status !== 'succeeded') {
+          throw new Error(`Payment not completed (status: ${confirmResult.paymentIntent?.status || 'unknown'}).`);
+        }
+      } else if (data.status !== 'succeeded') {
+        throw new Error(`Payment not completed (status: ${data.status || 'unknown'}).`);
       }
 
       // Save card to DB only if user opted in
@@ -339,20 +359,56 @@ export function PricingPayment() {
       updateRequestContext({
         paymentMethodId: selectedPayment || null,
         estimatedPrice: total,
-        paymentIntentId: paymentIntent.id,
+        paymentIntentId: data.paymentIntentId,
         paymentStatus: 'paid',
-        paymentCurrency: (paymentIntent.currency || 'usd').toUpperCase(),
+        paymentCurrency: 'USD',
       });
+      setProcessingPayment(false);
       navigate('/matching');
     } catch (e: any) {
-      setErrors([e?.message || 'Could not process payment right now.']);
+      const msg = e?.message || '';
+      // Fallback: if the raw error is unhelpful (e.g. "Load failed", "Failed to fetch"), show a friendly message
+      const isGenericNetworkError = /load failed|failed to fetch|networkerror|network request/i.test(msg);
+      setErrors([isGenericNetworkError
+        ? 'Unable to connect to payment server. Please check your internet connection and try again.'
+        : msg || 'Could not process payment right now. Please try again.',
+      ]);
       setProcessingPayment(false);
     }
   };
 
+  if (!stripePromise) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center px-6" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+        <svg className="animate-spin h-10 w-10 mb-4" style={{ color: '#008CE5' }} viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <p className="font-semibold text-lg" style={{ color: textColor }}>Loading Payment...</p>
+      </div>
+    );
+  }
+
+  if (processingPayment) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+        <svg className="animate-spin h-10 w-10 mb-4" style={{ color: '#008CE5' }} viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <p className="font-semibold text-lg" style={{ color: textColor }}>Processing Payment...</p>
+        <p className="text-sm mt-2" style={{ color: subColor }}>Please wait, do not close the app</p>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col relative" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
-      <PageHeader title="Review & Pay" />
+      <PageHeader title="Review & Pay" onBack={() => navigate('/schedule')} rightAction={
+        <button onClick={() => navigate('/customer/home')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+          <X className="w-5 h-5 text-white" />
+        </button>
+      } />
 
       <div className="relative z-10 flex-1 px-6 overflow-y-auto overscroll-contain" style={{ paddingTop: 'calc(var(--safe-top) + 64px)', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 0px))' }}>
         {/* Price breakdown */}
@@ -387,7 +443,7 @@ export function PricingPayment() {
                 <span className="font-semibold text-sm" style={{ color: textColor }}>${subtotal.toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm" style={{ color: subColor }}>Tax (8%)</span>
+                <span className="text-sm" style={{ color: subColor }}>Tax ({taxRate}%)</span>
                 <span className="font-semibold text-sm" style={{ color: textColor }}>${tax.toFixed(2)}</span>
               </div>
             </div>
@@ -432,6 +488,12 @@ export function PricingPayment() {
                   cancelLabel="Go Back"
                 />
               </Elements>
+              <button onClick={() => setSaveCard(!saveCard)} className="w-full rounded-xl p-3 flex items-center gap-3 mt-3" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F5F9FF' }}>
+                <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors" style={{ borderColor: saveCard ? '#008CE5' : subColor, backgroundColor: saveCard ? '#008CE5' : 'transparent' }}>
+                  {saveCard && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <p className="font-semibold text-sm flex-1 text-left" style={{ color: textColor }}>Save card for future use</p>
+              </button>
             </div>
           ) : paymentMethods.length === 0 && tempPaymentMethod ? (
             <div className="space-y-3 mb-3">
@@ -479,6 +541,7 @@ export function PricingPayment() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (!confirm('Remove this card?')) return;
                         (async () => {
                           await supabase.from('payment_methods').delete().eq('id', method.id);
                           await fetchPaymentMethods();
@@ -513,8 +576,8 @@ export function PricingPayment() {
           )}
         </div>
 
-        {/* Save card toggle - only shown for one-time card use */}
-        {tempPaymentMethod && (
+        {/* Save card toggle - shown when card was entered via modal (user has existing cards) */}
+        {tempPaymentMethod && paymentMethods.length > 0 && (
           <button onClick={() => setSaveCard(!saveCard)} className="w-full rounded-2xl p-4 flex items-center gap-3 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
             <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors" style={{ borderColor: saveCard ? '#008CE5' : subColor, backgroundColor: saveCard ? '#008CE5' : 'transparent' }}>
               {saveCard && <Check className="w-3 h-3 text-white" />}
@@ -523,9 +586,13 @@ export function PricingPayment() {
           </button>
         )}
 
-        {/* Inline errors */}
+        {/* Errors displayed in fixed bottom bar */}
+      </div>
+
+      {/* Fixed bottom */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 px-6 py-4" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
         {errors.length > 0 && (
-          <div className="mb-4 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
+          <div className="mb-3 rounded-xl p-3 bg-red-500/10 border border-red-500/30">
             {errors.map((err, i) => (
               <div key={i} className="flex items-center gap-2">
                 <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
@@ -534,19 +601,21 @@ export function PricingPayment() {
             ))}
           </div>
         )}
-      </div>
-
-      {/* Fixed bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 px-6 py-4" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: `1px solid ${cardBorder}`, paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm" style={{ color: subColor }}>Total Amount</span>
           <span className="font-bold text-xl" style={{ color: '#008CE5' }}>${total.toFixed(2)}</span>
         </div>
         <button onClick={handleConfirm}
           disabled={processingPayment}
-          className="torc-btn-primary"
-          style={processingPayment ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+          className="torc-btn-primary flex items-center justify-center gap-2"
+          style={processingPayment ? { opacity: 0.7, pointerEvents: 'none' } : undefined}
         >
+          {processingPayment && (
+            <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          )}
           {processingPayment ? 'Processing Payment...' : 'Confirm & Request'}
         </button>
       </div>

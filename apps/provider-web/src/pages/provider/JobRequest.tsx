@@ -296,63 +296,39 @@ export function JobRequest() {
     <div className="min-h-screen relative overflow-x-hidden overflow-y-auto bg-gradient-to-b from-[#F4F8FF] via-[#EEF5FF] to-[#FFFFFF]" style={{ paddingBottom: 'calc(24px + var(--safe-bottom, 0px))' }}>
       <MapBackground />
 
-      {/* Pulsating urgency border glow */}
-      <motion.div
-        className="pointer-events-none absolute inset-0 z-40"
-        animate={{
-          boxShadow: isCritical
-            ? [
-                'inset 0 0 60px 10px rgba(239,68,68,0.0)',
-                'inset 0 0 80px 25px rgba(239,68,68,0.35)',
-                'inset 0 0 60px 10px rgba(239,68,68,0.0)',
-              ]
-            : isUrgent
-              ? [
-                  'inset 0 0 50px 8px rgba(239,68,68,0.0)',
-                  'inset 0 0 60px 18px rgba(239,68,68,0.2)',
-                  'inset 0 0 50px 8px rgba(239,68,68,0.0)',
-                ]
-              : [
-                  'inset 0 0 40px 5px rgba(0,140,229,0.0)',
-                  'inset 0 0 50px 12px rgba(0,140,229,0.12)',
-                  'inset 0 0 40px 5px rgba(0,140,229,0.0)',
-                ],
-        }}
-        transition={{ duration: isCritical ? 0.6 : isUrgent ? 1.0 : 2.0, repeat: Infinity, ease: 'easeInOut' }}
-      />
-
-      {/* Expanding ring pulses */}
-      {[0, 1, 2].map((i) => (
+      {/* Urgency border glow — only shown in urgent/critical states */}
+      {isUrgent && (
         <motion.div
-          key={`ring-${i}`}
-          className="pointer-events-none absolute rounded-full"
-          style={{
-            top: '50%', left: '50%',
-            width: 200, height: 200,
-            marginTop: -100, marginLeft: -100,
-            border: `2px solid ${isCritical ? 'rgba(239,68,68,0.4)' : 'rgba(0,140,229,0.25)'}`,
+          className="pointer-events-none absolute inset-0 z-40"
+          animate={{
+            opacity: [0.3, 0.7, 0.3],
           }}
-          animate={{ scale: [1, 4.5], opacity: [0.6, 0] }}
-          transition={{
-            duration: isCritical ? 1.5 : 2.5,
-            repeat: Infinity,
-            delay: i * (isCritical ? 0.5 : 0.8),
-            ease: 'easeOut',
-          }}
+          transition={{ duration: isCritical ? 0.8 : 1.5, repeat: Infinity, ease: 'easeInOut' }}
+          style={{ boxShadow: `inset 0 0 40px 10px ${isCritical ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.15)'}` }}
         />
-      ))}
+      )}
 
+      {/* Single ring pulse — reduced from 3 for performance */}
       <motion.div
-        className="pointer-events-none absolute -top-24 -left-20 h-64 w-64 rounded-full blur-[120px]"
-        style={{ backgroundColor: isCritical ? 'rgba(239,68,68,0.3)' : 'rgba(0,140,229,0.25)' }}
-        animate={{ x: [0, 22, 0], y: [0, -18, 0], scale: [1, 1.25, 1] }}
-        transition={{ duration: isCritical ? 2 : 7, repeat: Infinity, ease: 'easeInOut' }}
+        className="pointer-events-none absolute rounded-full"
+        style={{
+          top: '50%', left: '50%',
+          width: 200, height: 200,
+          marginTop: -100, marginLeft: -100,
+          border: `2px solid ${isCritical ? 'rgba(239,68,68,0.4)' : 'rgba(0,140,229,0.25)'}`,
+        }}
+        animate={{ scale: [1, 3.5], opacity: [0.5, 0] }}
+        transition={{ duration: isCritical ? 1.5 : 2.5, repeat: Infinity, ease: 'easeOut' }}
       />
-      <motion.div
-        className="pointer-events-none absolute bottom-10 right-0 h-72 w-72 rounded-full blur-[120px]"
-        style={{ backgroundColor: isCritical ? 'rgba(239,68,68,0.25)' : 'rgba(0,112,184,0.2)' }}
-        animate={{ x: [0, -26, 0], y: [0, 14, 0], scale: [1, 1.3, 1] }}
-        transition={{ duration: isCritical ? 2.5 : 8.5, repeat: Infinity, ease: 'easeInOut' }}
+
+      {/* Static gradient orbs — no animation to avoid GPU flickering */}
+      <div
+        className="pointer-events-none absolute -top-24 -left-20 h-64 w-64 rounded-full opacity-20"
+        style={{ backgroundColor: isCritical ? '#EF4444' : '#008CE5', filter: 'blur(80px)' }}
+      />
+      <div
+        className="pointer-events-none absolute bottom-10 right-0 h-72 w-72 rounded-full opacity-15"
+        style={{ backgroundColor: isCritical ? '#EF4444' : '#0070B8', filter: 'blur(80px)' }}
       />
 
       {/* Timer bar */}
@@ -416,16 +392,10 @@ export function JobRequest() {
       <div className="relative z-10 px-6">
         <motion.div
           initial={{ opacity: 0, y: 50 }}
-          animate={isCritical ? { opacity: 1, y: [0, -1.2, 0, 1.2, 0] } : { opacity: 1, y: 0 }}
-          transition={isCritical ? { duration: 0.28, repeat: Infinity } : undefined}
-          className="relative overflow-hidden rounded-[32px] p-6 mb-6 border border-[#0070B8]/15 bg-white/90 backdrop-blur-xl shadow-2xl shadow-[#0070B8]/10"
+          animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-[32px] p-6 mb-6 bg-white/90 shadow-2xl shadow-[#0070B8]/10"
+          style={{ border: `2px solid ${isCritical ? 'rgba(239,68,68,0.4)' : isUrgent ? 'rgba(239,68,68,0.25)' : 'rgba(0,112,184,0.15)'}` }}
         >
-          <motion.div
-            className="pointer-events-none absolute inset-0 rounded-[32px] border-2"
-            style={{ borderColor: isUrgent ? 'rgba(239,68,68,0.35)' : 'rgba(0,140,229,0.25)' }}
-            animate={{ opacity: [0.35, 0.9, 0.35] }}
-            transition={{ duration: 1.4, repeat: Infinity }}
-          />
           <div className="relative z-10">
             <div
               className="rounded-2xl px-4 py-3 mb-5 flex items-center gap-2"

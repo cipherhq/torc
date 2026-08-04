@@ -69,7 +69,7 @@ export function downloadJobReceipt(job: {
     `Location:    ${job.pickup_address || '-'}`,
     '-----------------------------------',
     `Service:     $${base.toFixed(2)}`,
-    ...(fee > 0 ? [`Service Fee: $${fee.toFixed(2)}`] : []),
+    ...(fee > 0 ? [`Torc Fee:    $${fee.toFixed(2)}`] : []),
     ...(tax > 0 ? [`Tax:         $${tax.toFixed(2)}`] : []),
     '-----------------------------------',
     `Total:       $${total.toFixed(2)}`,

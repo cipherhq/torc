@@ -214,24 +214,36 @@ export function DocumentSettings() {
         }
       }
 
-      const mapped: DocumentRow[] = (data ?? []).map((doc: any) => ({
-        id: doc.id,
-        provider_id: doc.provider_id,
-        type: doc.type,
-        file_name: doc.file_name,
-        file_path: doc.file_path,
-        file_url: doc.file_url,
-        mime_type: doc.mime_type,
-        file_size: doc.file_size,
-        status: doc.status,
-        rejection_reason: doc.rejection_reason,
-        reviewed_by: doc.reviewed_by,
-        reviewed_at: doc.reviewed_at,
-        created_at: doc.created_at,
-        updated_at: doc.updated_at,
-        provider_name: profilesMap[doc.provider_id]?.full_name ?? 'Unknown Provider',
-        provider_email: profilesMap[doc.provider_id]?.email ?? '',
-      }));
+      // Generate signed URLs for documents with file_path (private bucket)
+      const mapped: DocumentRow[] = await Promise.all(
+        (data ?? []).map(async (doc: any) => {
+          let resolvedUrl = doc.file_url;
+          if (doc.file_path) {
+            const { data: signed } = await supabase.storage
+              .from('provider-documents')
+              .createSignedUrl(doc.file_path, 3600);
+            if (signed?.signedUrl) resolvedUrl = signed.signedUrl;
+          }
+          return {
+            id: doc.id,
+            provider_id: doc.provider_id,
+            type: doc.type,
+            file_name: doc.file_name,
+            file_path: doc.file_path,
+            file_url: resolvedUrl,
+            mime_type: doc.mime_type,
+            file_size: doc.file_size,
+            status: doc.status,
+            rejection_reason: doc.rejection_reason,
+            reviewed_by: doc.reviewed_by,
+            reviewed_at: doc.reviewed_at,
+            created_at: doc.created_at,
+            updated_at: doc.updated_at,
+            provider_name: profilesMap[doc.provider_id]?.full_name ?? 'Unknown Provider',
+            provider_email: profilesMap[doc.provider_id]?.email ?? '',
+          };
+        })
+      );
 
       setDocuments(mapped);
     } catch (err: any) {

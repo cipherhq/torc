@@ -10,6 +10,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { PageHeader } from '../../components/PageHeader';
+import { EarningsSkeleton } from '../../components/PageSkeleton';
 import { supabase } from '../../lib/supabase';
 
 interface Job {
@@ -32,7 +33,7 @@ interface ProviderPayout {
   net_payout: number | null;
 }
 
-const FALLBACK_COMMISSION_PCT = 15;
+const FALLBACK_SERVICE_FEE_PCT = 10;
 
 export function ProviderEarnings() {
   const navigate = useNavigate();
@@ -41,7 +42,7 @@ export function ProviderEarnings() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [commissionPct, setCommissionPct] = useState(FALLBACK_COMMISSION_PCT);
+  const [serviceFeeRate, setServiceFeeRate] = useState(FALLBACK_SERVICE_FEE_PCT);
   const [activeTab, setActiveTab] = useState<'week' | 'month' | 'all'>('week');
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [payoutMethods, setPayoutMethods] = useState<any[]>([]);
@@ -66,7 +67,7 @@ export function ProviderEarnings() {
           supabase
             .from('platform_settings')
             .select('value')
-            .eq('key', 'platform_commission_pct')
+            .eq('key', 'service_fee_pct')
             .single(),
           supabase
             .from('provider_payout_methods')
@@ -90,7 +91,7 @@ export function ProviderEarnings() {
           jobRows.forEach((j: any) => { j.customer = j.customer_id ? map.get(j.customer_id) || null : null; });
         }
         setJobs(jobRows as Job[]);
-        if (settingsRes.data?.value) setCommissionPct(Number(settingsRes.data.value) || FALLBACK_COMMISSION_PCT);
+        if (settingsRes.data?.value) setServiceFeeRate(Number(settingsRes.data.value) || FALLBACK_SERVICE_FEE_PCT);
         if (payoutMethodsRes.data) setPayoutMethods(payoutMethodsRes.data);
         if (payoutsRes.data) setPayouts(payoutsRes.data);
       } catch (e) {
@@ -120,7 +121,7 @@ export function ProviderEarnings() {
       const tip = Number(j.tip) || 0;
       grossBase += base;
       totalTips += tip;
-      totalCommission += base * (commissionPct / 100);
+      totalCommission += base * (serviceFeeRate / 100);
     });
 
     const grossEarnings = grossBase + totalTips;
@@ -148,10 +149,10 @@ export function ProviderEarnings() {
     [completedJobs, monthStart]
   );
 
-  const allTimeStats = useMemo(() => calcProviderEarnings(completedJobs), [completedJobs, commissionPct]);
-  const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, commissionPct]);
-  const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, commissionPct]);
-  const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, commissionPct]);
+  const allTimeStats = useMemo(() => calcProviderEarnings(completedJobs), [completedJobs, serviceFeeRate]);
+  const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, serviceFeeRate]);
+  const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, serviceFeeRate]);
+  const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, serviceFeeRate]);
   const paidOutTotal = useMemo(
     () => payouts
       .filter((p) => p.status === 'paid')
@@ -178,19 +179,19 @@ export function ProviderEarnings() {
       if (idx >= 0) {
         const base = deriveBasePrice(j);
         const tip = Number(j.tip) || 0;
-        totals[days[idx]] += base * (1 - commissionPct / 100) + tip;
+        totals[days[idx]] += base * (1 - serviceFeeRate / 100) + tip;
       }
     });
 
     return days.map(d => ({ day: d, amount: Math.round(totals[d] * 100) / 100 }));
-  }, [weekJobs, commissionPct]);
+  }, [weekJobs, serviceFeeRate]);
 
   // Per-job breakdown for recent jobs
   const recentJobsDetailed = useMemo(() => {
     return jobs.slice(0, 20).map(j => {
       const base = deriveBasePrice(j);
       const tip = Number(j.tip) || 0;
-      const commission = base * (commissionPct / 100);
+      const commission = base * (serviceFeeRate / 100);
       const net = base - commission + tip;
       return {
         id: j.id,
@@ -212,7 +213,7 @@ export function ProviderEarnings() {
         }),
       };
     });
-  }, [jobs, commissionPct]);
+  }, [jobs, serviceFeeRate]);
 
   // Payout history — group completed+paid jobs by week
   const payoutHistory = useMemo(() => {
@@ -249,7 +250,7 @@ export function ProviderEarnings() {
           status: 'paid' as const,
         };
       });
-  }, [completedJobs, commissionPct]);
+  }, [completedJobs, serviceFeeRate]);
 
   const defaultPayout = payoutMethods.find(m => m.is_default) || payoutMethods[0];
 
@@ -283,14 +284,7 @@ export function ProviderEarnings() {
       <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
       {loading && (
-        <div className="relative z-10 px-6 mb-6">
-          <div className="rounded-2xl p-5" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#008CE5', borderTopColor: 'transparent' }} />
-              <p style={{ color: textSecondary }}>Loading earnings...</p>
-            </div>
-          </div>
-        </div>
+        <EarningsSkeleton isDark={isDark} />
       )}
 
       {loadError && (
@@ -317,7 +311,7 @@ export function ProviderEarnings() {
               <div className="absolute top-0 right-0 w-40 h-40 rounded-full" style={{ background: 'rgba(255,255,255,0.08)', filter: 'blur(40px)' }} />
               <p className="text-sm mb-1" style={{ color: 'rgba(255,255,255,0.85)' }}>Available Balance</p>
               <h2 className="font-bold text-4xl mb-1" style={{ color: '#FFFFFF' }}>${fmt(availableBalance)}</h2>
-              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after {commissionPct}% platform fee</p>
+              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after {serviceFeeRate}% Torc fee</p>
 
               <div className="flex items-center gap-3">
                 <motion.button
@@ -395,11 +389,11 @@ export function ProviderEarnings() {
                   <span className="font-semibold text-sm" style={{ color: textPrimary }}>${fmt(activeStats.grossBase)}</span>
                 </div>
 
-                {/* Platform fee */}
+                {/* Service fee */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#EF4444' }} />
-                    <span className="text-sm" style={{ color: textSecondary }}>Platform fee ({commissionPct}%)</span>
+                    <span className="text-sm" style={{ color: textSecondary }}>Torc fee ({serviceFeeRate}%)</span>
                   </div>
                   <span className="font-semibold text-sm text-red-500">−${fmt(activeStats.totalCommission)}</span>
                 </div>
@@ -426,7 +420,7 @@ export function ProviderEarnings() {
               <div className="mt-4 flex items-start gap-2 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.08)' : 'rgba(0,140,229,0.05)' }}>
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <p className="text-xs" style={{ color: textSecondary }}>
-                  Torc charges a {commissionPct}% platform fee on service earnings. Tips are never deducted — you keep 100%.
+                  Torc charges a {serviceFeeRate}% Torc fee on service earnings. Tips are never deducted — you keep 100%.
                 </p>
               </div>
             </motion.div>
@@ -626,7 +620,7 @@ export function ProviderEarnings() {
                               <span style={{ color: textPrimary }}>${fmt(job.basePrice)}</span>
                             </div>
                             <div className="flex justify-between text-sm">
-                              <span style={{ color: textSecondary }}>Platform fee ({commissionPct}%)</span>
+                              <span style={{ color: textSecondary }}>Torc fee ({serviceFeeRate}%)</span>
                               <span className="text-red-500">−${fmt(job.commission)}</span>
                             </div>
                             {job.tip > 0 && (
@@ -719,7 +713,7 @@ export function ProviderEarnings() {
                   <span className="font-semibold" style={{ color: textPrimary }}>${fmt(allTimeStats.grossBase + allTimeStats.totalTips)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span style={{ color: textSecondary }}>Platform fees (deductible)</span>
+                  <span style={{ color: textSecondary }}>Torc fees (deductible)</span>
                   <span className="font-semibold text-red-500">−${fmt(allTimeStats.totalCommission)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -742,7 +736,7 @@ export function ProviderEarnings() {
               <div className="mt-4 flex items-start gap-2 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.08)' : 'rgba(0,140,229,0.05)' }}>
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <p className="text-xs" style={{ color: textSecondary }}>
-                  You may receive a 1099 form if your annual earnings exceed $600. Platform fees are typically deductible as business expenses. Consult a tax professional for advice.
+                  You may receive a 1099 form if your annual earnings exceed $600. Torc fees are typically deductible as business expenses. Consult a tax professional for advice.
                 </p>
               </div>
             </motion.div>

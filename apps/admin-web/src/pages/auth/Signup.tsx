@@ -33,6 +33,7 @@ export function Signup() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => navigate('/login')}
+          aria-label="Go back to login"
           className="glass rounded-full p-3"
         >
           <ArrowLeft className="w-6 h-6 text-white" />

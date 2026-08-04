@@ -31,6 +31,60 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* Shimmer skeleton animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* Smooth page transitions */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+/* Interactive card press feedback */
+.card-interactive {
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.card-interactive:active {
+  transform: scale(0.98);
+}
+
+/* Safe area inset utilities for iOS notch & Android gesture nav */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+
 *,
 *::before,
 *::after {

@@ -27,3 +27,11 @@ export async function sendWelcomeEmail(email: string, name: string) {
 export async function sendDocumentsPendingEmail(email: string, name: string) {
   return sendEmail(email, 'documents_pending', { name });
 }
+
+/** Send password changed security notification */
+export async function sendPasswordChangedEmail(email: string, name: string) {
+  return sendEmail(email, 'password_changed', {
+    name,
+    changedAt: new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
+  });
+}

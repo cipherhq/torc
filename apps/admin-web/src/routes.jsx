@@ -22,109 +22,125 @@ import { AdminServices } from "./pages/admin/Services";
 import { AdminTeam } from "./pages/admin/Team";
 import { AdminDirectory } from "./pages/admin/Directory";
 import { AppSelector } from "./pages/AppSelector";
+import { ProtectedAdminRoute } from "./components/ProtectedAdminRoute";
+import { RouteErrorElement } from "./components/RouteErrorElement";
 
 export const router = createBrowserRouter(
   [
-  {
-    path: "/",
-    element: <Navigate to="/dashboard" replace />,
-  },
-  {
-    path: "/apps",
-    Component: AppSelector,
-  },
+  // ── Public routes (no auth required) ──────────────────────────
   {
     path: "/login",
     Component: Login,
+    errorElement: <RouteErrorElement />,
   },
   {
     path: "/auth/callback",
     Component: AuthCallback,
   },
   {
-    path: "/dashboard",
-    Component: AdminDashboard,
+    path: "/apps",
+    Component: AppSelector,
   },
+
+  // ── Protected admin routes ────────────────────────────────────
+  // All children inherit the ProtectedAdminRoute auth guard.
+  // Newly added routes automatically require admin auth.
   {
-    path: "/admin",
-    element: <Navigate to="/dashboard" replace />,
+    Component: ProtectedAdminRoute,
+    errorElement: <RouteErrorElement />,
+    children: [
+      {
+        path: "/",
+        element: <Navigate to="/dashboard" replace />,
+      },
+      {
+        path: "/dashboard",
+        Component: AdminDashboard,
+      },
+      {
+        path: "/admin",
+        element: <Navigate to="/dashboard" replace />,
+      },
+      {
+        path: "/users",
+        Component: AdminUsers,
+      },
+      {
+        path: "/providers",
+        Component: AdminProviders,
+      },
+      {
+        path: "/provider-approval",
+        Component: AdminProviderApproval,
+      },
+      {
+        path: "/jobs",
+        Component: AdminJobs,
+      },
+      {
+        path: "/live-dispatch",
+        Component: AdminLiveDispatch,
+      },
+      {
+        path: "/analytics",
+        Component: AdminAnalytics,
+      },
+      {
+        path: "/notifications",
+        Component: AdminNotifications,
+      },
+      {
+        path: "/settings",
+        Component: AdminSettings,
+      },
+      {
+        path: "/payouts",
+        Component: AdminPayouts,
+      },
+      {
+        path: "/payout-history",
+        Component: AdminPayoutHistory,
+      },
+      {
+        path: "/payments",
+        Component: AdminPayments,
+      },
+      {
+        path: "/finance",
+        Component: AdminFinance,
+      },
+      {
+        path: "/reporting",
+        Component: AdminReporting,
+      },
+      {
+        path: "/support-tickets",
+        Component: AdminSupportTickets,
+      },
+      {
+        path: "/audit-trail",
+        Component: AdminAuditTrail,
+      },
+      {
+        path: "/services",
+        Component: AdminServices,
+      },
+      {
+        path: "/documents",
+        Component: AdminDocumentSettings,
+      },
+      {
+        path: "/team",
+        Component: AdminTeam,
+      },
+      {
+        path: "/directory",
+        Component: AdminDirectory,
+      },
+    ],
   },
-  {
-    path: "/users",
-    Component: AdminUsers,
-  },
-  {
-    path: "/providers",
-    Component: AdminProviders,
-  },
-  {
-    path: "/provider-approval",
-    Component: AdminProviderApproval,
-  },
-  {
-    path: "/jobs",
-    Component: AdminJobs,
-  },
-  {
-    path: "/live-dispatch",
-    Component: AdminLiveDispatch,
-  },
-  {
-    path: "/analytics",
-    Component: AdminAnalytics,
-  },
-  {
-    path: "/notifications",
-    Component: AdminNotifications,
-  },
-  {
-    path: "/settings",
-    Component: AdminSettings,
-  },
-  {
-    path: "/payouts",
-    Component: AdminPayouts,
-  },
-  {
-    path: "/payout-history",
-    Component: AdminPayoutHistory,
-  },
-  {
-    path: "/payments",
-    Component: AdminPayments,
-  },
-  {
-    path: "/finance",
-    Component: AdminFinance,
-  },
-  {
-    path: "/reporting",
-    Component: AdminReporting,
-  },
-  {
-    path: "/support-tickets",
-    Component: AdminSupportTickets,
-  },
-  {
-    path: "/audit-trail",
-    Component: AdminAuditTrail,
-  },
-  {
-    path: "/services",
-    Component: AdminServices,
-  },
-  {
-    path: "/documents",
-    Component: AdminDocumentSettings,
-  },
-  {
-    path: "/team",
-    Component: AdminTeam,
-  },
-  {
-    path: "/directory",
-    Component: AdminDirectory,
-  },
+
+  // ── Wildcard fallback (outside protection) ────────────────────
   {
     path: "*",
     element: <Navigate to="/dashboard" replace />,

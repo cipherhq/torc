@@ -98,7 +98,7 @@ export function AdminReporting() {
     urgentHours: 2,
     standardHours: 24,
   });
-  const [platformFeePercent, setPlatformFeePercent] = useState(15);
+  const [serviceFeePercent, setServiceFeePercent] = useState(10);
 
   async function loadReportsData() {
     try {
@@ -195,7 +195,7 @@ export function AdminReporting() {
         urgentHours: settings.urgentSlaHours,
         standardHours: settings.standardSlaHours,
       });
-      setPlatformFeePercent(settings.platformFee);
+      setServiceFeePercent(settings.serviceFee);
     } catch (error: any) {
       console.warn('Failed to load reporting data:', error);
       setLoadError(error?.message || 'Could not load reporting data.');
@@ -219,7 +219,7 @@ export function AdminReporting() {
     const grossSales = jobs.filter((j) => j.status === 'completed').reduce((sum, j) => sum + Number(j.total_amount || 0), 0);
     const approvedRefunds = refunds.filter((r) => r.status === 'approved').reduce((sum, r) => sum + Number(r.amount || 0), 0);
     const pendingRefunds = refunds.filter((r) => r.status === 'pending').reduce((sum, r) => sum + Number(r.amount || 0), 0);
-    const netRevenue = (grossSales * (platformFeePercent / 100)) - approvedRefunds;
+    const netRevenue = (grossSales * (serviceFeePercent / 100)) - approvedRefunds;
 
     const openTickets = tickets.filter((t) => t.status === 'open' || t.status === 'in_progress');
     const now = Date.now();
@@ -285,7 +285,7 @@ export function AdminReporting() {
       avgServiceDurationMinutes,
       avgStartDelayMinutes,
     };
-  }, [jobs, refunds, tickets, audits, providers, profiles, payouts, slaThresholds, platformFeePercent]);
+  }, [jobs, refunds, tickets, audits, providers, profiles, payouts, slaThresholds, serviceFeePercent]);
 
   function exportPayments() {
     saveCsv(`report-payments-${new Date().toISOString().slice(0, 10)}.csv`, [
@@ -419,7 +419,7 @@ export function AdminReporting() {
               <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">
                 <p className="text-gray-500 text-sm">Net Platform Revenue</p>
                 <p className="text-gray-900 text-3xl font-bold">${rollups.netRevenue.toFixed(2)}</p>
-                <p className="text-gray-400 text-xs mt-1">{platformFeePercent.toFixed(1)}% fee model less approved refunds</p>
+                <p className="text-gray-400 text-xs mt-1">{serviceFeePercent.toFixed(1)}% Torc fee less approved refunds</p>
               </div>
               <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">
                 <p className="text-gray-500 text-sm">Ticket SLA</p>

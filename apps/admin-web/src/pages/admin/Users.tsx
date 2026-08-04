@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
+import { logAudit } from '../../lib/auditLog';
 import {
   Users, Search, RefreshCw, UserCheck, UserX, Shield, Mail, Phone,
   ChevronDown, ChevronUp, Star, Calendar, Briefcase, Edit3, Save,
@@ -218,17 +219,12 @@ export function AdminUsers() {
 
       if (updateError) throw updateError;
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const actorId = sessionData?.session?.user?.id;
-      if (actorId) {
-        await supabase.from('admin_audit_logs').insert({
-          actor_id: actorId,
-          action: newStatus === 'suspended' ? 'suspend_user' : 'unsuspend_user',
-          entity_type: 'profile',
-          entity_id: profile.id,
-          details: { user_email: profile.email, user_name: getDisplayName(profile) },
-        });
-      }
+      logAudit({
+        action: newStatus === 'suspended' ? 'suspend_user' : 'unsuspend_user',
+        entity_type: 'profile',
+        entity_id: profile.id,
+        details: { user_email: profile.email, user_name: getDisplayName(profile), new_status: newStatus },
+      });
 
       setProfiles((prev) =>
         prev.map((p) => p.id === profile.id ? { ...p, status: newStatus, ...updateData } : p)
@@ -271,20 +267,19 @@ export function AdminUsers() {
 
       if (updateError) throw updateError;
 
-      const { data: session } = await supabase.auth.getSession();
-      if (session?.session?.user?.id) {
-        await supabase.from('admin_audit_logs').insert({
-          actor_id: session.session.user.id,
-          action: 'edit_user',
-          entity_type: 'profile',
-          entity_id: editingUser.id,
-          details: {
-            changes: editForm,
-            previous_role: editingUser.role,
-            new_role: editForm.role,
-          },
-        });
-      }
+      // Build old vs new for audit
+      const changes: Record<string, { old: any; new: any }> = {};
+      if ((editingUser.first_name || '') !== editForm.first_name) changes.first_name = { old: editingUser.first_name, new: editForm.first_name };
+      if ((editingUser.last_name || '') !== editForm.last_name) changes.last_name = { old: editingUser.last_name, new: editForm.last_name };
+      if ((editingUser.phone || '') !== editForm.phone) changes.phone = { old: editingUser.phone, new: editForm.phone };
+      if (editingUser.role !== editForm.role) changes.role = { old: editingUser.role, new: editForm.role };
+
+      logAudit({
+        action: editingUser.role !== editForm.role ? 'change_user_role' : 'edit_user',
+        entity_type: 'profile',
+        entity_id: editingUser.id,
+        details: { user_email: editingUser.email, changes },
+      });
 
       setProfiles(prev =>
         prev.map(p => p.id === editingUser.id ? {

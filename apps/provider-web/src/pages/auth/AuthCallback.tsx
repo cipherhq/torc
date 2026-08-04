@@ -49,13 +49,13 @@ export function AuthCallback() {
 
           const needsOnboarding = !pp || !pp.services || pp.services.length === 0;
           setTimeout(() => {
-            navigate(needsOnboarding ? '/onboarding' : '/home', { replace: true });
+            navigate(needsOnboarding ? '/onboarding' : '/permissions', { replace: true });
           }, 2000);
         } else {
           setStatus('success');
           setMessage('Authentication successful!');
           setTimeout(() => {
-            navigate('/home', { replace: true });
+            navigate('/permissions', { replace: true });
           }, 2000);
         }
       } catch (error: any) {

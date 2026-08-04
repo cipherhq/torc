@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.torc.provider',
+  appId: 'com.torctechnologies.provider',
   appName: 'TORC Pro',
   webDir: 'dist',
   server: {
@@ -9,9 +9,11 @@ const config: CapacitorConfig = {
     // url: 'http://YOUR_LOCAL_IP:7001',
     // cleartext: true,
     androidScheme: 'https',
+    hostname: 'app.torcpro.com',
   },
   ios: {
     contentInset: 'automatic',
+    scrollEnabled: false,
   },
   plugins: {
     SplashScreen: {
@@ -24,6 +26,11 @@ const config: CapacitorConfig = {
     },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
+    },
+    Keyboard: {
+      resize: 'body',
+      style: 'DARK',
+      resizeOnFullScreen: true,
     },
   },
 };

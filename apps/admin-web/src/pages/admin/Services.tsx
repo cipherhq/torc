@@ -1,12 +1,28 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
+import { AdminButton } from '../../components/AdminButton';
+import { CardListSkeleton } from '../../components/PageSkeleton';
 import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
+import { logAudit } from '../../lib/auditLog';
 import {
   Wrench, Search, RefreshCw, DollarSign, ToggleLeft, ToggleRight,
   Plus, Edit3, Save, Loader2, AlertCircle, Clock, X, Trash2,
+  Truck, Zap, KeyRound, Circle, Fuel, Anchor,
+  Bike, Sparkles, Plug, AlertTriangle, LifeBuoy,
+  Car, Shield, Battery, Gauge, Droplets, Settings,
 } from 'lucide-react';
+
+const SERVICE_ICONS: Record<string, any> = {
+  Wrench, Truck, Zap, KeyRound, Circle, Fuel, Anchor,
+  Bike, Sparkles, Plug, AlertTriangle, LifeBuoy,
+  Car, Shield, Battery, Gauge, Droplets, Settings,
+};
+
+function getServiceIcon(iconName: string) {
+  return SERVICE_ICONS[iconName] || Wrench;
+}
 
 interface Service {
   id: string;
@@ -33,18 +49,30 @@ export function AdminServices() {
 
   /* Full edit modal state */
   const [editingService, setEditingService] = useState<Service | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', description: '', estimated_time: '', base_price: '', is_active: true });
+  const [editForm, setEditForm] = useState({ name: '', description: '', estimated_time: '', base_price: '', is_active: true, icon: 'Wrench' });
   const [editSaving, setEditSaving] = useState(false);
 
   /* Add service modal state */
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true });
+  const [addForm, setAddForm] = useState({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true, icon: 'Wrench' });
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
   /* Delete state */
   const [deletingService, setDeletingService] = useState<Service | null>(null);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
+
+  /* Price history state */
+  const [priceHistory, setPriceHistory] = useState<Array<{
+    id: string;
+    service_id: string;
+    service_name: string;
+    old_price: number;
+    new_price: number;
+    changed_by: string;
+    changed_at: string;
+  }>>([]);
+  const [showPriceHistory, setShowPriceHistory] = useState(false);
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -92,6 +120,67 @@ export function AdminServices() {
       }));
 
       setServices(merged);
+
+      // Fetch price history from audit logs (best-effort)
+      try {
+        const { data: auditData } = await supabase
+          .from('admin_audit_logs')
+          .select('id, actor_id, entity_id, details, created_at')
+          .in('action', ['update_service_price', 'update_service'])
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (auditData) {
+          // Get actor names
+          const actorIds = [...new Set(auditData.map((a: any) => a.actor_id))];
+          const { data: actors } = actorIds.length > 0
+            ? await supabase.from('profiles').select('id, full_name, email').in('id', actorIds)
+            : { data: [] };
+          const actorMap = new Map((actors || []).map((a: any) => [a.id, a]));
+
+          const history = auditData
+            .filter((a: any) => {
+              const d = a.details;
+              if (!d) return false;
+              // Direct price change format: { old_price, new_price }
+              if (d.old_price !== undefined || d.old_base_price !== undefined) return true;
+              // Full edit format: { changes: { base_price: { old, new } } }
+              if (d.changes?.base_price) return true;
+              return false;
+            })
+            .map((a: any) => {
+              const actor: any = actorMap.get(a.actor_id);
+              const svc = (servicesData || []).find((s: any) => s.id === a.entity_id);
+              const d = a.details;
+
+              let oldPrice: number;
+              let newPrice: number;
+
+              if (d.changes?.base_price) {
+                // Full edit format
+                oldPrice = Number(d.changes.base_price.old) || 0;
+                newPrice = Number(d.changes.base_price.new) || 0;
+              } else {
+                // Direct price change format
+                oldPrice = Number(d.old_price ?? d.old_base_price) || 0;
+                newPrice = Number(d.new_price ?? d.new_base_price) || 0;
+              }
+
+              return {
+                id: a.id,
+                service_id: a.entity_id,
+                service_name: d.service_name || svc?.name || a.entity_id,
+                old_price: oldPrice,
+                new_price: newPrice,
+                changed_by: actor?.full_name || actor?.email || a.actor_id.slice(0, 8),
+                changed_at: a.created_at,
+              };
+            });
+          setPriceHistory(history);
+        }
+      } catch {
+        // Audit log table may not exist yet - ignore gracefully
+      }
     } catch (e: any) {
       console.warn('Failed to load services:', e);
       setError(e?.message || 'Failed to load services');
@@ -118,6 +207,13 @@ export function AdminServices() {
       setServices(prev =>
         prev.map(s => s.id === serviceId ? { ...s, is_active: !currentActive } : s)
       );
+
+      logAudit({
+        action: 'toggle_service',
+        entity_type: 'service',
+        entity_id: serviceId,
+        details: { is_active: !currentActive },
+      });
     } catch (e: any) {
       console.warn('Failed to toggle service:', e);
     } finally {
@@ -142,6 +238,9 @@ export function AdminServices() {
     const parsed = parseFloat(editPriceValue);
     if (isNaN(parsed) || parsed < 0) return;
 
+    const service = services.find(s => s.id === serviceId);
+    const oldPrice = service?.base_price;
+
     setSavingPriceId(serviceId);
     try {
       const { error: updateError } = await supabase
@@ -156,6 +255,13 @@ export function AdminServices() {
       );
       setEditingPriceId(null);
       setEditPriceValue('');
+
+      logAudit({
+        action: 'update_service_price',
+        entity_type: 'service',
+        entity_id: serviceId,
+        details: { old_price: oldPrice, new_price: parsed, service_name: service?.name },
+      });
     } catch (e: any) {
       console.warn('Failed to update price:', e);
     } finally {
@@ -172,12 +278,14 @@ export function AdminServices() {
       estimated_time: service.estimated_time || '',
       base_price: service.base_price.toFixed(2),
       is_active: service.is_active,
+      icon: service.icon || 'Wrench',
     });
   };
 
   // Save full edit
   const handleSaveService = async () => {
     if (!editingService) return;
+    if (editSaving) return; // Prevent duplicate submissions from rapid clicks
     const parsed = parseFloat(editForm.base_price);
     if (isNaN(parsed) || parsed < 0) return;
 
@@ -191,10 +299,27 @@ export function AdminServices() {
           estimated_time: editForm.estimated_time.trim() || null,
           base_price: parsed,
           is_active: editForm.is_active,
+          icon: editForm.icon,
         })
         .eq('id', editingService.id);
 
       if (updateError) throw updateError;
+
+      // Build old vs new for audit
+      const changes: Record<string, { old: any; new: any }> = {};
+      if (editingService.name !== editForm.name.trim()) changes.name = { old: editingService.name, new: editForm.name.trim() };
+      if ((editingService.description || '') !== (editForm.description.trim() || '')) changes.description = { old: editingService.description, new: editForm.description.trim() || null };
+      if ((editingService.estimated_time || '') !== (editForm.estimated_time.trim() || '')) changes.estimated_time = { old: editingService.estimated_time, new: editForm.estimated_time.trim() || null };
+      if (editingService.base_price !== parsed) changes.base_price = { old: editingService.base_price, new: parsed };
+      if (editingService.is_active !== editForm.is_active) changes.is_active = { old: editingService.is_active, new: editForm.is_active };
+      if (editingService.icon !== editForm.icon) changes.icon = { old: editingService.icon, new: editForm.icon };
+
+      logAudit({
+        action: 'update_service',
+        entity_type: 'service',
+        entity_id: editingService.id,
+        details: { changes, service_name: editingService.name },
+      });
 
       setServices(prev =>
         prev.map(s =>
@@ -206,6 +331,7 @@ export function AdminServices() {
                 estimated_time: editForm.estimated_time.trim() || null,
                 base_price: parsed,
                 is_active: editForm.is_active,
+                icon: editForm.icon,
               }
             : s,
         ),
@@ -221,6 +347,7 @@ export function AdminServices() {
 
   // Add new service
   const handleAddService = async () => {
+    if (addSaving) return; // Prevent duplicate submissions from rapid clicks
     const id = addForm.id.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     if (!id || !addForm.name.trim()) {
       setAddError('Service ID and name are required');
@@ -244,15 +371,22 @@ export function AdminServices() {
           estimated_time: addForm.estimated_time.trim() || null,
           base_price: parsed,
           is_active: addForm.is_active,
-          icon: 'Wrench',
+          icon: addForm.icon || 'Wrench',
         });
 
       if (insertError) throw insertError;
 
+      logAudit({
+        action: 'create_service',
+        entity_type: 'service',
+        entity_id: id,
+        details: { name: addForm.name.trim(), base_price: parsed, is_active: addForm.is_active },
+      });
+
       setServices(prev => [...prev, {
         id,
         name: addForm.name.trim(),
-        icon: 'Wrench',
+        icon: addForm.icon || 'Wrench',
         description: addForm.description.trim() || null,
         estimated_time: addForm.estimated_time.trim() || null,
         base_price: parsed,
@@ -261,7 +395,7 @@ export function AdminServices() {
         totalJobs: 0,
       }]);
       setShowAddModal(false);
-      setAddForm({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true });
+      setAddForm({ id: '', name: '', description: '', estimated_time: '', base_price: '', is_active: true, icon: 'Wrench' });
     } catch (e: any) {
       console.warn('Failed to add service:', e);
       setAddError(e.message || 'Failed to add service');
@@ -273,6 +407,7 @@ export function AdminServices() {
   // Delete service
   const handleDeleteService = async () => {
     if (!deletingService) return;
+    if (deleteConfirming) return; // Prevent duplicate submissions from rapid clicks
     setDeleteConfirming(true);
     try {
       const { error: deleteError } = await supabase
@@ -281,6 +416,13 @@ export function AdminServices() {
         .eq('id', deletingService.id);
 
       if (deleteError) throw deleteError;
+
+      logAudit({
+        action: 'delete_service',
+        entity_type: 'service',
+        entity_id: deletingService.id,
+        details: { name: deletingService.name, had_jobs: deletingService.totalJobs },
+      });
 
       setServices(prev => prev.filter(s => s.id !== deletingService.id));
       setDeletingService(null);
@@ -334,6 +476,15 @@ export function AdminServices() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={() => setShowPriceHistory(!showPriceHistory)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
+            >
+              <Clock className="w-4 h-4" />
+              Price History
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={loadServices}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
@@ -374,6 +525,69 @@ export function AdminServices() {
           })}
         </div>
 
+        {/* Price History Panel */}
+        {showPriceHistory && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6 mb-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-[#008CE5]" />
+                Price Change History
+              </h2>
+              <button onClick={() => setShowPriceHistory(false)} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {priceHistory.length === 0 ? (
+              <p className="text-gray-500 text-sm py-4 text-center">No price changes recorded yet</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-gray-500 text-sm font-semibold">Date</th>
+                      <th className="px-4 py-3 text-left text-gray-500 text-sm font-semibold">Service</th>
+                      <th className="px-4 py-3 text-right text-gray-500 text-sm font-semibold">Old Price</th>
+                      <th className="px-4 py-3 text-center text-gray-500 text-sm font-semibold"></th>
+                      <th className="px-4 py-3 text-right text-gray-500 text-sm font-semibold">New Price</th>
+                      <th className="px-4 py-3 text-right text-gray-500 text-sm font-semibold">Change</th>
+                      <th className="px-4 py-3 text-left text-gray-500 text-sm font-semibold">Changed By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priceHistory.map((entry) => {
+                      const diff = entry.new_price - entry.old_price;
+                      const pctChange = entry.old_price > 0 ? ((diff / entry.old_price) * 100).toFixed(1) : 'N/A';
+                      return (
+                        <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-600 text-sm">
+                            {new Date(entry.changed_at).toLocaleDateString()}{' '}
+                            {new Date(entry.changed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900 font-medium text-sm">{entry.service_name}</td>
+                          <td className="px-4 py-3 text-right text-gray-500 text-sm">${entry.old_price.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-center text-gray-400">{'\u2192'}</td>
+                          <td className="px-4 py-3 text-right text-gray-900 font-semibold text-sm">${entry.new_price.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right text-sm">
+                            <span className={diff > 0 ? 'text-red-500' : diff < 0 ? 'text-green-500' : 'text-gray-400'}>
+                              {diff > 0 ? '+' : ''}{diff.toFixed(2)} ({pctChange}%)
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 text-sm">{entry.changed_by}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </motion.div>
+        )}
+
         {/* Search bar */}
         <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-4 mb-6">
           <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
@@ -381,6 +595,7 @@ export function AdminServices() {
             <input
               type="text"
               placeholder="Search services by name..."
+              aria-label="Search services by name"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="flex-1 bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none"
@@ -390,9 +605,7 @@ export function AdminServices() {
 
         {/* Service list */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-[#008CE5]" />
-          </div>
+          <CardListSkeleton count={4} />
         ) : filteredServices.length === 0 ? (
           <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-12 text-center">
             <Wrench className="w-12 h-12 text-gray-300 mx-auto mb-4" />
@@ -460,6 +673,9 @@ export function AdminServices() {
                         onClick={() => handleToggleActive(service.id, service.is_active)}
                         disabled={isToggling}
                         title={service.is_active ? 'Deactivate service' : 'Activate service'}
+                        role="switch"
+                        aria-checked={service.is_active}
+                        aria-label={`Toggle ${service.name} ${service.is_active ? 'off' : 'on'}`}
                         style={{
                           width: 52,
                           height: 28,
@@ -503,6 +719,7 @@ export function AdminServices() {
                           <input
                             type="text"
                             inputMode="decimal"
+                            aria-label="Base price"
                             value={editPriceValue}
                             onFocus={(e) => { if (e.target.value === '0') e.target.value = ''; }}
                             onChange={(e) => {
@@ -580,16 +797,24 @@ export function AdminServices() {
         )}
         {/* Edit Service Modal */}
         {editingService && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-service-title"
+            onKeyDown={(e) => { if (e.key === 'Escape') setEditingService(null); }}
+            onClick={(e) => { if (e.target === e.currentTarget) setEditingService(null); }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="bg-white rounded-[32px] p-8 max-w-lg w-full shadow-2xl"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-gray-900 font-bold text-2xl">Edit Service</h2>
+                <h2 id="edit-service-title" className="text-gray-900 font-bold text-2xl">Edit Service</h2>
                 <button
                   onClick={() => setEditingService(null)}
+                  aria-label="Close edit service dialog"
                   className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -653,6 +878,9 @@ export function AdminServices() {
                   <span className="text-gray-700 text-sm font-medium">Service Active</span>
                   <button
                     onClick={() => setEditForm({ ...editForm, is_active: !editForm.is_active })}
+                    role="switch"
+                    aria-checked={editForm.is_active}
+                    aria-label={`Toggle service ${editForm.is_active ? 'off' : 'on'}`}
                     style={{
                       width: 56,
                       height: 32,
@@ -710,16 +938,24 @@ export function AdminServices() {
         )}
         {/* Add Service Modal */}
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-service-title"
+            onKeyDown={(e) => { if (e.key === 'Escape') setShowAddModal(false); }}
+            onClick={(e) => { if (e.target === e.currentTarget) setShowAddModal(false); }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="bg-white rounded-[32px] p-8 max-w-lg w-full shadow-2xl"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-gray-900 font-bold text-2xl">Add New Service</h2>
+                <h2 id="add-service-title" className="text-gray-900 font-bold text-2xl">Add New Service</h2>
                 <button
                   onClick={() => setShowAddModal(false)}
+                  aria-label="Close add service dialog"
                   className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -804,6 +1040,9 @@ export function AdminServices() {
                   <span className="text-gray-700 text-sm font-medium">Service Active</span>
                   <button
                     onClick={() => setAddForm({ ...addForm, is_active: !addForm.is_active })}
+                    role="switch"
+                    aria-checked={addForm.is_active}
+                    aria-label={`Toggle new service ${addForm.is_active ? 'off' : 'on'}`}
                     style={{
                       width: 56,
                       height: 32,
@@ -862,7 +1101,14 @@ export function AdminServices() {
 
         {/* Delete Confirmation Modal */}
         {deletingService && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-service-title"
+            onKeyDown={(e) => { if (e.key === 'Escape') setDeletingService(null); }}
+            onClick={(e) => { if (e.target === e.currentTarget) setDeletingService(null); }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -872,7 +1118,7 @@ export function AdminServices() {
                 <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-100 flex-shrink-0">
                   <Trash2 className="w-6 h-6 text-red-500" />
                 </div>
-                <h2 className="text-gray-900 font-bold text-xl">Delete Service</h2>
+                <h2 id="delete-service-title" className="text-gray-900 font-bold text-xl">Delete Service</h2>
               </div>
 
               <p className="text-gray-600 mb-2">

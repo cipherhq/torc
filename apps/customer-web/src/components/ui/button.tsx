@@ -5,20 +5,20 @@ import { cva, type VariantProps } from "class-variance-authority@0.7.1";
 import { cn } from "./utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 ease-out active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
         default:
-          "bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white shadow-lg shadow-[#008CE5]/30 hover:opacity-95",
+          "bg-gradient-to-r from-[#008CE5] to-[#0070B8] text-white shadow-lg shadow-[#008CE5]/30 hover:shadow-xl hover:shadow-[#008CE5]/40 hover:brightness-110 active:shadow-md active:brightness-95",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
-          "border border-[#008CE5]/30 bg-[#008CE5]/10 text-[#0070B8] hover:bg-[#008CE5]/20 dark:bg-input/30 dark:border-[#008CE5]/40 dark:hover:bg-[#008CE5]/25",
+          "border border-[#008CE5]/30 bg-[#008CE5]/10 text-[#0070B8] hover:bg-[#008CE5]/20 hover:border-[#008CE5]/50 dark:bg-input/30 dark:border-[#008CE5]/40 dark:hover:bg-[#008CE5]/25",
         secondary:
-          "bg-[#008CE5]/15 text-[#0070B8] hover:bg-[#008CE5]/25",
+          "bg-[#008CE5]/15 text-[#0070B8] hover:bg-[#008CE5]/25 active:bg-[#008CE5]/30",
         ghost:
-          "hover:bg-[#008CE5]/10 hover:text-[#0070B8] dark:hover:bg-[#008CE5]/20",
+          "hover:bg-[#008CE5]/10 hover:text-[#0070B8] dark:hover:bg-[#008CE5]/20 active:bg-[#008CE5]/15",
         link: "text-[#0070B8] underline-offset-4 hover:underline",
       },
       size: {

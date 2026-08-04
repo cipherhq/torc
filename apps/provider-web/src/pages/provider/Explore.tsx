@@ -1,11 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import { MapPin, Star, Clock, Navigation, Search, Filter, ChevronRight, Phone, ExternalLink } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
+import { useLocation as useLocationCtx } from '../../context/LocationContext';
 import { GoogleMap, Marker, InfoWindow } from '@react-google-maps/api';
 import { PageHeader } from '../../components/PageHeader';
+import { ExploreShopSkeleton } from '../../components/PageSkeleton';
+import { loadPlatformSettings } from '../../lib/platformSettings';
 
 interface Shop {
   place_id: string;
@@ -42,36 +45,64 @@ export function Explore() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
   const { isLoaded } = useGoogleMaps();
+  const { currentLocation, requestPermission } = useLocationCtx() as any;
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [maxRadius, setMaxRadius] = useState(30);
   const [mapRef, setMapRef] = useState<google.maps.Map | null>(null);
+  const [serviceReady, setServiceReady] = useState(false);
+  const serviceRef = useRef<google.maps.places.PlacesService | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Derive currentPos from shared location context — stabilize to avoid re-searching on every GPS tick
+  const [currentPos, setCurrentPos] = useState<{ lat: number; lng: number } | null>(null);
+  const lastPosRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (!currentLocation) return;
+    const newPos = { lat: currentLocation.latitude, lng: currentLocation.longitude };
+    // Only update if moved more than ~0.1 miles (significant change)
+    if (lastPosRef.current) {
+      const dist = haversineDistance(lastPosRef.current.lat, lastPosRef.current.lng, newPos.lat, newPos.lng);
+      if (dist < 0.1) return;
+    }
+    lastPosRef.current = newPos;
+    setCurrentPos(newPos);
+  }, [currentLocation]);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
-  // Get provider location — uses Capacitor native API (never re-prompts)
+  // Load platform settings for max radius
   useEffect(() => {
-    import('../../utils/safeLocation').then(({ getSafePosition }) => {
-      getSafePosition().then(setCurrentPos);
-    });
+    loadPlatformSettings().then(s => setMaxRadius(s.maxJobRadius)).catch(() => {});
   }, []);
+
+  // Request location if not available
+  useEffect(() => {
+    if (!currentLocation) requestPermission();
+  }, []);
+
+  const onHiddenMapLoad = useCallback((map: google.maps.Map) => {
+    serviceRef.current = new google.maps.places.PlacesService(map);
+    setServiceReady(true);
+    if (!mapRef) setMapRef(map);
+  }, [mapRef]);
 
   // Search for auto shops nearby
   const searchShops = useCallback(() => {
-    if (!isLoaded || !currentPos || !mapRef) return;
+    if (!isLoaded || !currentPos || !serviceRef.current) return;
 
     setLoading(true);
-    const service = new google.maps.places.PlacesService(mapRef);
+    const service = serviceRef.current;
 
     const request: google.maps.places.PlaceSearchRequest = {
       location: new google.maps.LatLng(currentPos.lat, currentPos.lng),
-      radius: 48280, // 30 miles in meters
+      radius: maxRadius * 1609.34, // miles to meters
       type: 'car_repair',
       keyword: searchQuery || 'auto shop mechanic',
     };
@@ -92,7 +123,7 @@ export function Explore() {
       }
       setLoading(false);
     });
-  }, [isLoaded, currentPos, mapRef, searchQuery]);
+  }, [isLoaded, currentPos, searchQuery, serviceReady, maxRadius]);
 
   useEffect(() => {
     searchShops();
@@ -117,6 +148,17 @@ export function Explore() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
+      {/* Hidden map to initialize PlacesService */}
+      {isLoaded && currentPos && (
+        <div style={{ width: 0, height: 0, overflow: 'hidden', position: 'absolute' }}>
+          <GoogleMap
+            mapContainerStyle={{ width: '1px', height: '1px' }}
+            center={currentPos}
+            zoom={12}
+            onLoad={onHiddenMapLoad}
+          />
+        </div>
+      )}
       <PageHeader title="Explore Shops" onBack={() => navigate('/home')} />
       <div style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }} />
 
@@ -131,6 +173,7 @@ export function Explore() {
           <input
             type="text"
             placeholder="Search auto shops, mechanics..."
+            aria-label="Search auto shops and mechanics"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchShops()}
@@ -221,17 +264,14 @@ export function Explore() {
       {/* Results count */}
       <div className="px-6 mb-2 flex items-center justify-between">
         <p className="text-sm font-medium" style={{ color: subColor }}>
-          {loading ? 'Searching...' : `${shops.length} shops within 30 miles`}
+          {loading ? 'Searching...' : `${shops.length} shops within ${maxRadius} miles`}
         </p>
       </div>
 
       {/* Shop list */}
       <div ref={listRef} className="flex-1 overflow-auto px-4 space-y-3" style={{ paddingBottom: 'calc(100px + var(--safe-bottom, 20px))' }}>
         {loading ? (
-          <div className="flex flex-col items-center py-12">
-            <div className="w-10 h-10 border-3 border-[#008CE5] border-t-transparent rounded-full animate-spin mb-3" />
-            <p className="text-sm" style={{ color: subColor }}>Finding nearby auto shops...</p>
-          </div>
+          <ExploreShopSkeleton count={5} />
         ) : shops.length === 0 ? (
           <div className="text-center py-12">
             <MapPin className="w-12 h-12 mx-auto mb-3" style={{ color: subColor }} />
@@ -300,6 +340,7 @@ export function Explore() {
               {/* Directions button */}
               <button
                 onClick={(e) => { e.stopPropagation(); openDirections(shop); }}
+                aria-label={`Get directions to ${shop.name}`}
                 className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-1"
                 style={{ backgroundColor: isDark ? 'rgba(78,205,196,0.15)' : 'rgba(78,205,196,0.1)' }}
               >

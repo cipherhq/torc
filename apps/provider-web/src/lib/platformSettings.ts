@@ -18,6 +18,11 @@ export type PlatformSettingsMap = {
   chat_conversations_per_page: number;
   chat_max_image_size_mb: number;
   chat_enable_images: boolean;
+  hazard_fee: number;
+  scheduling_fee: number;
+  service_fee_pct: number;
+  tax_rate: number;
+  stripe_publishable_key: string;
 };
 
 export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
@@ -38,6 +43,11 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
   chat_conversations_per_page: 20,
   chat_max_image_size_mb: 5,
   chat_enable_images: true,
+  hazard_fee: 15,
+  scheduling_fee: 5,
+  service_fee_pct: 10,
+  tax_rate: 8,
+  stripe_publishable_key: '',
 };
 
 const SETTINGS_KEYS = Object.keys(DEFAULT_PLATFORM_SETTINGS);

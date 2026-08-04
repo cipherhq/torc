@@ -72,7 +72,7 @@ export function AdminFinance() {
   const [payouts, setPayouts] = useState([] as ProviderPayoutRow[]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null as string | null);
-  const [platformFeePercent, setPlatformFeePercent] = useState(15);
+  const [serviceFeePercent, setServiceFeePercent] = useState(10);
 
   useEffect(() => {
     void loadFinance();
@@ -105,7 +105,7 @@ export function AdminFinance() {
       setJobs((jobsData || []) as JobFinancialRow[]);
       setRefunds((refundsData || []) as RefundRevenue[]);
       setPayouts((payoutsData || []) as ProviderPayoutRow[]);
-      setPlatformFeePercent(settings.platformFee);
+      setServiceFeePercent(settings.serviceFee);
     } catch (error: any) {
       console.warn('Failed to load finance page:', error);
       setLoadError(error?.message || 'Failed to load finance data.');
@@ -118,7 +118,7 @@ export function AdminFinance() {
   }
 
   const metrics = useMemo(() => {
-    const feeRate = platformFeePercent / 100;
+    const feeRate = serviceFeePercent / 100;
 
     const paymentBuckets: Record<JobPaymentStatus, { jobs: number; amount: number }> = {
       unpaid: { jobs: 0, amount: 0 },
@@ -196,10 +196,10 @@ export function AdminFinance() {
           : 0,
       marginPct: grossSales > 0 ? (netPlatformRevenue / grossSales) * 100 : 0,
     };
-  }, [jobs, refunds, payouts, platformFeePercent]);
+  }, [jobs, refunds, payouts, serviceFeePercent]);
 
   const monthly = useMemo(() => {
-    const feeRate = platformFeePercent / 100;
+    const feeRate = serviceFeePercent / 100;
     const byMonth = new Map<
       string,
       {
@@ -267,7 +267,7 @@ export function AdminFinance() {
           cashEstimate,
         };
       });
-  }, [jobs, refunds, payouts, platformFeePercent]);
+  }, [jobs, refunds, payouts, serviceFeePercent]);
 
   function exportFinanceCsv() {
     if (monthly.length === 0) return;
@@ -329,7 +329,7 @@ export function AdminFinance() {
             <div>
               <h1 className="text-4xl font-bold text-gray-900 mb-2">Financial Hub</h1>
               <p className="text-gray-500">
-                End-to-end payment flow: customer charge, TORC fee deduction, provider payout, and platform margin.
+                End-to-end payment flow: customer charge, Torc fee deduction, provider payout, and platform margin.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -376,9 +376,9 @@ export function AdminFinance() {
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <TrendingUp className="w-8 h-8 text-[#008CE5] mb-2" />
-                <p className="text-gray-500 text-sm">Platform Fees ({platformFeePercent.toFixed(1)}%)</p>
+                <p className="text-gray-500 text-sm">Torc Fees ({serviceFeePercent.toFixed(1)}%)</p>
                 <p className="text-gray-900 text-3xl font-bold">{money(metrics.expectedPlatformFees)}</p>
-                <p className="text-gray-500 text-xs mt-1">TORC fee retained from completed services</p>
+                <p className="text-gray-500 text-xs mt-1">Torc fee deducted from completed services</p>
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <DollarSign className="w-8 h-8 text-[#008CE5] mb-2" />
@@ -392,7 +392,7 @@ export function AdminFinance() {
                 <Wallet className="w-8 h-8 text-[#0070B8] mb-2" />
                 <p className="text-gray-500 text-sm">Provider Payout Owed</p>
                 <p className="text-gray-900 text-3xl font-bold">{money(metrics.expectedProviderPayout)}</p>
-                <p className="text-gray-500 text-xs mt-1">Sales - TORC fee + tips ({money(metrics.totalTips)})</p>
+                <p className="text-gray-500 text-xs mt-1">Sales - Torc fee + tips ({money(metrics.totalTips)})</p>
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <CheckCircle2 className="w-8 h-8 text-[#008CE5] mb-2" />
@@ -521,8 +521,8 @@ export function AdminFinance() {
                 <div>
                   <h3 className="text-gray-900 font-semibold mb-2">Payout Formula Applied</h3>
                   <p className="text-gray-600 text-sm">
-                    For each completed service: customer pays full amount, TORC retains the platform fee ({platformFeePercent.toFixed(1)}%),
-                    and provider payout is calculated as service amount minus fee plus tips.
+                    For each completed service: customer pays full amount, TORC deducts the Torc fee ({serviceFeePercent.toFixed(1)}%),
+                    and provider payout is calculated as service amount minus Torc fee plus tips.
                   </p>
                   <p className="text-gray-500 text-xs mt-2">
                     Profit and cash are dashboard estimates from current jobs, refunds, and provider_payouts ledger data.

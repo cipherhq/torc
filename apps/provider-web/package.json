@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "vite --port 7001",
     "build": "vite build",
+    "build:staging": "vite build --mode staging",
     "preview": "vite preview --port 7001",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android",
     "mobile:ios": "vite build && npx cap sync ios && npx cap open ios",
-    "mobile:android": "vite build && npx cap sync android && npx cap open android"
+    "mobile:android": "vite build && npx cap sync android && npx cap open android",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.0",
@@ -27,18 +30,23 @@
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
     "@react-google-maps/api": "^2.20.8",
-    "@supabase/supabase-js": "^2.49.4",
+    "@sentry/react": "^10.12.0",
+    "@supabase/supabase-js": "^2.97.0",
     "capacitor-native-settings": "^8.0.0",
     "lucide-react": "^0.487.0",
     "motion": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router": "*",
+    "react-router": "^7.13.0",
     "recharts": "^2.15.3"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react-swc": "^3.10.2",
+    "jsdom": "^29.0.1",
     "typescript": "^5.9.3",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "vitest": "^4.1.0"
   }
 }

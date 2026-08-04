@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
@@ -16,38 +16,173 @@ export function AuthProvider({ children }) {
   const [providerProfile, setProviderProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Once true, never reverts — prevents full-screen loading after bootstrap
+  const initialAuthDoneRef = useRef(false);
+  const [initialAuthDone, setInitialAuthDone] = useState(false);
+
+  // Track current user ID to detect identity changes vs same-user refreshes
+  const currentUserIdRef = useRef(null);
+
+  // Monotonic counter to deduplicate / cancel stale profile fetches
+  const profileFetchIdRef = useRef(0);
+
+  const markInitialAuthDone = useCallback(() => {
+    if (!initialAuthDoneRef.current) {
+      initialAuthDoneRef.current = true;
+      setInitialAuthDone(true);
+    }
+  }, []);
+
+  const fetchProviderProfile = useCallback(async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('provider_profiles')
+        .select('id, is_verified, created_at')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setProviderProfile(data || null);
+      return data || null;
+    } catch (error) {
+      console.warn('Error fetching provider profile:', error);
+      return null;
+    }
+  }, []);
+
+  const fetchProfile = useCallback(async (userId) => {
+    const fetchId = ++profileFetchIdRef.current;
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (fetchId !== profileFetchIdRef.current) return;
+
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (fetchId !== profileFetchIdRef.current) return;
+
+      const meta = authUser?.user_metadata || {};
+      const profileBase = data || { id: userId, email: authUser?.email || '' };
+
+      const merged = {
+        ...profileBase,
+        first_name: profileBase.first_name || meta.first_name || '',
+        last_name: profileBase.last_name || meta.last_name || '',
+        full_name: profileBase.full_name || meta.full_name || '',
+        phone: profileBase.phone || meta.phone || '',
+        role: profileBase.role || meta.role || null,
+      };
+
+      setProfile(merged);
+
+      if (merged.role === 'provider') {
+        await fetchProviderProfile(userId);
+      }
+    } catch (error) {
+      if (fetchId !== profileFetchIdRef.current) return;
+
+      console.warn('Error fetching profile:', error);
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (fetchId !== profileFetchIdRef.current) return;
+        const meta = authUser?.user_metadata || {};
+        setProfile({
+          id: userId,
+          email: authUser?.email || '',
+          first_name: meta.first_name || '',
+          last_name: meta.last_name || '',
+          full_name: meta.full_name || '',
+          phone: meta.phone || '',
+          role: meta.role || null,
+        });
+      } catch {
+        if (fetchId !== profileFetchIdRef.current) return;
+        setProfile({ id: userId, email: '', role: null });
+      }
+    }
+  }, [fetchProviderProfile]);
+
   useEffect(() => {
-    // Check active session
+    let authSubscription;
+
+    // --- Initial bootstrap: resolve session once ---
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      currentUserIdRef.current = session?.user?.id ?? null;
+
       if (session?.user) {
-        fetchProfile(session.user.id);
+        fetchProfile(session.user.id).then(() => {
+          setLoading(false);
+          markInitialAuthDone();
+        });
       } else {
         setLoading(false);
+        markInitialAuthDone();
       }
+    }).catch(() => {
+      setLoading(false);
+      markInitialAuthDone();
     });
 
-    // Listen for auth changes
+    // --- Auth state change listener — never sets loading=true after bootstrap ---
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
+
       if (session?.user) {
-        setLoading(true);
-        fetchProfile(session.user.id);
+        const newUserId = session.user.id;
+        const previousUserId = currentUserIdRef.current;
+        currentUserIdRef.current = newUserId;
+
+        if (event === 'TOKEN_REFRESHED') {
+          return;
+        }
+
+        if (event === 'SIGNED_IN') {
+          if (previousUserId === newUserId) {
+            return;
+          }
+          fetchProfile(newUserId).then(() => {
+            setLoading(false);
+            markInitialAuthDone();
+          });
+          return;
+        }
+
+        if (event === 'USER_UPDATED') {
+          fetchProfile(newUserId);
+          return;
+        }
+
+        fetchProfile(newUserId).then(() => {
+          setLoading(false);
+          markInitialAuthDone();
+        });
       } else {
+        currentUserIdRef.current = null;
         setProfile(null);
         setProviderProfile(null);
         setLoading(false);
+        markInitialAuthDone();
       }
     });
+    authSubscription = subscription;
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => authSubscription.unsubscribe();
+  }, [fetchProfile, markInitialAuthDone]);
 
-  // Listen for native bridge messages (session updates from the native app)
+  // Native bridge messages
   useEffect(() => {
     if (!isNative) return;
 
+    const trustedOrigins = [window.location.origin, 'capacitor://localhost', 'http://localhost', 'https://localhost'];
+
     function handleNativeMessage(event) {
+      if (event.origin && !trustedOrigins.includes(event.origin)) return;
       try {
         const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (msg?.type === 'AUTH_SESSION' && msg.session) {
@@ -68,7 +203,6 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!user) return;
-    // Skip browser notification prompts when inside native wrapper
     if (isNative) return;
     if (typeof Notification === 'undefined') return;
     const key = 'torc_provider_notification_prompted_v1';
@@ -81,7 +215,6 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!isNative || !user?.id) return;
-    // Delay push registration so iOS has time to present the permission dialog
     const timer = setTimeout(() => {
       registerNativePushForUser({ userId: user.id, role: 'provider' }).catch((error) => {
         console.warn('Native push setup failed:', error);
@@ -89,23 +222,6 @@ export function AuthProvider({ children }) {
     }, 1500);
     return () => clearTimeout(timer);
   }, [user?.id]);
-
-  const fetchProviderProfile = useCallback(async (userId) => {
-    try {
-      const { data, error } = await supabase
-        .from('provider_profiles')
-        .select('id, is_verified, created_at')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      setProviderProfile(data || null);
-      return data || null;
-    } catch (error) {
-      console.warn('Error fetching provider profile:', error);
-      return null;
-    }
-  }, []);
 
   // Real-time: auto-refresh provider profile when admin changes verification
   useEffect(() => {
@@ -135,60 +251,12 @@ export function AuthProvider({ children }) {
     }
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [user?.id, fetchProviderProfile]);
-
-  async function fetchProfile(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      const meta = authUser?.user_metadata || {};
-      const profileBase = data || { id: userId, email: authUser?.email || '' };
-
-      const merged = {
-        ...profileBase,
-        first_name: profileBase.first_name || meta.first_name || '',
-        last_name: profileBase.last_name || meta.last_name || '',
-        full_name: profileBase.full_name || meta.full_name || '',
-        phone: profileBase.phone || meta.phone || '',
-        role: profileBase.role || meta.role || 'provider',
-      };
-
-      setProfile(merged);
-
-      // Fetch provider profile for verification status
-      if (merged.role === 'provider') {
-        await fetchProviderProfile(userId);
-      }
-    } catch (error) {
-      console.warn('Error fetching profile:', error);
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      const meta = authUser?.user_metadata || {};
-      setProfile({
-        id: userId,
-        email: authUser?.email || '',
-        first_name: meta.first_name || '',
-        last_name: meta.last_name || '',
-        full_name: meta.full_name || '',
-        phone: meta.phone || '',
-        role: meta.role || 'provider',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [user?.id, fetchProviderProfile, fetchProfile]);
 
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
 
-    // Enforce role: only providers may use this app
     if (data?.user?.id) {
       const { data: prof } = await supabase
         .from('profiles')
@@ -243,7 +311,7 @@ export function AuthProvider({ children }) {
 
   const updateProfile = async (updates) => {
     if (!user) throw new Error('No user logged in');
-    
+
     const { data, error } = await supabase
       .from('profiles')
       .update(updates)
@@ -256,7 +324,7 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  const refreshProfile = useCallback(() => user && fetchProfile(user.id), [user]);
+  const refreshProfile = useCallback(() => user && fetchProfile(user.id), [user, fetchProfile]);
   const refreshProviderProfile = useCallback(
     () => (user ? fetchProviderProfile(user.id) : Promise.resolve(null)),
     [user, fetchProviderProfile],
@@ -279,6 +347,11 @@ export function AuthProvider({ children }) {
     refreshProviderProfile,
   };
 
+  // Only show full-screen loading during initial bootstrap
+  if (!initialAuthDone) {
+    return <LoadingScreen />;
+  }
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -294,12 +367,21 @@ export function useAuth() {
 export function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
+  const hasRenderedRef = useRef(false);
+
+  if (isAuthenticated) {
+    hasRenderedRef.current = true;
+  }
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
       navigate('/login');
     }
   }, [isAuthenticated, loading, navigate]);
+
+  if (hasRenderedRef.current && isAuthenticated) {
+    return children;
+  }
 
   if (loading) {
     return <LoadingScreen />;
@@ -312,15 +394,26 @@ export function ProviderProtectedRoute({ children }) {
   const { isAuthenticated, loading, profile } = useAuth();
   const navigate = useNavigate();
   const isAuthorized = profile?.role === 'provider';
+  const hasRenderedRef = useRef(false);
+
+  if (isAuthenticated && isAuthorized) {
+    hasRenderedRef.current = true;
+  }
 
   useEffect(() => {
-    if (!loading && !isAuthenticated) {
+    if (loading) return;
+    if (!isAuthenticated) {
       navigate('/login');
+      return;
     }
-    if (!loading && isAuthenticated && !isAuthorized) {
+    if (!isAuthorized) {
       navigate('/login');
     }
   }, [isAuthenticated, loading, isAuthorized, navigate]);
+
+  if (hasRenderedRef.current && isAuthenticated) {
+    return children;
+  }
 
   if (loading) {
     return <LoadingScreen />;

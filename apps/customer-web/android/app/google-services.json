@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "1073110036723",
-    "project_id": "torc-app",
-    "storage_bucket": "torc-app.firebasestorage.app"
+    "project_number": "886159169897",
+    "project_id": "torc-b7fc1",
+    "storage_bucket": "torc-b7fc1.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1073110036723:android:5b850d6c0fad68b2a58786",
+        "mobilesdk_app_id": "1:886159169897:android:a278440c9aa4fadeaac5f8",
         "android_client_info": {
           "package_name": "com.torc.customer"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCN_k8er6YFZYWWxnVod2NjAqoFx4-7now"
+          "current_key": "AIzaSyAAy7XIXAI7baX0DMoAaJubhk43Vsh9utc"
         }
       ],
       "services": {

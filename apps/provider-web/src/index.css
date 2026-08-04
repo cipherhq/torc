@@ -3129,6 +3129,14 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 .shadow-\[\#4DA8FF\]\/40, .shadow-\[\#2EFFAF\]\/40 { --tw-shadow-color: rgba(0, 140, 229, 0.4) !important; }
 .shadow-\[\#4DA8FF\]\/50, .shadow-\[\#2EFFAF\]\/50 { --tw-shadow-color: rgba(0, 140, 229, 0.5) !important; }
 
+/* Safe area inset utilities for iOS notch & Android gesture nav */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+
 *, :before, :after {
   box-sizing: border-box;
 }

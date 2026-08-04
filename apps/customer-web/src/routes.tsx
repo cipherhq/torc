@@ -67,11 +67,13 @@ import { WebsiteBecomeProvider } from "./pages/website/BecomeProvider";
 import { WebsiteHelp } from "./pages/website/Help";
 
 import { ProtectedRoute } from "./context/AuthContext";
+import { RouteErrorElement } from "./components/RouteErrorElement";
 
 export const router = createBrowserRouter([
   {
     path: "/",
     Component: Splash,
+    errorElement: <RouteErrorElement />,
   },
   {
     path: "/apps",
@@ -266,7 +268,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/admin/directory",
-    Component: AdminDirectory,
+    element: <ProtectedRoute requiredRole="admin"><AdminDirectory /></ProtectedRoute>,
   },
   {
     path: "/admin/provider-approval",

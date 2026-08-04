@@ -2,8 +2,8 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { User, UserPlus, ChevronRight } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
-import { updateRequestContext } from '../../data/requestContext';
-import { useState } from 'react';
+import { updateRequestContext, resetRequestContext } from '../../data/bookingDraftStore';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 
 export function WhoNeedsHelp() {
@@ -12,6 +12,9 @@ export function WhoNeedsHelp() {
   const [showNewPersonForm, setShowNewPersonForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
+
+  // Reset stale data from any previous booking flow
+  useEffect(() => { resetRequestContext(); }, []);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';

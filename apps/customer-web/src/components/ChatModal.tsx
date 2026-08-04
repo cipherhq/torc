@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { loadPlatformSettings } from '../lib/platformSettings';
 import { formatPrivacyName, formatPrivacyNameFromFull, getDateLabel } from '../lib/nameFormat';
-import { encryptMessage, decryptMessage } from '../lib/chatEncryption';
+import { decryptMessage } from '../lib/chatEncryption';
 
 interface Message {
   id: string;
@@ -245,6 +245,13 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Mark messages as read when chat opens and when new messages arrive
+  useEffect(() => {
+    if (isOpen && jobId) {
+      localStorage.setItem(`torc_chat_read_${jobId}`, new Date().toISOString());
+    }
+  }, [isOpen, jobId, messages.length]);
+
   // Focus input
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 300);
@@ -263,24 +270,26 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
         if (error.code === '42P01' || error.message?.includes('does not exist')) setDbAvailable(false);
         console.warn('Save message error:', error.message);
       }
+      // Update jobs table for unread badge (fallback if DB trigger missing)
+      await supabase.from('jobs').update({
+        last_message_at: msg.created_at,
+        last_message_preview: msg.text?.slice(0, 80) || '',
+        last_message_sender_role: msg.sender_role,
+      }).eq('id', jobId);
     } catch { /* silently fail */ }
   }, [jobId, dbAvailable]);
 
   const broadcastAndSave = useCallback(async (msg: Message) => {
-    // Encrypt the message text before sending over the wire / saving to DB
-    const encryptedText = await encryptMessage(jobId, msg.text);
-    const encMsg = { ...msg, text: encryptedText };
-
     if (channelRef.current) {
       try {
-        await channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: encMsg });
+        await channelRef.current.send({ type: 'broadcast', event: 'new_message', payload: msg });
         setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, status: 'sent' as const } : m)));
 
         const peerRole = role === 'customer' ? 'provider' : 'customer';
         const notifyChannel = supabase.channel(`chat-notify-${peerRole}-${jobId}`);
         notifyChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') {
-            notifyChannel.send({ type: 'broadcast', event: 'new_message', payload: encMsg }).catch(() => {});
+            notifyChannel.send({ type: 'broadcast', event: 'new_message', payload: msg }).catch(() => {});
             setTimeout(() => supabase.removeChannel(notifyChannel), 2000);
           }
         });
@@ -290,7 +299,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
     } else {
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, status: 'sent' as const } : m)));
     }
-    saveToDb(encMsg);
+    saveToDb(msg);
   }, [role, jobId, saveToDb]);
 
   const sendMessage = useCallback(async (overrideText?: string) => {
@@ -351,6 +360,7 @@ export function ChatModal({ isOpen, onClose, jobId, peerName, peerInitials, role
   const shareLocation = useCallback(() => {
     import('../utils/safeLocation').then(({ getSafePosition }) => {
       getSafePosition().then((pos) => {
+        if (!pos) return;
         sendMessage(`My current location: https://maps.google.com/maps?q=${pos.lat},${pos.lng}`);
       });
     });

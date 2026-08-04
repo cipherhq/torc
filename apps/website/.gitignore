@@ -1,2 +1,7 @@
 .vercel
-.env*.local
+.env
+.env.*
+.env.local
+.env.staging
+.env.production
+!.env.example

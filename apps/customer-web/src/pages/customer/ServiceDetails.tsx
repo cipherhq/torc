@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
 import { useTheme } from '../../context/ThemeContext';
-import { getRequestContext, updateRequestContext } from '../../data/requestContext';
+import { getRequestContext, updateRequestContext } from '../../data/bookingDraftStore';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as Icons from 'lucide-react';
 
@@ -29,8 +29,11 @@ export function ServiceDetails() {
   const [showAddVehicle, setShowAddVehicle] = useState(false);
   const [vehicleForm, setVehicleForm] = useState({ make: '', model: '', year: '', color: '', plate: '' });
   const [savingVehicle, setSavingVehicle] = useState(false);
+  const [destinationCoords, setDestinationCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [suggestions, setSuggestions] = useState<google.maps.places.AutocompletePrediction[]>([]);
   const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
+  const placesService = useRef<google.maps.places.PlacesService | null>(null);
+  const [fuelType, setFuelType] = useState<string>('unleaded');
   const [errors, setErrors] = useState<string[]>([]);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
@@ -68,6 +71,8 @@ export function ServiceDetails() {
   useEffect(() => {
     if (isLoaded && !autocompleteService.current) {
       autocompleteService.current = new google.maps.places.AutocompleteService();
+      // PlacesService needs a div element (not rendered) for initialization
+      placesService.current = new google.maps.places.PlacesService(document.createElement('div'));
     }
   }, [isLoaded]);
 
@@ -77,6 +82,7 @@ export function ServiceDetails() {
   }, [user]);
 
   const fetchVehicles = async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase.from('vehicles').select('*').eq('user_id', user.id);
       if (error) throw error;
@@ -133,6 +139,20 @@ export function ServiceDetails() {
   const selectSuggestion = (suggestion: google.maps.places.AutocompletePrediction) => {
     setDestination(suggestion.description);
     setSuggestions([]);
+    // Geocode to get lat/lng
+    if (placesService.current) {
+      placesService.current.getDetails(
+        { placeId: suggestion.place_id, fields: ['geometry'] },
+        (place, status) => {
+          if (status === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
+            setDestinationCoords({
+              lat: place.geometry.location.lat(),
+              lng: place.geometry.location.lng(),
+            });
+          }
+        }
+      );
+    }
   };
 
   if (serviceLoading) {
@@ -146,6 +166,12 @@ export function ServiceDetails() {
 
   const Icon = Icons[service.icon as keyof typeof Icons] as any;
   const needsDestination = (service.name || '').toLowerCase().includes('tow');
+  const needsFuelType = (service.name || '').toLowerCase().includes('fuel');
+  const fuelOptions = [
+    { value: 'unleaded', label: 'Unleaded', description: '87 Octane' },
+    { value: 'mid-grade', label: 'Mid-Grade', description: '89 Octane' },
+    { value: 'premium', label: 'Premium', description: '91-93 Octane' },
+  ];
 
   const handleContinue = () => {
     const validationErrors: string[] = [];
@@ -166,19 +192,25 @@ export function ServiceDetails() {
     updateRequestContext({
       serviceId: service.id,
       serviceName: service.name,
-      serviceBasePrice: Number(service.base_price || context.serviceBasePrice || 0),
+      serviceBasePrice: Number(service.base_price ?? 0),
       serviceIcon: service.icon || null,
       vehicleId: selectedVehicle,
-      notes,
+      notes: needsFuelType ? `[Fuel: ${fuelOptions.find(f => f.value === fuelType)?.label || fuelType}] ${notes}`.trim() : notes,
       photos,
       destinationAddress: destination,
+      destinationCoords: destinationCoords || null,
+      fuelType: needsFuelType ? fuelType : undefined,
     });
     navigate('/schedule');
   };
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)', paddingBottom: 'calc(140px + env(safe-area-inset-bottom, 0px))' }}>
-      <PageHeader title={service.name} onBack={() => navigate('/service-selection')} />
+      <PageHeader title={service.name} onBack={() => navigate('/service-selection')} rightAction={
+        <button onClick={() => navigate('/customer/home')} className="w-10 h-10 rounded-full flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+          <X className="w-5 h-5 text-white" />
+        </button>
+      } />
 
       <div className="relative z-10 px-6" style={{ paddingTop: 'calc(var(--safe-top) + 64px)' }}>
         {/* Service info card */}
@@ -246,24 +278,39 @@ export function ServiceDetails() {
           {/* Add Vehicle Inline Form */}
           {showAddVehicle ? (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              className="rounded-2xl p-4 mb-3" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
+              className="rounded-2xl p-5 mb-3" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
             >
-              <div className="flex items-center justify-between mb-3">
-                <p className="font-semibold text-sm" style={{ color: textColor }}>Add New Vehicle</p>
-                <button onClick={() => setShowAddVehicle(false)} className="p-1" title="Close"><X className="w-4 h-4" style={{ color: subColor }} /></button>
+              <div className="flex items-center justify-between mb-4">
+                <p className="font-semibold" style={{ color: textColor }}>Add New Vehicle</p>
+                <button onClick={() => setShowAddVehicle(false)} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6' }} title="Close"><X className="w-4 h-4" style={{ color: subColor }} /></button>
               </div>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="text" value={vehicleForm.make} onChange={e => setVehicleForm({ ...vehicleForm, make: e.target.value })} placeholder="Make *" className="rounded-xl px-3 py-2.5 text-sm bg-transparent outline-none" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }} />
-                  <input type="text" value={vehicleForm.model} onChange={e => setVehicleForm({ ...vehicleForm, model: e.target.value })} placeholder="Model *" className="rounded-xl px-3 py-2.5 text-sm bg-transparent outline-none" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }} />
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold mb-1 block" style={{ color: subColor }}>Make <span className="text-red-500">*</span></label>
+                    <input type="text" value={vehicleForm.make} onChange={e => setVehicleForm({ ...vehicleForm, make: e.target.value })} placeholder="e.g. Toyota" className="w-full h-11 px-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/40" style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold mb-1 block" style={{ color: subColor }}>Model <span className="text-red-500">*</span></label>
+                    <input type="text" value={vehicleForm.model} onChange={e => setVehicleForm({ ...vehicleForm, model: e.target.value })} placeholder="e.g. Camry" className="w-full h-11 px-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/40" style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }} />
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input type="text" value={vehicleForm.year} onChange={e => setVehicleForm({ ...vehicleForm, year: e.target.value })} placeholder="Year" className="rounded-xl px-3 py-2.5 text-sm bg-transparent outline-none" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }} />
-                  <input type="text" value={vehicleForm.color} onChange={e => setVehicleForm({ ...vehicleForm, color: e.target.value })} placeholder="Color" className="rounded-xl px-3 py-2.5 text-sm bg-transparent outline-none" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }} />
-                  <input type="text" value={vehicleForm.plate} onChange={e => setVehicleForm({ ...vehicleForm, plate: e.target.value })} placeholder="Plate" className="rounded-xl px-3 py-2.5 text-sm bg-transparent outline-none" style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }} />
+                <div>
+                  <label className="text-xs font-semibold mb-1 block" style={{ color: subColor }}>Year</label>
+                  <input type="text" inputMode="numeric" value={vehicleForm.year} onChange={e => setVehicleForm({ ...vehicleForm, year: e.target.value })} placeholder="e.g. 2024" className="w-full h-11 px-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/40" style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold mb-1 block" style={{ color: subColor }}>Color</label>
+                    <input type="text" value={vehicleForm.color} onChange={e => setVehicleForm({ ...vehicleForm, color: e.target.value })} placeholder="e.g. Silver" className="w-full h-11 px-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/40" style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold mb-1 block" style={{ color: subColor }}>License Plate</label>
+                    <input type="text" value={vehicleForm.plate} onChange={e => setVehicleForm({ ...vehicleForm, plate: e.target.value.toUpperCase() })} placeholder="e.g. ABC-1234" className="w-full h-11 px-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#008CE5]/40 uppercase" style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }} />
+                  </div>
                 </div>
                 <button onClick={handleAddVehicle} disabled={!vehicleForm.make || !vehicleForm.model || savingVehicle}
-                  className="w-full rounded-xl py-2.5 font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full h-11 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#008CE5] to-[#0070B8] disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {savingVehicle ? 'Adding...' : <><Check className="w-4 h-4" />Save Vehicle</>}
                 </button>
@@ -279,6 +326,37 @@ export function ServiceDetails() {
             </button>
           )}
         </div>
+
+        {/* Fuel Type (for fuel delivery) */}
+        {needsFuelType && (
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Icons.Fuel className="w-5 h-5" style={{ color: '#008CE5' }} />
+              <p className="font-semibold" style={{ color: textColor }}>Fuel Type</p>
+            </div>
+            <div className="space-y-2">
+              {fuelOptions.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setFuelType(option.value)}
+                  className="w-full rounded-2xl p-4 flex items-center gap-3 transition-all"
+                  style={{
+                    backgroundColor: fuelType === option.value ? (isDark ? 'rgba(0,140,229,0.08)' : 'rgba(0,140,229,0.05)') : cardBg,
+                    border: `2px solid ${fuelType === option.value ? '#008CE5' : cardBorder}`,
+                  }}
+                >
+                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center" style={{ borderColor: fuelType === option.value ? '#008CE5' : subColor }}>
+                    {fuelType === option.value && <div className="w-2 h-2 rounded-full bg-[#008CE5]" />}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className="font-semibold text-sm" style={{ color: textColor }}>{option.label}</p>
+                    <p className="text-xs" style={{ color: subColor }}>{option.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Destination (for towing) - with Google Places Autocomplete */}
         {needsDestination && (

@@ -243,6 +243,7 @@ export function ProviderHome() {
   }, []);
 
   // Get provider's current location — uses Capacitor native API (never re-prompts)
+  // Only actively watch when online to save battery; grab one-shot position when offline.
   useEffect(() => {
     let watchId: string | null = null;
     let cancelled = false;
@@ -251,16 +252,18 @@ export function ProviderHome() {
       const { safeWatchPosition, getSafePosition } = await import('../../utils/safeLocation');
       if (cancelled) return;
 
-      // Start watching — returns null if permission not granted (no prompt)
-      watchId = await safeWatchPosition((pos) => {
-        setCurrentPos({ lat: pos.lat, lng: pos.lng });
-        if (mapRef.current) mapRef.current.panTo({ lat: pos.lat, lng: pos.lng });
-      });
+      if (isOnline) {
+        // Active tracking while on duty
+        watchId = await safeWatchPosition((pos) => {
+          setCurrentPos({ lat: pos.lat, lng: pos.lng });
+          if (mapRef.current) mapRef.current.panTo({ lat: pos.lat, lng: pos.lng });
+        });
+      }
 
-      // If watch didn't start (no permission), use a one-shot fallback
+      // One-shot fallback so the map shows something even when offline
       if (!watchId) {
         const fallback = await getSafePosition();
-        if (!cancelled) setCurrentPos(fallback);
+        if (!cancelled && fallback) setCurrentPos(fallback);
       }
     }
     start();
@@ -271,7 +274,7 @@ export function ProviderHome() {
         import('../../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchId));
       }
     };
-  }, []);
+  }, [isOnline]);
 
   // Persist provider location to provider_locations table for tiered dispatch
   const locationUpsertRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -312,6 +315,42 @@ export function ProviderHome() {
   useEffect(() => {
     if (!user) return;
     async function loadStats() {
+      // Ensure Supabase client has the auth session before querying RLS-protected tables
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session) {
+        console.warn('No active session — skipping provider profile load');
+        return;
+      }
+
+      // Load provider profile first (separate try/catch so stats failures don't block)
+      try {
+        const { data: pp } = await supabase
+          .from('provider_profiles')
+          .select('rating, is_online, services')
+          .eq('id', user!.id)
+          .maybeSingle();
+
+        if (pp) {
+          if (!providerRating && pp.rating) setProviderRating(pp.rating);
+          setIsOnline(pp.is_online || false);
+          const svcList = pp.services || [];
+          setProviderServices(svcList);
+          providerServicesRef.current = svcList;
+
+          if (svcList.length === 0) {
+            navigate('/onboarding', { replace: true });
+            return;
+          }
+        } else {
+          navigate('/onboarding', { replace: true });
+          return;
+        }
+      } catch (e) {
+        console.warn('Failed to load provider profile:', e);
+        // Don't redirect on error — profile may exist but query failed transiently
+      }
+
+      // Load job stats separately
       try {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -326,12 +365,10 @@ export function ProviderHome() {
           setTodayEarnings(todayJobs.reduce((sum, j) => sum + (j.total_amount || 0), 0));
           setCompletedCount(jobs.filter(j => j.status === 'completed').length);
 
-          // Calculate real average rating from completed jobs that have ratings
           const ratedJobs = jobs.filter(j => j.status === 'completed' && j.rating != null && j.rating > 0);
           if (ratedJobs.length > 0) {
             const avgRating = ratedJobs.reduce((sum, j) => sum + j.rating, 0) / ratedJobs.length;
             setProviderRating(avgRating);
-            // Update provider_profiles with calculated rating
             await supabase.from('provider_profiles').upsert({
               id: user!.id,
               rating: Math.round(avgRating * 10) / 10,
@@ -339,33 +376,7 @@ export function ProviderHome() {
             }).select();
           }
         }
-
-        const { data: pp } = await supabase
-          .from('provider_profiles')
-          .select('rating, is_online, services')
-          .eq('id', user!.id)
-          .maybeSingle();
-
-        if (pp) {
-          if (!providerRating && pp.rating) setProviderRating(pp.rating);
-          // Restore the provider's online state from DB — don't force offline
-          setIsOnline(pp.is_online || false);
-          // Load provider's selected services for filtering incoming requests
-          const svcList = pp.services || [];
-          setProviderServices(svcList);
-          providerServicesRef.current = svcList;
-
-          // Redirect to onboarding if no services selected
-          if (svcList.length === 0) {
-            navigate('/onboarding', { replace: true });
-            return;
-          }
-        } else {
-          // No provider profile at all — needs full onboarding
-          navigate('/onboarding', { replace: true });
-          return;
-        }
-      } catch (e) { console.warn('Failed to load provider stats:', e); }
+      } catch (e) { console.warn('Failed to load job stats:', e); }
     }
     loadStats();
   }, [user]);
@@ -753,7 +764,7 @@ export function ProviderHome() {
   // Filter out dismissed jobs from the visible list
   const visibleRequests = pendingRequests.filter(j => !dismissedJobIds.current.has(j.id));
 
-  const defaultCenter = currentPos || { lat: 40.7128, lng: -74.006 };
+  const defaultCenter = currentPos || { lat: 39.8283, lng: -98.5795 };
 
   // Theme-aware colors
   const textColor = isDark ? '#FFFFFF' : '#14263D';

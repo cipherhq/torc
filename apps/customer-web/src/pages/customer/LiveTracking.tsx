@@ -18,7 +18,7 @@ import { decryptMessage } from '../../lib/chatEncryption';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 
-type JobStatus = 'pending' | 'matching' | 'accepted' | 'enroute' | 'arrived' | 'inprogress' | 'completed' | 'cancelled';
+type JobStatus = 'pending' | 'matching' | 'accepted' | 'enroute' | 'arrived' | 'enroute_destination' | 'inprogress' | 'completed' | 'cancelled';
 
 const JOB_STATUS_ORDER: Record<JobStatus, number> = {
   pending: 0,
@@ -26,9 +26,10 @@ const JOB_STATUS_ORDER: Record<JobStatus, number> = {
   accepted: 2,
   enroute: 3,
   arrived: 4,
-  inprogress: 5,
-  completed: 6,
-  cancelled: 6, // cancelled can happen at any time
+  enroute_destination: 5,
+  inprogress: 6,
+  completed: 7,
+  cancelled: 7, // cancelled can happen at any time
 };
 
 function normalizeJobStatus(status?: string): JobStatus {
@@ -41,6 +42,8 @@ function normalizeJobStatus(status?: string): JobStatus {
       return 'enroute';
     case 'in_progress':
       return 'inprogress';
+    case 'enroute_destination':
+      return 'enroute_destination';
     case 'pending':
     case 'matching':
     case 'accepted':
@@ -128,6 +131,15 @@ export function LiveTracking() {
     ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
     : { lat: 37.7749, lng: -122.4194 });
 
+  // Destination position (for towing drop-off)
+  const destinationPos = (() => {
+    const lat = Number(currentJob?.destination_latitude);
+    const lng = Number(currentJob?.destination_longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0) return { lat, lng };
+    return null;
+  })();
+  const directionsTarget = (status === 'enroute_destination' && destinationPos) ? destinationPos : customerPos;
+
   // Static initial center — only used when map first mounts so
   // camera doesn't jump around on every GPS update.
   const initialCenter = useRef(customerPos);
@@ -196,6 +208,7 @@ export function LiveTracking() {
         if (
           payload.new?.provider_id && !currentJob?.provider ||
           normalizedStatus === 'arrived' ||
+          normalizedStatus === 'enroute_destination' ||
           normalizedStatus === 'inprogress' ||
           normalizedStatus === 'completed' ||
           normalizedStatus === 'cancelled'
@@ -227,6 +240,7 @@ export function LiveTracking() {
           fetchJob(jobId).catch(console.warn);
           if (newStatus === 'enroute') showToast('info', 'Provider En Route', 'Your provider is on the way!');
           if (newStatus === 'arrived') showToast('success', 'Provider Arrived', 'Your provider has arrived at your location.');
+          if (newStatus === 'enroute_destination') showToast('info', 'Heading to Destination', 'Your provider is driving to the destination.');
           if (newStatus === 'inprogress') showToast('info', 'Service Started', 'Your provider has begun the service.');
           if (newStatus === 'completed') showToast('success', 'Service Completed', 'Your service has been completed successfully!');
           if (newStatus === 'cancelled') {
@@ -285,7 +299,7 @@ export function LiveTracking() {
     : initialProviderPos;
 
   const requestDrivingDirections = useCallback((force = false) => {
-    if (!isLoaded || !activeProviderPos || !customerPos) return;
+    if (!isLoaded || !activeProviderPos || !directionsTarget) return;
     if (status === 'arrived' || status === 'inprogress' || status === 'completed' || status === 'cancelled') return;
     if (directionsServiceRef.current) return;
 
@@ -299,7 +313,7 @@ export function LiveTracking() {
       const service = new google.maps.DirectionsService();
       service.route({
         origin: activeProviderPos,
-        destination: customerPos,
+        destination: directionsTarget,
         travelMode: google.maps.TravelMode.DRIVING,
       }, (result, routeStatus) => {
         directionsServiceRef.current = false;
@@ -318,7 +332,7 @@ export function LiveTracking() {
           return;
         }
 
-        console.warn('[Directions API] Failed:', routeStatusText, 'origin:', activeProviderPos, 'dest:', customerPos);
+        console.warn('[Directions API] Failed:', routeStatusText, 'origin:', activeProviderPos, 'dest:', directionsTarget);
 
         const isRetryable = routeStatusText === 'OVER_QUERY_LIMIT' || routeStatusText === 'UNKNOWN_ERROR';
         if (isRetryable && directionsRetryCountRef.current < 3) {
@@ -332,12 +346,12 @@ export function LiveTracking() {
 
         console.warn('[Directions API] Giving up after status:', routeStatusText, '- falling back to Haversine ETA');
         setDirectionsError(true);
-        if (activeProviderPos && customerPos) {
+        if (activeProviderPos && directionsTarget) {
           const R = 6371;
-          const dLat = (customerPos.lat - activeProviderPos.lat) * Math.PI / 180;
-          const dLng = (customerPos.lng - activeProviderPos.lng) * Math.PI / 180;
+          const dLat = (directionsTarget.lat - activeProviderPos.lat) * Math.PI / 180;
+          const dLng = (directionsTarget.lng - activeProviderPos.lng) * Math.PI / 180;
           const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(activeProviderPos.lat * Math.PI / 180) * Math.cos(customerPos.lat * Math.PI / 180) *
+            Math.cos(activeProviderPos.lat * Math.PI / 180) * Math.cos(directionsTarget.lat * Math.PI / 180) *
             Math.sin(dLng / 2) ** 2;
           const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
           setEta(Math.max(1, Math.ceil((dist / 30) * 60)));
@@ -347,7 +361,7 @@ export function LiveTracking() {
       directionsServiceRef.current = false;
       setDirectionsError(true);
     }
-  }, [isLoaded, activeProviderPos?.lat, activeProviderPos?.lng, customerPos?.lat, customerPos?.lng, status]);
+  }, [isLoaded, activeProviderPos?.lat, activeProviderPos?.lng, directionsTarget?.lat, directionsTarget?.lng, status]);
 
   // Refresh route periodically but keep request rate below quota limits.
   useEffect(() => {
@@ -355,7 +369,7 @@ export function LiveTracking() {
   }, [requestDrivingDirections]);
 
   useEffect(() => {
-    if (status !== 'accepted' && status !== 'enroute') return;
+    if (status !== 'accepted' && status !== 'enroute' && status !== 'enroute_destination') return;
     const interval = setInterval(() => requestDrivingDirections(true), 15000);
     return () => clearInterval(interval);
   }, [status, requestDrivingDirections]);
@@ -473,7 +487,7 @@ export function LiveTracking() {
   };
 
   // Determine if cancellation fee applies (provider already accepted)
-  const providerHasAccepted = hasProvider || status === 'accepted' || status === 'enroute' || status === 'arrived' || status === 'inprogress';
+  const providerHasAccepted = hasProvider || status === 'accepted' || status === 'enroute' || status === 'arrived' || status === 'enroute_destination' || status === 'inprogress';
   const cancellationFeePct = platformSettings?.cancellation_fee_pct ?? 25;
   const totalAmount = currentJob?.total_amount ? Number(currentJob.total_amount) : (currentJob?.base_price ? Number(currentJob.base_price) : 0);
   const cancellationFee = providerHasAccepted ? Math.round(totalAmount * (cancellationFeePct / 100) * 100) / 100 : 0;
@@ -536,6 +550,7 @@ export function LiveTracking() {
     accepted: { label: 'Accepted', detail: 'A provider has accepted your request!', color: '#008CE5' },
     enroute: { label: 'On the way', detail: 'Provider is heading to you', color: '#008CE5' },
     arrived: { label: 'Arrived', detail: 'Provider has arrived at your location!', color: '#0070B8' },
+    enroute_destination: { label: 'Heading to Destination', detail: 'Provider is driving to the destination', color: '#008CE5' },
     inprogress: { label: 'In Progress', detail: 'Working on your vehicle', color: '#008CE5' },
     completed: { label: 'Complete', detail: 'Service has been completed', color: '#008CE5' },
     cancelled: { label: 'Cancelled', detail: 'This job has been cancelled', color: '#EF4444' },
@@ -627,6 +642,22 @@ export function LiveTracking() {
               />
             )}
 
+            {/* Destination marker (for towing drop-off) */}
+            {destinationPos && status === 'enroute_destination' && (
+              <MarkerF
+                position={destinationPos}
+                icon={{
+                  path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+                  scale: 8,
+                  fillColor: '#10B981',
+                  fillOpacity: 1,
+                  strokeColor: '#FFFFFF',
+                  strokeWeight: 2,
+                }}
+                title="Destination"
+              />
+            )}
+
             {/* Directions route */}
             {showRouteOnMap && (
               <DirectionsRenderer
@@ -676,274 +707,260 @@ export function LiveTracking() {
         </button>
       </div>
 
-      {/* Top status bar */}
-      <div className="relative z-20 p-4" style={{ paddingTop: 'calc(env(safe-area-inset-top, 16px) + 16px)' }}>
-        <div className="rounded-2xl px-5 py-4 text-center shadow-lg"
-          style={{ backgroundColor: 'rgba(255,255,255,0.95)', border: '1px solid #E5E7EB', backdropFilter: 'blur(12px)' }}>
-          <div className="flex items-center justify-center gap-2 mb-1">
-            {isConnected && <div className="w-2 h-2 bg-[#008CE5] rounded-full animate-pulse" />}
-            {isWaiting && <Loader2 className="w-4 h-4 animate-spin" style={{ color: currentStatus.color }} />}
-            <p className="text-sm font-medium" style={{ color: '#6B7280' }}>{currentStatus.detail}</p>
+      {/* Distance overlay on map */}
+      {directions && directions.routes[0]?.legs[0]?.distance && (
+        <div className="absolute z-30" style={{ top: 'calc(env(safe-area-inset-top, 16px) + 16px)', left: '50%', transform: 'translateX(-50%)' }}>
+          <div className="rounded-full px-5 py-2 shadow-lg" style={{ backgroundColor: 'rgba(20,38,61,0.9)', backdropFilter: 'blur(8px)' }}>
+            <span className="text-white font-bold text-sm">{directions.routes[0].legs[0].distance.text}</span>
           </div>
-
-          {(status === 'enroute' || status === 'accepted') && eta !== null && (
-            <p className="font-bold text-2xl" style={{ color: '#008CE5' }}>{eta} min</p>
-          )}
-          {(status === 'enroute' || status === 'accepted') && eta === null && (
-            <p className="font-bold text-lg" style={{ color: '#008CE5' }}>Calculating ETA...</p>
-          )}
-          {status === 'arrived' && (
-            <p className="font-bold text-lg" style={{ color: '#0070B8' }}>Provider is here!</p>
-          )}
-          {status === 'inprogress' && (
-            <div className="flex items-center justify-center gap-2">
-              <Clock className="w-5 h-5" style={{ color: '#008CE5' }} />
-              <p className="font-bold text-lg" style={{ color: '#008CE5' }}>Working on your vehicle</p>
-            </div>
-          )}
-          {isWaiting && (
-            <div className="flex items-center justify-center gap-1 mt-1">
-              <div className="w-2 h-2 rounded-full bg-[#F59E0B] animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 rounded-full bg-[#F59E0B] animate-bounce" style={{ animationDelay: '200ms' }} />
-              <div className="w-2 h-2 rounded-full bg-[#F59E0B] animate-bounce" style={{ animationDelay: '400ms' }} />
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Bottom sheet */}
       <div className="fixed bottom-0 left-0 right-0 z-30">
-        <div className="rounded-t-3xl p-5 shadow-2xl"
-          style={{ backgroundColor: 'rgba(255,255,255,0.97)', borderTop: '1px solid #E5E7EB', backdropFilter: 'blur(12px)', paddingBottom: 'calc(20px + var(--safe-bottom, 0px))' }}>
-          {/* Provider card */}
+        <div className="rounded-t-3xl shadow-2xl overflow-hidden"
+          style={{ backgroundColor: '#14263D', paddingBottom: 'calc(12px + var(--safe-bottom, 0px))' }}>
+
+          {/* Drag handle */}
+          <div className="flex justify-center pt-3 pb-2">
+            <div className="w-10 h-1 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.3)' }} />
+          </div>
+
+          {/* ETA / Status header */}
+          <div className="text-center px-5 pb-3">
+            {(status === 'enroute' || status === 'accepted') && eta !== null && (
+              <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Arrives in {eta} min</h2>
+            )}
+            {(status === 'enroute' || status === 'accepted') && eta === null && (
+              <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Calculating ETA...</h2>
+            )}
+            {status === 'enroute_destination' && eta !== null && (
+              <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Service delivery in {eta} min</h2>
+            )}
+            {status === 'enroute_destination' && eta === null && (
+              <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Heading to your location...</h2>
+            )}
+            {status === 'arrived' && (
+              <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Provider has arrived</h2>
+            )}
+            {status === 'inprogress' && (
+              <div className="flex items-center justify-center gap-2">
+                <Clock className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Working on your vehicle</h2>
+              </div>
+            )}
+            {isWaiting && (
+              <>
+                <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Finding your provider</h2>
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  <div className="w-2 h-2 rounded-full bg-[#008CE5] animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-[#008CE5] animate-bounce" style={{ animationDelay: '200ms' }} />
+                  <div className="w-2 h-2 rounded-full bg-[#008CE5] animate-bounce" style={{ animationDelay: '400ms' }} />
+                </div>
+              </>
+            )}
+            {status === 'completed' && (
+              <h2 className="font-bold text-xl" style={{ color: '#FFFFFF' }}>Service completed</h2>
+            )}
+            {status === 'cancelled' && (
+              <h2 className="font-bold text-xl" style={{ color: '#EF4444' }}>Request cancelled</h2>
+            )}
+          </div>
+
+          {/* Service details card */}
+          {currentJob?.service?.name && (
+            <div className="mx-4 mb-3 rounded-xl p-3" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+              <p className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.5)' }}>Service details</p>
+              <p className="font-bold mt-0.5" style={{ color: '#FFFFFF' }}>{currentJob.service.name}</p>
+              {currentJob.pickup_address && (
+                <div className="flex items-start gap-2 mt-1.5">
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: 'rgba(255,255,255,0.5)' }} />
+                  <p className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>{currentJob.pickup_address}</p>
+                </div>
+              )}
+              {destinationPos && currentJob?.destination_address && (
+                <div className="flex items-start gap-2 mt-1.5">
+                  <Flag className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: '#10B981' }} />
+                  <p className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>{currentJob.destination_address}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Provider card — Uber style */}
           {providerInfo ? (
-            <div className="mb-4">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold"
+            <div className="mx-4 mb-3 rounded-xl p-4" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+              <div className="flex items-center gap-3">
+                {/* Provider avatar */}
+                <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
                   style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)', color: '#FFFFFF' }}>
                   {providerInfo.initials}
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-bold text-lg" style={{ color: '#14263D' }}>{providerInfo.name}</h3>
+
+                {/* Provider details */}
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-lg truncate" style={{ color: '#FFFFFF' }}>{providerInfo.name}</h3>
                   <div className="flex items-center gap-2 mt-0.5">
                     {providerInfo.rating > 0 && (
                       <>
-                        <Star className="w-3.5 h-3.5 fill-[#008CE5]" style={{ color: '#008CE5' }} />
-                        <span className="text-sm font-semibold" style={{ color: '#008CE5' }}>{providerInfo.rating.toFixed(1)}</span>
-                        <span style={{ color: '#9CA3AF' }}>·</span>
+                        <Star className="w-4 h-4 fill-[#F59E0B]" style={{ color: '#F59E0B' }} />
+                        <span className="font-semibold" style={{ color: '#FFFFFF' }}>{providerInfo.rating.toFixed(1)}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.3)' }}>·</span>
                       </>
                     )}
-                    <span className="text-sm" style={{ color: '#6B7280' }}>{providerInfo.rescues} jobs</span>
+                    <span style={{ color: 'rgba(255,255,255,0.6)' }}>{providerInfo.rescues} jobs</span>
+                    {providerInfo.isVerified && (
+                      <>
+                        <span style={{ color: 'rgba(255,255,255,0.3)' }}>·</span>
+                        <Shield className="w-3.5 h-3.5" style={{ color: '#008CE5' }} />
+                      </>
+                    )}
                   </div>
-                  {providerInfo.isVerified && (
-                    <div className="flex items-center gap-1.5 mt-1.5">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ backgroundColor: 'rgba(78,205,196,0.15)', color: '#008CE5' }}>VERIFIED</span>
-                    </div>
-                  )}
                 </div>
-                {/* Direct phone fallback */}
-                {providerInfo.phone && (
-                  <a href={`tel:${providerInfo.phone.replace(/\s/g, '')}`}
-                    className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 active:scale-95 transition-transform"
-                    style={{ backgroundColor: 'rgba(0,140,229,0.1)' }}
-                  >
-                    <Phone className="w-5 h-5" style={{ color: '#008CE5' }} />
-                  </a>
+
+                {/* Vehicle plate badge */}
+                {providerInfo.plate && (
+                  <div className="flex-shrink-0 text-right">
+                    <p className="font-bold text-sm tracking-wide" style={{ color: '#FFFFFF' }}>{providerInfo.plate}</p>
+                    {providerInfo.vehicle && (
+                      <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{providerInfo.vehicle}</p>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {/* Vehicle info */}
-              {(providerInfo.vehicle || providerInfo.license || providerInfo.plate) && (
-                <div className="grid grid-cols-3 gap-2">
-                  {providerInfo.vehicle && (
-                    <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
-                      <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>Vehicle</p>
-                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.vehicle}</p>
-                    </div>
+              {/* Communication row */}
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                <button
+                  onClick={handleMessage}
+                  className="relative flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+                >
+                  <MessageCircle className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                  <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Message</span>
+                  {hasUnreadChat && !isChatOpen && (
+                    <div className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-red-500" />
                   )}
-                  {providerInfo.license && (
-                    <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
-                      <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>License</p>
-                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.license}</p>
-                    </div>
-                  )}
-                  {providerInfo.plate && (
-                    <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
-                      <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>Plate</p>
-                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.plate}</p>
-                    </div>
-                  )}
-                </div>
-              )}
+                </button>
+                <button
+                  onClick={handleCall}
+                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+                >
+                  <Phone className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                  <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Call</span>
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="flex flex-col items-center justify-center gap-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+                >
+                  <Share2 className="w-5 h-5" style={{ color: '#FFFFFF' }} />
+                  <span className="text-xs font-medium" style={{ color: '#FFFFFF' }}>Share</span>
+                </button>
+              </div>
             </div>
           ) : (
             /* Waiting for provider */
-            <div className="mb-4 text-center py-4">
-              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ backgroundColor: '#F3F4F6' }}>
-                <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#008CE5' }} />
+            !['completed', 'cancelled'].includes(status) && (
+              <div className="mx-4 mb-3 rounded-xl p-4 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: '#008CE5' }} />
+                <p className="font-semibold" style={{ color: '#FFFFFF' }}>Matching you with the best provider</p>
+                <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>This usually takes less than a minute</p>
               </div>
-              <h3 className="font-bold" style={{ color: '#14263D' }}>Finding Provider...</h3>
-              <p className="text-sm mt-1" style={{ color: '#6B7280' }}>
-                We're matching you with the best available provider nearby
-              </p>
-            </div>
+            )
           )}
 
-          {/* Action buttons based on status */}
-          {status === 'arrived' && (
-            <button
-              onClick={handleConfirmArrival}
-              className="w-full rounded-2xl py-4 font-bold text-lg mb-3 active:scale-[0.98] transition-transform"
-              style={{
-                background: 'linear-gradient(to right, #008CE5, #0070B8)',
-                color: '#FFFFFF',
-                boxShadow: '0 8px 24px rgba(78,205,196,0.4)',
-                touchAction: 'manipulation',
-              }}
-            >
-              Confirm Provider Arrived
-            </button>
-          )}
-          {status === 'inprogress' && (
-            <button
-              onClick={handleComplete}
-              className="w-full rounded-2xl py-4 font-bold text-lg mb-3 active:scale-[0.98] transition-transform"
-              style={{
-                background: 'linear-gradient(to right, #008CE5, #0070B8)',
-                color: '#FFFFFF',
-                boxShadow: '0 8px 24px rgba(78,205,196,0.4)',
-                touchAction: 'manipulation',
-              }}
-            >
-              Service Complete
-            </button>
-          )}
-          {(status === 'cancelled' || status === 'completed') && (
-            <>
-              {status === 'completed' && !customerHasRatedProvider && (
-                <button
-                  onClick={() => navigate(`/completion/${jobId}`)}
-                  className="w-full rounded-2xl py-4 font-bold text-lg mb-3 active:scale-[0.98] transition-transform"
-                  style={{
-                    background: 'linear-gradient(to right, #008CE5, #0070B8)',
-                    color: '#FFFFFF',
-                    boxShadow: '0 8px 24px rgba(78,205,196,0.4)',
-                    touchAction: 'manipulation',
-                  }}
-                >
-                  Rate Provider & Service
-                </button>
-              )}
-              {(status === 'cancelled' || (status === 'completed' && customerHasRatedProvider)) && (
-                <button
-                  onClick={() => navigate('/customer/home')}
-                  className="w-full rounded-2xl py-4 font-bold text-sm mb-3 active:scale-[0.98] transition-transform"
-                  style={{ backgroundColor: '#F3F4F6', color: '#14263D', touchAction: 'manipulation' }}
-                >
-                  Back to Home
-                </button>
-              )}
-            </>
-          )}
-
-          {/* Communication buttons (only when provider is assigned) */}
-          {hasProvider && (
-            <div className="grid grid-cols-3 gap-3 mb-3">
-              {[
-                { label: 'Call', icon: Phone, onClick: handleCall, color: '#008CE5' },
-                { label: 'Message', icon: MessageCircle, onClick: handleMessage, color: '#0070B8' },
-                { label: 'Share', icon: Share2, onClick: handleShare, color: '#6B7280' },
-              ].map((btn) => {
-                const BtnIcon = btn.icon;
-                return (
-                  <button
-                    key={btn.label}
-                    onClick={btn.onClick}
-                    className="flex flex-col items-center gap-1.5 py-2 active:scale-95 transition-transform"
-                    style={{ touchAction: 'manipulation' }}
-                  >
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center relative"
-                      style={{ backgroundColor: '#F3F4F6' }}
-                    >
-                      <BtnIcon className="w-5 h-5" style={{ color: btn.color }} />
-                      {btn.label === 'Message' && hasUnreadChat && !isChatOpen && (
-                        <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
-                      )}
-                    </div>
-                    <span className="text-xs font-medium" style={{ color: '#6B7280' }}>{btn.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Communication buttons (waiting state) */}
-          {!hasProvider && status !== 'completed' && status !== 'cancelled' && (
-            <div className="grid grid-cols-2 gap-3 mb-3">
+          {/* Action buttons */}
+          <div className="px-4">
+            {status === 'arrived' && (
               <button
-                onClick={handleShare}
-                className="rounded-2xl py-3.5 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
-                style={{
-                  backgroundColor: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                  touchAction: 'manipulation',
-                }}
+                onClick={handleConfirmArrival}
+                className="w-full rounded-xl py-4 font-bold text-lg mb-2 active:scale-[0.98] transition-transform"
+                style={{ backgroundColor: '#008CE5', color: '#FFFFFF', touchAction: 'manipulation' }}
               >
-                <Share2 className="w-5 h-5" style={{ color: '#008CE5' }} />
-                <span className="text-sm font-semibold" style={{ color: '#0F172A' }}>Share</span>
+                Confirm Provider Arrived
               </button>
+            )}
+            {status === 'inprogress' && (
+              <button
+                onClick={handleComplete}
+                className="w-full rounded-xl py-4 font-bold text-lg mb-2 active:scale-[0.98] transition-transform"
+                style={{ backgroundColor: '#008CE5', color: '#FFFFFF', touchAction: 'manipulation' }}
+              >
+                Service Complete
+              </button>
+            )}
+            {status === 'completed' && !customerHasRatedProvider && (
+              <button
+                onClick={() => navigate(`/completion/${jobId}`)}
+                className="w-full rounded-xl py-4 font-bold text-lg mb-2 active:scale-[0.98] transition-transform"
+                style={{ backgroundColor: '#008CE5', color: '#FFFFFF', touchAction: 'manipulation' }}
+              >
+                Rate Provider & Service
+              </button>
+            )}
+            {(status === 'cancelled' || (status === 'completed' && customerHasRatedProvider)) && (
+              <button
+                onClick={() => navigate('/customer/home')}
+                className="w-full rounded-xl py-4 font-bold text-sm mb-2 active:scale-[0.98] transition-transform"
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#FFFFFF', touchAction: 'manipulation' }}
+              >
+                Back to Home
+              </button>
+            )}
+
+            {/* Safety button (when provider assigned) */}
+            {hasProvider && status !== 'completed' && status !== 'cancelled' && (
               <button
                 onClick={() => setShowSafety(true)}
-                className="rounded-2xl py-3.5 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                className="w-full rounded-xl py-3 flex items-center justify-center gap-2 mb-2 active:scale-[0.98] transition-transform"
+                style={{ backgroundColor: 'rgba(0,140,229,0.15)', touchAction: 'manipulation' }}
+              >
+                <Shield className="w-4 h-4" style={{ color: '#008CE5' }} />
+                <span className="text-sm font-semibold" style={{ color: '#008CE5' }}>Safety & Support</span>
+              </button>
+            )}
+
+            {/* Waiting state buttons */}
+            {!hasProvider && status !== 'completed' && status !== 'cancelled' && (
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  onClick={handleShare}
+                  className="rounded-xl py-3 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', touchAction: 'manipulation' }}
+                >
+                  <Share2 className="w-4 h-4" style={{ color: '#FFFFFF' }} />
+                  <span className="text-sm font-semibold text-white">Share</span>
+                </button>
+                <button
+                  onClick={() => setShowSafety(true)}
+                  className="rounded-xl py-3 flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                  style={{ backgroundColor: 'rgba(0,140,229,0.15)', touchAction: 'manipulation' }}
+                >
+                  <Shield className="w-4 h-4" style={{ color: '#008CE5' }} />
+                  <span className="text-sm font-semibold" style={{ color: '#008CE5' }}>Safety</span>
+                </button>
+              </div>
+            )}
+
+            {/* Cancel button */}
+            {(status === 'pending' || status === 'matching' || status === 'accepted' || status === 'enroute') && (
+              <button
+                onClick={handleCancelRequest}
+                disabled={cancelling}
+                className="w-full rounded-xl py-3 font-semibold text-sm active:scale-[0.98] transition-transform"
                 style={{
-                  backgroundColor: '#EFF6FF',
-                  border: '1px solid #BFDBFE',
-                  boxShadow: '0 1px 4px rgba(0, 140, 229, 0.08)',
+                  backgroundColor: 'rgba(239,68,68,0.15)',
+                  color: '#EF4444',
                   touchAction: 'manipulation',
+                  opacity: cancelling ? 0.6 : 1,
                 }}
               >
-                <Shield className="w-5 h-5" style={{ color: '#0070B8' }} />
-                <span className="text-sm font-semibold" style={{ color: '#0070B8' }}>Safety</span>
+                {cancelling ? 'Cancelling...' : 'Cancel Request'}
               </button>
-            </div>
-          )}
-
-          {/* Safety & Support button (when provider is assigned) */}
-          {hasProvider && status !== 'completed' && status !== 'cancelled' && (
-            <button
-              onClick={() => setShowSafety(true)}
-              className="w-full rounded-2xl py-4 flex items-center justify-center gap-2.5 active:scale-[0.98] transition-transform mb-3"
-              style={{
-                backgroundColor: '#EFF6FF',
-                border: '1px solid #BFDBFE',
-                boxShadow: '0 2px 8px rgba(0, 140, 229, 0.1)',
-                touchAction: 'manipulation',
-              }}
-            >
-              <Shield className="w-5 h-5" style={{ color: '#0070B8' }} />
-              <span className="text-sm font-semibold" style={{ color: '#0070B8' }}>Safety & Support</span>
-            </button>
-          )}
-
-          {/* Cancel button (only before service starts) */}
-          {(status === 'pending' || status === 'matching' || status === 'accepted' || status === 'enroute') && (
-            <button
-              onClick={handleCancelRequest}
-              disabled={cancelling}
-              className="w-full rounded-2xl py-4 font-semibold text-sm active:scale-[0.98] transition-transform"
-              style={{
-                backgroundColor: '#FFF5F5',
-                border: '1px solid #FECACA',
-                color: '#DC2626',
-                touchAction: 'manipulation',
-                boxShadow: '0 1px 3px rgba(220,38,38,0.08)',
-                opacity: cancelling ? 0.6 : 1,
-              }}
-            >
-              {cancelling ? 'Cancelling...' : 'Cancel Request'}
-            </button>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

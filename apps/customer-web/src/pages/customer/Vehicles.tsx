@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Car, Plus, Trash2, Star, Calendar, Palette, Hash } from 'lucide-react';
+import { Car, Plus, Trash2, Star } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
@@ -8,13 +8,6 @@ import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
 import { CustomerBottomNav } from '../../components/CustomerBottomNav';
 
-function IconBadge({ children, color = '#008CE5' }: { children: React.ReactNode; color?: string }) {
-  return (
-    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}15` }}>
-      {children}
-    </div>
-  );
-}
 
 interface Vehicle {
   id: string;
@@ -100,11 +93,9 @@ export function Vehicles() {
     }
   };
 
-  const inputStyle = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF',
-    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2'}`,
-    color: isDark ? '#FFFFFF' : '#1F2937',
-  };
+  const inputBg = isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF';
+  const inputBorder = isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2';
+  const labelColor = isDark ? 'rgba(255,255,255,0.6)' : '#4B5563';
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? 'linear-gradient(180deg, #0A1626 0%, #081427 100%)' : 'linear-gradient(180deg, #F8FBFF 0%, #EAF2FF 100%)' }}>
@@ -123,35 +114,76 @@ export function Vehicles() {
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
             className="rounded-2xl p-5 mb-6" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}
           >
-            <h3 className="font-semibold mb-4" style={{ color: textColor }}>Add Vehicle</h3>
-            <div className="space-y-3">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#008CE5] to-[#0070B8] flex items-center justify-center">
+                <Car className="w-5 h-5 text-white" />
+              </div>
+              <h3 className="font-bold text-lg" style={{ color: textColor }}>Add Vehicle</h3>
+            </div>
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge><Car className="w-4 h-4" style={{ color: '#008CE5' }} /></IconBadge>
-                  <input type="text" value={form.make} onChange={e => setForm({ ...form, make: e.target.value })} placeholder="Make (e.g. Toyota)" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block" style={{ color: labelColor }}>Make <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.make}
+                    onChange={e => setForm({ ...form, make: e.target.value })}
+                    placeholder="e.g. Toyota"
+                    className="w-full h-12 px-4 rounded-xl text-base outline-none transition-all focus:ring-2 focus:ring-[#008CE5]/40"
+                    style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }}
+                  />
                 </div>
-                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge><Car className="w-4 h-4" style={{ color: '#008CE5' }} /></IconBadge>
-                  <input type="text" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="Model (e.g. Camry)" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block" style={{ color: labelColor }}>Model <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={form.model}
+                    onChange={e => setForm({ ...form, model: e.target.value })}
+                    placeholder="e.g. Camry"
+                    className="w-full h-12 px-4 rounded-xl text-base outline-none transition-all focus:ring-2 focus:ring-[#008CE5]/40"
+                    style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }}
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge color="#0070B8"><Calendar className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
-                  <input type="text" value={form.year} onChange={e => setForm({ ...form, year: e.target.value })} placeholder="Year" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: labelColor }}>Year</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.year}
+                  onChange={e => setForm({ ...form, year: e.target.value })}
+                  placeholder="e.g. 2024"
+                  className="w-full h-12 px-4 rounded-xl text-base outline-none transition-all focus:ring-2 focus:ring-[#008CE5]/40"
+                  style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block" style={{ color: labelColor }}>Color</label>
+                  <input
+                    type="text"
+                    value={form.color}
+                    onChange={e => setForm({ ...form, color: e.target.value })}
+                    placeholder="e.g. Silver"
+                    className="w-full h-12 px-4 rounded-xl text-base outline-none transition-all focus:ring-2 focus:ring-[#008CE5]/40"
+                    style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }}
+                  />
                 </div>
-                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge color="#F59E0B"><Palette className="w-4 h-4" style={{ color: '#F59E0B' }} /></IconBadge>
-                  <input type="text" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} placeholder="Color" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
-                </div>
-                <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={inputStyle}>
-                  <IconBadge color="#0070B8"><Hash className="w-4 h-4" style={{ color: '#0070B8' }} /></IconBadge>
-                  <input type="text" value={form.plate} onChange={e => setForm({ ...form, plate: e.target.value })} placeholder="Plate" className="flex-1 bg-transparent border-none outline-none text-sm" style={{ color: isDark ? '#FFFFFF' : '#1F2937' }} />
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block" style={{ color: labelColor }}>License Plate</label>
+                  <input
+                    type="text"
+                    value={form.plate}
+                    onChange={e => setForm({ ...form, plate: e.target.value.toUpperCase() })}
+                    placeholder="e.g. ABC-1234"
+                    className="w-full h-12 px-4 rounded-xl text-base outline-none transition-all focus:ring-2 focus:ring-[#008CE5]/40 uppercase"
+                    style={{ backgroundColor: inputBg, border: `1.5px solid ${inputBorder}`, color: textColor }}
+                  />
                 </div>
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowAdd(false)} className="flex-1 rounded-xl py-3 font-medium text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#E8F0FB', color: subColor }}>Cancel</button>
-                <button onClick={addVehicle} disabled={!form.make || !form.model || saving} className="flex-1 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl py-3 font-bold text-sm text-white disabled:opacity-50">
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setShowAdd(false)} className="flex-1 h-12 rounded-xl font-semibold text-sm" style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F0FB', color: subColor, border: `1.5px solid ${isDark ? 'rgba(255,255,255,0.1)' : '#D1D5DB'}` }}>Cancel</button>
+                <button onClick={addVehicle} disabled={!form.make || !form.model || saving} className="flex-1 h-12 bg-gradient-to-r from-[#008CE5] to-[#0070B8] rounded-xl font-bold text-sm text-white disabled:opacity-50" style={{ boxShadow: saving ? 'none' : '0 4px 12px rgba(0,140,229,0.3)' }}>
                   {saving ? 'Adding...' : 'Add Vehicle'}
                 </button>
               </div>

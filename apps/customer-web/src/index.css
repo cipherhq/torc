@@ -3166,6 +3166,10 @@ button {
   z-index: 10;
 }
 
+.torc-btn-primary:hover {
+  opacity: 0.92;
+}
+
 .torc-btn-primary:active {
   opacity: 0.85;
   transform: scale(0.97);
@@ -3201,6 +3205,14 @@ button {
 /* Bottom safe area padding for fixed/sticky buttons */
 .safe-bottom-btn {
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Safe area inset utilities for iOS notch & Android gesture nav */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: max(1rem, env(safe-area-inset-top));
 }
 
 *, :before, :after {

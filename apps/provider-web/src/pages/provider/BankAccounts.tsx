@@ -57,6 +57,16 @@ export function ProviderBankAccounts() {
       alert('Account numbers do not match');
       return;
     }
+    const routingDigits = formData.routingNumber.replace(/\D/g, '');
+    if (routingDigits.length !== 9 || routingDigits !== formData.routingNumber.trim()) {
+      alert('Routing number must be exactly 9 digits');
+      return;
+    }
+    const acctDigits = formData.accountNumber.replace(/\D/g, '');
+    if (acctDigits !== formData.accountNumber.trim() || acctDigits.length < 4 || acctDigits.length > 17) {
+      alert('Account number must be between 4 and 17 digits');
+      return;
+    }
 
     const newAccount: BankAccount = {
       id: Date.now().toString(),

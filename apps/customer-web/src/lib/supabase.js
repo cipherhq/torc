@@ -2,39 +2,35 @@ import { createClient } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// Do not throw at module import time — this crashes before React can mount
+// and show a helpful error screen. Config validation in main.tsx will catch this.
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+  console.warn('[TORC] Missing Supabase environment variables. The app will show a configuration error screen.');
 }
 
-// When running inside the native app wrapper, the native side handles token refresh.
-const isNative = typeof window !== 'undefined' && window.__TORC_NATIVE__ === true;
-const isCapacitor = Capacitor.isNativePlatform();
+/** Whether the Supabase config is valid and the client is usable */
+export const supabaseConfigValid = Boolean(supabaseUrl && supabaseAnonKey);
+
+const isNative = Capacitor.isNativePlatform();
 
 // Use Capacitor Preferences (SharedPreferences/UserDefaults) for session persistence
 // on native platforms. localStorage can be wiped when the app is force-killed.
-const capacitorStorage = {
-  getItem: async (key) => {
-    const { value } = await Preferences.get({ key });
-    return value;
-  },
-  setItem: async (key, value) => {
-    await Preferences.set({ key, value });
-  },
-  removeItem: async (key) => {
-    await Preferences.remove({ key });
-  },
+const customStorage = {
+  getItem: async (key) => (await Preferences.get({ key })).value,
+  setItem: async (key, value) => await Preferences.set({ key, value }),
+  removeItem: async (key) => await Preferences.remove({ key }),
 };
 
 // Create Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    autoRefreshToken: !isNative,
+    autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: !isNative,
-    ...(isCapacitor ? { storage: capacitorStorage } : {}),
+    storage: isNative ? customStorage : window.localStorage,
   }
 });
 

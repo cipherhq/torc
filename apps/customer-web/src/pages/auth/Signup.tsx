@@ -60,9 +60,13 @@ export function Signup() {
     const confirmPassword = String(formData.confirmPassword);
 
     if (!email || !password) { setError('Email and password are required'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Please enter a valid email address'); return; }
     if (!String(formData.phone).trim()) { setError('Phone number is required'); return; }
+    const phoneDigits = String(formData.phone).replace(/\D/g, '');
+    if (phoneDigits.length < 10) { setError('Phone number must be at least 10 digits'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) { setError('Password must contain at least one uppercase letter and one number'); return; }
     if (!acceptedTerms) { setError('Please accept the Terms and Privacy Policy to continue.'); return; }
 
     setLoading(true);
@@ -125,7 +129,7 @@ export function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden"
+    <div className="min-h-dvh w-full flex flex-col relative overflow-y-auto pb-12"
       style={{ background: isDark ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)' : 'linear-gradient(180deg, #FFFFFF 0%, #EAF3FF 100%)' }}
     >
       {/* Ambient glow */}
@@ -219,8 +223,8 @@ export function Signup() {
               >
                 <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <input type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  placeholder="Min 6 characters" required className="flex-1 bg-transparent border-none outline-none text-base" style={inputFieldStyle} />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="p-1">
+                  placeholder="Min 8 characters" required className="flex-1 bg-transparent border-none outline-none text-base" style={inputFieldStyle} />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'} className="p-1">
                   {showPassword
                     ? <EyeOff className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
                     : <Eye className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />

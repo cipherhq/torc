@@ -22,7 +22,8 @@ export function ResetPassword() {
     e.preventDefault();
     setError('');
 
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) { setError('Password must contain at least one uppercase letter and one number'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
 
     setLoading(true);
@@ -40,7 +41,7 @@ export function ResetPassword() {
 
   return (
     <div
-      className="min-h-screen flex flex-col relative overflow-hidden"
+      className="min-h-screen flex flex-col relative overflow-y-auto"
       style={{
         background: isDark
           ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
@@ -140,7 +141,7 @@ export function ResetPassword() {
                   <Lock className="w-5 h-5 flex-shrink-0" style={{ color: '#008CE5' }} />
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Min 6 characters"
+                    placeholder="Min 8 characters"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -194,7 +195,7 @@ export function ResetPassword() {
                   <div className="flex gap-1.5">
                     {[1, 2, 3, 4].map((level) => {
                       const strength =
-                        (password.length >= 6 ? 1 : 0) +
+                        (password.length >= 8 ? 1 : 0) +
                         (/[A-Z]/.test(password) ? 1 : 0) +
                         (/[0-9]/.test(password) ? 1 : 0) +
                         (/[^A-Za-z0-9]/.test(password) ? 1 : 0);

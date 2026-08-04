@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 // Auth
 import { Splash } from "./pages/auth/Splash";
 import { ProviderIntro } from "./pages/auth/ProviderIntro";
+import { Permissions } from "./pages/auth/Permissions";
 import { VerifyEmail } from "./pages/auth/VerifyEmail";
 import { AuthCallback } from "./pages/auth/AuthCallback";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
@@ -34,10 +35,12 @@ import { AccountSecurity } from "./pages/provider/AccountSecurity";
 import { Explore } from "./pages/provider/Explore";
 import { ProviderReporting } from "./pages/provider/Reporting";
 import { AppShell } from "./components/AppShell";
+import { RouteErrorElement } from "./components/RouteErrorElement";
 
 export const router = createBrowserRouter([
   {
     Component: AppShell,
+    errorElement: <RouteErrorElement />,
     children: [
       {
         path: "/",
@@ -77,7 +80,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "/permissions",
-        element: <Navigate to="/login" replace />,
+        Component: Permissions,
       },
       {
         path: "/provider/login",

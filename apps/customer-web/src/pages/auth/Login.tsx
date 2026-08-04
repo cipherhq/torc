@@ -84,7 +84,7 @@ export function Login() {
 
   return (
     <div
-      className="min-h-screen flex flex-col relative overflow-hidden"
+      className="min-h-screen flex flex-col relative overflow-y-auto"
       style={{
         background: isDark
           ? 'linear-gradient(180deg, #14263D 0%, #0A1626 100%)'
@@ -227,7 +227,7 @@ export function Login() {
                     WebkitAppearance: 'none',
                   }}
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="p-1">
+                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'} className="p-1">
                   {showPassword
                     ? <EyeOff className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
                     : <Eye className="w-5 h-5" style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9CA3AF' }} />
