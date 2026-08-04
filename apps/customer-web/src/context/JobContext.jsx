@@ -245,36 +245,32 @@ export function JobProvider({ children }) {
       const customerName = customerProfile ? `${customerProfile.first_name || ''} ${customerProfile.last_name || ''}`.trim() : (job.requester_name || 'Customer');
       const providerName = providerProfile ? `${providerProfile.first_name || ''} ${providerProfile.last_name || ''}`.trim() : 'Provider';
 
-      // Send invoice to customer
-      if (customerProfile?.email) {
-        sendCustomerInvoiceEmail(customerProfile.email, {
-          customerName,
-          serviceName,
-          providerName,
-          date: now,
-          amount,
-          address: job.pickup_address || 'N/A',
-          jobId: job.id,
-        });
-      }
+      // Send invoice to customer (recipient derived from job by server)
+      sendCustomerInvoiceEmail(job.id, {
+        customerName,
+        serviceName,
+        providerName,
+        date: now,
+        amount,
+        address: job.pickup_address || 'N/A',
+        jobId: job.id,
+      });
 
-      // Send completion summary to provider
-      if (providerProfile?.email) {
-        const duration = (job.started_at && job.completed_at)
-          ? `${Math.round((new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 60000)} min`
-          : undefined;
+      // Send completion summary to provider (recipient derived from job by server)
+      const duration = (job.started_at && job.completed_at)
+        ? `${Math.round((new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 60000)} min`
+        : undefined;
 
-        sendProviderCompletionEmail(providerProfile.email, {
-          providerName,
-          customerName,
-          serviceName,
-          date: now,
-          payout: amount,
-          address: job.pickup_address || 'N/A',
-          jobId: job.id,
-          duration,
-        });
-      }
+      sendProviderCompletionEmail(job.id, {
+        providerName,
+        customerName,
+        serviceName,
+        date: now,
+        payout: amount,
+        address: job.pickup_address || 'N/A',
+        jobId: job.id,
+        duration,
+      });
     } catch (e) {
       console.warn('sendCompletionEmails error:', e);
     }

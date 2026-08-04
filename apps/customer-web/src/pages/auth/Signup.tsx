@@ -102,10 +102,9 @@ export function Signup() {
         }, { onConflict: 'id' });
       }
 
-      // Send welcome email (fire-and-forget)
-      import('../../services/email.service').then(({ sendWelcomeEmail }) => {
-        sendWelcomeEmail(email, String(formData.firstName).trim() || 'there');
-      });
+      // Welcome email is now an admin-only template.
+      // It should be triggered by a server-side auth hook or database trigger,
+      // not from the client. Removed client-side invocation.
 
       localStorage.setItem('pendingVerificationEmail', email);
       navigate('/verify-email');

@@ -438,14 +438,8 @@ export function ProviderDocuments() {
     if (missingDocs.length > 0) { setPageError(`Please upload: ${missingDocs.map(d => d.name).join(', ')}`); return; }
     if (!consentChecked) { setPageError('Please consent to background check'); return; }
 
-    // Send documents_pending email (fire-and-forget)
-    try {
-      const authUser = await getActiveProviderUser();
-      import('../../services/email.service').then(({ sendDocumentsPendingEmail }) => {
-        const name = user?.user_metadata?.first_name || user?.user_metadata?.full_name || 'there';
-        sendDocumentsPendingEmail(authUser.email, name);
-      });
-    } catch { /* non-blocking */ }
+    // documents_pending email is now an admin-only template.
+    // It should be triggered by a server-side process when documents are received.
 
     navigate('/verification-pending');
   };

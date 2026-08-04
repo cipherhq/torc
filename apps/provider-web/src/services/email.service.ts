@@ -1,29 +1,13 @@
-import { supabase } from '../lib/supabase';
-
-async function sendEmail(to: string, template: string, data: Record<string, any> = {}) {
-  try {
-    const { data: result, error } = await supabase.functions.invoke('send-email', {
-      body: { to, template, data },
-    });
-
-    if (error) {
-      console.warn(`Email (${template}) failed:`, error.message);
-      return false;
-    }
-
-    return result?.success ?? false;
-  } catch (err) {
-    console.warn(`Email (${template}) error:`, err);
-    return false;
-  }
-}
-
-/** Welcome email sent after provider signs up */
-export async function sendWelcomeEmail(email: string, name: string) {
-  return sendEmail(email, 'welcome', { name });
-}
-
-/** Notify provider their documents are under review */
-export async function sendDocumentsPendingEmail(email: string, name: string) {
-  return sendEmail(email, 'documents_pending', { name });
-}
+// Provider-web email service.
+//
+// Welcome and documents_pending are admin-only templates. They should be
+// triggered by server-side processes (admin actions, database triggers,
+// or Edge Functions), NOT from the provider client app.
+//
+// The old sendWelcomeEmail/sendDocumentsPendingEmail client-side functions
+// are removed. The send-email Edge Function rejects admin-only templates
+// from non-admin callers (403 Forbidden).
+//
+// No client-invocable email functions remain for the provider app.
+// Provider completion emails are sent from the customer app's JobContext
+// after job completion, using the jobId-based contract.

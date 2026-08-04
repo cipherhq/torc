@@ -1,41 +1,33 @@
 import { supabase } from '../lib/supabase';
 
-async function sendEmail(to: string, template: string, data: Record<string, any> = {}) {
+/**
+ * Send a job-related email. The server derives the recipient from the job
+ * record — no caller-supplied email addresses.
+ */
+async function sendJobEmail(template: string, jobId: string, data: Record<string, any> = {}): Promise<boolean> {
   try {
     const { data: result, error } = await supabase.functions.invoke('send-email', {
-      body: { to, template, data },
+      body: { template, jobId, data },
     });
 
     if (error) {
-      console.warn(`Email (${template}) failed:`, error.message);
+      console.warn(`Email (${template}) for job ${jobId} failed:`, error.message);
       return false;
     }
 
     return result?.success ?? false;
-  } catch (err) {
-    console.warn(`Email (${template}) error:`, err);
+  } catch (err: any) {
+    console.warn(`Email (${template}) error:`, err?.message || err);
     return false;
   }
 }
 
-/** Welcome email sent after user signs up */
-export async function sendWelcomeEmail(email: string, name: string) {
-  return sendEmail(email, 'welcome', { name });
-}
-
-/** Notify provider their documents are under review */
-export async function sendDocumentsPendingEmail(email: string, name: string) {
-  return sendEmail(email, 'documents_pending', { name });
-}
-
-/** Request additional documents from provider */
-export async function sendDocumentRequestEmail(email: string, name: string, reason: string) {
-  return sendEmail(email, 'document_request', { name, reason });
-}
-
-/** Send invoice to customer after service completion */
+/**
+ * Send invoice to customer after service completion.
+ * Recipient derived from job.customer_id by the server.
+ */
 export async function sendCustomerInvoiceEmail(
-  email: string,
+  jobId: string,
   data: {
     customerName: string;
     serviceName: string;
@@ -47,17 +39,15 @@ export async function sendCustomerInvoiceEmail(
     paymentMethod?: string;
   }
 ) {
-  return sendEmail(email, 'customer_invoice', data);
+  return sendJobEmail('customer_invoice', jobId, data);
 }
 
-/** Notify provider their account has been suspended */
-export async function sendProviderSuspendedEmail(email: string, name: string, reason: string) {
-  return sendEmail(email, 'provider_suspended', { name, reason });
-}
-
-/** Send completion summary to provider after service */
+/**
+ * Send completion summary to provider after service.
+ * Recipient derived from job.provider_id by the server.
+ */
 export async function sendProviderCompletionEmail(
-  email: string,
+  jobId: string,
   data: {
     providerName: string;
     customerName: string;
@@ -69,5 +59,14 @@ export async function sendProviderCompletionEmail(
     duration?: string;
   }
 ) {
-  return sendEmail(email, 'provider_completion', data);
+  return sendJobEmail('provider_completion', jobId, data);
 }
+
+// NOTE: Welcome, documents_pending, document_request, provider_approved,
+// and provider_suspended emails are admin-only templates. They should be
+// triggered by server-side processes (e.g., admin dashboard actions,
+// Supabase database triggers, or Edge Functions), NOT from client apps.
+//
+// The old sendWelcomeEmail/sendDocumentsPendingEmail functions are removed.
+// Attempting to invoke admin-only templates from a customer/provider client
+// will be rejected by the send-email Edge Function (403 Forbidden).

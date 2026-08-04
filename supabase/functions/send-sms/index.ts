@@ -13,6 +13,8 @@ const MESSAGE_TEMPLATES: Record<string, (data: Record<string, string>) => string
   provider_arrived: (d) => `TORC: Your provider ${d.providerName || ''} has arrived at your location.`,
   job_completed: (d) => `TORC: Your service has been completed. Total: ${d.amount || ''}. Rate your experience in the app.`,
   job_cancelled: (d) => `TORC: Your service request has been cancelled. ${d.reason || ''}`,
+  // Third-party notification: sent to requester_phone when someone requests help for another person
+  third_party_enroute: (d) => `TORC: ${d.customerName || 'Someone'} has requested roadside assistance for you. ${d.providerName || 'Your provider'} is on the way to ${d.address || 'your location'}. — TORC`,
 };
 
 const MAX_MESSAGE_LENGTH = 320;
@@ -74,7 +76,7 @@ Deno.serve(async (req) => {
     if (!serviceRoleKey) throw new Error('Missing service configuration.');
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { messageTemplate, templateData, jobId } = await req.json();
+    const { messageTemplate, templateData, jobId, recipientType } = await req.json();
 
     // --- Require template-based messages — no arbitrary text ---
     if (!messageTemplate) {
@@ -99,7 +101,7 @@ Deno.serve(async (req) => {
 
     const { data: job } = await adminClient
       .from('jobs')
-      .select('customer_id, provider_id')
+      .select('customer_id, provider_id, requester_phone, requester_type')
       .eq('id', jobId)
       .maybeSingle();
 
@@ -116,27 +118,47 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Send to the OTHER party
-    const targetId = job.customer_id === user.id ? job.provider_id : job.customer_id;
-    if (!targetId) {
-      return new Response(JSON.stringify({ error: 'No target user for this job' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Determine recipient: 'requester' sends to the job's requester_phone (third-party),
+    // default sends to the other party (provider or customer).
+    let recipientPhone: string;
+
+    if (recipientType === 'requester') {
+      // Third-party notification: the customer requested help for someone else.
+      // The phone is stored on the job record, derived from the booking, not caller-supplied.
+      if (job.requester_type !== 'other') {
+        return new Response(JSON.stringify({ error: 'Job is not a third-party request' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (!job.requester_phone) {
+        return new Response(JSON.stringify({ error: 'No requester phone on this job' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      recipientPhone = job.requester_phone;
+    } else {
+      // Default: send to the other job participant
+      const targetId = job.customer_id === user.id ? job.provider_id : job.customer_id;
+      if (!targetId) {
+        return new Response(JSON.stringify({ error: 'No target user for this job' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: targetProfile } = await adminClient
+        .from('profiles')
+        .select('phone')
+        .eq('id', targetId)
+        .maybeSingle();
+
+      if (!targetProfile?.phone) {
+        return new Response(JSON.stringify({ error: 'Target user has no phone number' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      recipientPhone = targetProfile.phone;
     }
-
-    const { data: targetProfile } = await adminClient
-      .from('profiles')
-      .select('phone')
-      .eq('id', targetId)
-      .maybeSingle();
-
-    if (!targetProfile?.phone) {
-      return new Response(JSON.stringify({ error: 'Target user has no phone number' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const recipientPhone = targetProfile.phone;
 
     if (!PHONE_REGEX.test(recipientPhone)) {
       return new Response(JSON.stringify({ error: 'Invalid phone number format in profile.' }), {
