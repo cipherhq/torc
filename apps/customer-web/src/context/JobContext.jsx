@@ -118,9 +118,10 @@ export function JobProvider({ children }) {
       status: 'pending',
       payment_method_id: paymentMethodId || null,
       payment_intent_id: details.paymentIntentId || null,
-      payment_status: details.paymentStatus || 'unpaid',
+      payment_status: 'unpaid',  // Never trust client-provided status; webhook is sole authority
       payment_currency: (details.paymentCurrency || 'USD').toUpperCase(),
-      paid_at: details.paymentStatus === 'paid' ? new Date().toISOString() : null,
+      paid_at: null,  // Only the webhook sets this
+      checkout_id: details.checkoutId || null,
       base_price: null,
     };
 

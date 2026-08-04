@@ -326,30 +326,84 @@ function providerCompletionEmail(data: {
   };
 }
 
+// ─── HTML escaping to prevent XSS in email templates ────────────────
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ─── Template Router ────────────────────────────────────────────────
+
+const ALLOWED_TEMPLATES = [
+  'welcome', 'documents_pending', 'document_request',
+  'provider_approved', 'provider_suspended',
+  'customer_invoice', 'provider_completion',
+];
+
+// Templates that only admin/system should send — never ordinary customers/providers
+const ADMIN_ONLY_TEMPLATES = new Set([
+  'welcome', 'documents_pending', 'document_request',
+  'provider_approved', 'provider_suspended',
+]);
+
+// Templates tied to a specific job (require job ownership verification)
+const JOB_TEMPLATES = new Set(['customer_invoice', 'provider_completion']);
 
 function getEmailContent(
   template: string,
   data: Record<string, any>
 ): { subject: string; html: string } {
+  // Escape all string values to prevent XSS in email templates
+  const safeData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    safeData[key] = typeof value === 'string' ? escapeHtml(value) : value;
+  }
+
   switch (template) {
     case 'welcome':
-      return welcomeEmail(data.name || 'there');
+      return welcomeEmail(safeData.name || 'there');
     case 'documents_pending':
-      return documentsPendingEmail(data.name || 'there');
+      return documentsPendingEmail(safeData.name || 'there');
     case 'document_request':
-      return documentRequestEmail(data.name || 'there', data.reason || '');
+      return documentRequestEmail(safeData.name || 'there', safeData.reason || '');
     case 'provider_approved':
-      return providerApprovedEmail(data.name || 'there');
+      return providerApprovedEmail(safeData.name || 'there');
     case 'provider_suspended':
-      return providerSuspendedEmail(data.name || 'there', data.reason || '');
+      return providerSuspendedEmail(safeData.name || 'there', safeData.reason || '');
     case 'customer_invoice':
-      return customerInvoiceEmail(data);
+      return customerInvoiceEmail(safeData);
     case 'provider_completion':
-      return providerCompletionEmail(data);
+      return providerCompletionEmail(safeData);
     default:
       throw new Error(`Unknown email template: ${template}`);
   }
+}
+
+// ─── Atomic rate limiting (database RPC, fail-closed) ───────────────
+
+async function claimRateLimitSlot(
+  adminClient: any,
+  key: string,
+  maxCount: number,
+  windowSeconds: number
+): Promise<boolean> {
+  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
+    p_key: key,
+    p_max_count: maxCount,
+    p_window_seconds: windowSeconds,
+  });
+
+  if (error) {
+    // Fail closed — if we can't verify the rate limit, block the request
+    console.error('[send-email] Rate limit RPC failed, blocking:', error.message);
+    return false;
+  }
+
+  return data === true;
 }
 
 // ─── Main Handler ───────────────────────────────────────────────────
@@ -360,51 +414,173 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { to, template, data } = await req.json();
+    if (!RESEND_API_KEY) throw new Error('Email service not configured.');
 
-    if (!to || !template) {
-      return new Response(
-        JSON.stringify({ error: 'Missing required fields: to, template' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // ── Authentication ──────────────────────────────────────────────
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { template, data, jobId } = await req.json();
+
+    if (!template) {
+      return new Response(JSON.stringify({ error: 'Missing required field: template' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (!ALLOWED_TEMPLATES.includes(template)) {
+      return new Response(JSON.stringify({ error: `Unknown template: ${template}` }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!serviceRoleKey) throw new Error('Missing service configuration.');
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    // ── Look up caller's role from profile ──────────────────────────
+    const { data: callerProfile } = await adminClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    // Do NOT default to 'customer' — null role = no special permissions
+    const callerRole = callerProfile?.role || null;
+
+    // ── Template authorization ──────────────────────────────────────
+    if (ADMIN_ONLY_TEMPLATES.has(template) && callerRole !== 'admin') {
+      console.warn(`[send-email] Unauthorized: ${user.id} (${callerRole}) attempted admin template ${template}`);
+      return new Response(JSON.stringify({ error: 'Not authorized to send this email type' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Durable rate limiting ───────────────────────────────────────
+    const allowed = await claimRateLimitSlot(adminClient, `email:${user.id}`, 20, 3600);
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }), {
+        status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Derive recipient from trusted records ───────────────────────
+    let recipient: string;
+
+    if (JOB_TEMPLATES.has(template)) {
+      // Job-related templates: require jobId, verify caller is participant, derive recipient from job
+      if (!jobId) {
+        return new Response(JSON.stringify({ error: 'jobId is required for this template' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: job } = await adminClient
+        .from('jobs')
+        .select('customer_id, provider_id')
+        .eq('id', jobId)
+        .maybeSingle();
+
+      if (!job) {
+        return new Response(JSON.stringify({ error: 'Job not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Verify caller is part of this job (or admin)
+      if (callerRole !== 'admin' && job.customer_id !== user.id && job.provider_id !== user.id) {
+        return new Response(JSON.stringify({ error: 'Not authorized for this job' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Derive recipient: invoice → customer, completion → provider
+      const targetId = template === 'customer_invoice' ? job.customer_id : job.provider_id;
+      if (!targetId) {
+        return new Response(JSON.stringify({ error: 'No target user for this job' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: targetProfile } = await adminClient
+        .from('profiles')
+        .select('email')
+        .eq('id', targetId)
+        .maybeSingle();
+
+      if (!targetProfile?.email) {
+        return new Response(JSON.stringify({ error: 'Target user email not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      recipient = targetProfile.email;
+    } else {
+      // Admin-only templates: admin provides targetUserId, recipient derived from DB
+      const targetUserId = data?.targetUserId;
+      if (!targetUserId) {
+        return new Response(JSON.stringify({ error: 'targetUserId is required' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: targetProfile } = await adminClient
+        .from('profiles')
+        .select('email')
+        .eq('id', targetUserId)
+        .maybeSingle();
+
+      if (!targetProfile?.email) {
+        return new Response(JSON.stringify({ error: 'Target user email not found' }), {
+          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      recipient = targetProfile.email;
+    }
+
+    // ── Generate email content ──────────────────────────────────────
     const { subject, html } = getEmailContent(template, data || {});
 
-    // Send via Resend API
+    // ── Send via Resend ─────────────────────────────────────────────
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: Array.isArray(to) ? to : [to],
-        subject,
-        html,
-      }),
+      body: JSON.stringify({ from: FROM_EMAIL, to: [recipient], subject, html }),
     });
 
     const result = await res.json();
-
     if (!res.ok) {
-      console.error('Resend error:', result);
-      return new Response(
-        JSON.stringify({ error: result?.message || 'Email send failed' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
+      return new Response(JSON.stringify({ error: 'Email send failed' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    return new Response(
-      JSON.stringify({ success: true, id: result.id }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (err) {
-    console.error('Edge Function error:', err);
-    return new Response(
-      JSON.stringify({ error: err.message || 'Internal error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.log(`[send-email] Sent template=${template}, id=${result.id}`);
+    return new Response(JSON.stringify({ success: true, id: result.id }), {
+      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    console.error('[send-email] Error:', err?.message);
+    return new Response(JSON.stringify({ error: 'Internal error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });

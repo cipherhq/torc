@@ -5,7 +5,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { getRequestContext, updateRequestContext } from '../../data/requestContext';
+import { getRequestContext, updateRequestContext } from '../../data/bookingDraftStore';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
@@ -279,7 +279,14 @@ export function PricingPayment() {
       }
       if (!token) throw new Error('Please sign in again to continue.');
 
-      // Direct fetch to guarantee the fresh token is used (--no-verify-jwt deployed)
+      // Generate a stable checkoutId for idempotency (reuse if draft already has one)
+      let checkoutId = context.checkoutId;
+      if (!checkoutId) {
+        checkoutId = crypto.randomUUID();
+        updateRequestContext({ checkoutId });
+      }
+
+      // Server-authoritative checkout — send serviceId + booking snapshot fields
       const fnRes = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
         {
@@ -290,19 +297,45 @@ export function PricingPayment() {
             apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
-            amount: Number(total.toFixed(2)),
-            currency: 'usd',
+            serviceId: context.serviceId,
+            vehicleId: context.vehicleId || null,
+            isHazardous: context.isHazardous || false,
+            scheduledFor: context.scheduledFor || null,
+            checkoutId,
             paymentMethodId: stripePaymentMethodId,
             savePaymentMethod: saveCard,
-            metadata: {
-              service_id: context.serviceId,
-              flow: 'customer_checkout',
-            },
+            // Booking snapshot: stored on checkout for webhook-driven job creation
+            pickupLocation: context.location || null,
+            pickupAddress: context.location?.address || '',
+            destinationAddress: context.destinationAddress || '',
+            requesterType: context.whoNeedsHelp === 'new' ? 'other' : 'self',
+            requesterName: context.personName || '',
+            requesterPhone: context.personPhone || '',
+            customerNotes: context.notes || '',
           }),
         }
       );
       const data = await fnRes.json();
       if (!fnRes.ok) throw new Error(data?.error || `Payment failed (${fnRes.status})`);
+
+      // Handle recovery: if checkout already succeeded, skip Stripe confirmation
+      // Note: we set payment_processing here — the webhook is the sole authority
+      // for marking payment as 'paid'. The job will be created with 'unpaid' and
+      // the webhook will update it atomically.
+      if (data.status === 'paid' || data.status === 'succeeded') {
+        updateRequestContext({
+          paymentMethodId: selectedPayment || null,
+          estimatedPrice: (data.priceBreakdown?.totalCents || 0) / 100,
+          paymentIntentId: data.paymentIntentId,
+          paymentStatus: 'payment_processing',
+          paymentCurrency: 'USD',
+          checkoutId,
+        });
+        navigate('/matching');
+        return;
+      }
+
+      // Need client-side Stripe confirmation
       if (!data?.clientSecret) throw new Error(data?.error || 'Missing client secret from payment intent.');
 
       const stripe = await stripePromise;
@@ -336,12 +369,15 @@ export function PricingPayment() {
         });
       }
 
+      // Never set paymentStatus to 'paid' from the client.
+      // The webhook is the sole authority for marking payment as paid.
       updateRequestContext({
         paymentMethodId: selectedPayment || null,
-        estimatedPrice: total,
+        estimatedPrice: (data.priceBreakdown?.totalCents || 0) / 100,
         paymentIntentId: paymentIntent.id,
-        paymentStatus: 'paid',
+        paymentStatus: 'payment_processing',
         paymentCurrency: (paymentIntent.currency || 'usd').toUpperCase(),
+        checkoutId,
       });
       navigate('/matching');
     } catch (e: any) {

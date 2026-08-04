@@ -1,0 +1,237 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Clean install (frozen lockfile)
+        run: npm ci
+
+  unit-tests:
+    name: Unit Tests
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run customer-web tests
+        run: npm run test --workspace=apps/customer-web
+        env:
+          VITE_SUPABASE_URL: https://test.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+      - name: Run provider-web tests
+        run: npm run test --workspace=apps/provider-web
+        env:
+          VITE_SUPABASE_URL: https://test.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+      - name: Run admin-web tests
+        run: npm run test --workspace=apps/admin-web
+        env:
+          VITE_SUPABASE_URL: https://test.supabase.co
+          VITE_SUPABASE_ANON_KEY: test-anon-key
+
+  e2e-tests:
+    name: E2E Tests (Playwright)
+    needs: install
+    runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: https://test.supabase.co
+      VITE_SUPABASE_ANON_KEY: test-anon-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright E2E tests
+        run: npx playwright test --reporter=list
+
+  build:
+    name: Build All Apps
+    needs: install
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [customer-web, provider-web, admin-web, website]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build ${{ matrix.app }}
+        run: npm run build --workspace=apps/${{ matrix.app }}
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-key
+          VITE_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+          VITE_GOOGLE_MAPS_API_KEY: placeholder
+          VITE_APP_URL: https://torcapp.com
+
+  migration-validation:
+    name: Validate Migrations (Ephemeral Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: torc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create auth schema stub
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT
+          );
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN;
+          GRANT USAGE ON SCHEMA public TO authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated, service_role;
+          SQL
+      - name: Create prerequisite tables
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
+          CREATE TABLE IF NOT EXISTS public.profiles (
+            id UUID PRIMARY KEY REFERENCES auth.users(id),
+            role TEXT,
+            email TEXT
+          );
+          CREATE TABLE IF NOT EXISTS public.jobs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            customer_id UUID,
+            provider_id UUID,
+            service_id UUID,
+            status TEXT DEFAULT 'pending',
+            payment_status TEXT DEFAULT 'unpaid',
+            payment_intent_id TEXT,
+            paid_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            accepted_at TIMESTAMPTZ,
+            started_at TIMESTAMPTZ,
+            completed_at TIMESTAMPTZ,
+            cancelled_at TIMESTAMPTZ
+          );
+          ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+          SQL
+      - name: Execute all new migrations in order
+        run: |
+          set -euo pipefail
+          for f in supabase/migrations/20260804*.sql; do
+            echo "Executing: $f"
+            psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
+            echo "OK: $f"
+          done
+      - name: Assert RLS and privilege restrictions
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Assert checkouts has RLS enabled
+          DO $$ BEGIN
+            ASSERT (SELECT rowsecurity FROM pg_tables WHERE tablename = 'checkouts' AND schemaname = 'public'),
+              'checkouts must have RLS enabled';
+          END $$;
+
+          -- Assert no UPDATE policy on checkouts for authenticated
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM pg_policies
+              WHERE tablename = 'checkouts' AND schemaname = 'public'
+              AND cmd = 'UPDATE'
+              AND roles @> ARRAY['authenticated']::name[]
+            ), 'checkouts must NOT have UPDATE policy for authenticated';
+          END $$;
+
+          -- Assert transition_job_status is NOT executable by authenticated
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'transition_job_status'
+              AND grantee IN ('PUBLIC', 'authenticated')
+            ), 'transition_job_status must not be executable by PUBLIC or authenticated';
+          END $$;
+
+          -- Assert expire_stale_jobs is NOT executable by authenticated
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'expire_stale_jobs'
+              AND grantee IN ('PUBLIC', 'authenticated')
+            ), 'expire_stale_jobs must not be executable by PUBLIC or authenticated';
+          END $$;
+
+          -- Assert processed_webhook_events has RLS blocking all access
+          DO $$ BEGIN
+            ASSERT (SELECT rowsecurity FROM pg_tables WHERE tablename = 'processed_webhook_events'),
+              'processed_webhook_events must have RLS enabled';
+          END $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All RLS and privilege assertions passed.'; END $$;
+          SQL
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for secrets in source code
+        run: |
+          set -euo pipefail
+          FOUND=0
+          for pattern in 'sk_live_[a-zA-Z0-9]{10,}' 'eyJhbGci[a-zA-Z0-9_=-]{20,}'; do
+            MATCHES=$(grep -rnE "$pattern" apps/ packages/ supabase/functions/ \
+              --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
+              | grep -v node_modules | grep -v '.test.' | grep -v 'pk_test_placeholder' || true)
+            if [ -n "$MATCHES" ]; then
+              echo "ERROR: Secret pattern '$pattern' found:"
+              echo "$MATCHES"
+              FOUND=1
+            fi
+          done
+          if find . -name '.env' -not -name '.env.example' -not -path '*/node_modules/*' | grep -q .; then
+            echo "ERROR: .env file found in repository"
+            FOUND=1
+          fi
+          if [ "$FOUND" -eq 1 ]; then
+            echo "FAILED: Secrets or .env files detected"
+            exit 1
+          fi
+          echo "Security scan passed."

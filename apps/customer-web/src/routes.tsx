@@ -67,8 +67,19 @@ import { WebsiteBecomeProvider } from "./pages/website/BecomeProvider";
 import { WebsiteHelp } from "./pages/website/Help";
 
 import { ProtectedRoute } from "./context/AuthContext";
+import { RouteErrorElement } from "./components/RouteErrorElement";
+import { Outlet } from "react-router";
+
+// Root layout that provides an error boundary for all child routes
+function RootLayout() {
+  return <Outlet />;
+}
 
 export const router = createBrowserRouter([
+  {
+    Component: RootLayout,
+    errorElement: <RouteErrorElement />,
+    children: [
   {
     path: "/",
     Component: Splash,
@@ -266,7 +277,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/admin/directory",
-    Component: AdminDirectory,
+    element: <ProtectedRoute requiredRole="admin"><AdminDirectory /></ProtectedRoute>,
   },
   {
     path: "/admin/provider-approval",
@@ -362,5 +373,7 @@ export const router = createBrowserRouter([
   {
     path: "*",
     Component: NotFound,
+  },
+    ],
   },
 ]);

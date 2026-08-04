@@ -21,6 +21,30 @@ const PUBLIC_PATHS = new Set([
   '/verification-pending',
 ]);
 
+// Routes where provider enters/edits data -- never auto-redirect away from these
+const PROTECTED_DATA_ENTRY_ROUTES = new Set([
+  '/onboarding',
+  '/services',
+  '/documents',
+  '/payout',
+  '/provider/documents',
+  '/provider/payout',
+  '/profile',
+  '/provider/personal-information',
+  '/provider/vehicles',
+  '/provider/account-security',
+]);
+
+// Routes where auto-redirect to an active job is allowed
+const AUTO_REDIRECT_ALLOWED_ROUTES = new Set([
+  '/home',
+  '/earnings',
+  '/provider/earnings',
+  '/explore',
+  '/messages',
+  '/provider/messages',
+]);
+
 const HIDE_NAV_PATHS = new Set([
   ...PUBLIC_PATHS,
 ]);
@@ -153,14 +177,15 @@ function useActiveJobTracker(userId: string | undefined) {
 
         const { data } = await supabase
           .from('jobs')
-          .select('id, status, service_id, created_at, services(name), customers:customer_id(first_name)')
+          .select('id, status, provider_id, service_id, created_at, services(name), customers:customer_id(first_name)')
           .eq('provider_id', userId!)
           .in('status', ACTIVE_JOB_STATUSES)
           .gte('created_at', twelveHoursAgo)
           .limit(1)
           .maybeSingle();
         if (cancelled) return;
-        if (data) {
+        // Validate job ownership -- discard if provider_id doesn't match
+        if (data && data.provider_id === userId) {
           setActiveJob({
             id: data.id,
             status: data.status,
@@ -169,12 +194,13 @@ function useActiveJobTracker(userId: string | undefined) {
           });
 
           // Auto-redirect on first detection (crash / app restart recovery)
-          // Only if on a non-job page like /home
+          // Only redirect from safe routes -- never from data entry routes
           if (!hasAutoRedirected.current) {
             hasAutoRedirected.current = true;
             const path = location.pathname;
             const isAlreadyOnJob = path.startsWith('/job/') || path.startsWith('/complete/') || path.startsWith('/request/');
-            if (!isAlreadyOnJob) {
+            const isDataEntry = PROTECTED_DATA_ENTRY_ROUTES.has(path);
+            if (!isAlreadyOnJob && !isDataEntry && AUTO_REDIRECT_ALLOWED_ROUTES.has(path)) {
               navigate(`/job/${data.id}`, { replace: true });
             }
           }
