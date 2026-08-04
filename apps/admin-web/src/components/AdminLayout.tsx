@@ -21,12 +21,23 @@ interface AdminLayoutProps {
 }
 
 export function AdminLayout({ children }: AdminLayoutProps) {
-  const [checkingAccess, setCheckingAccess] = useState(true);
-  const [session, setSession] = useState<AdminSession | null>(null);
+  // If ProtectedAdminRoute already verified the session, use it directly
+  // to avoid a redundant requireAdminSession() call + loading flash.
+  const parentSession = useContext(AdminSessionContext);
+
+  const [checkingAccess, setCheckingAccess] = useState(!parentSession);
+  const [session, setSession] = useState<AdminSession | null>(parentSession);
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
+    // When wrapped by ProtectedAdminRoute, auth is already verified — skip
+    if (parentSession) {
+      setSession(parentSession);
+      setCheckingAccess(false);
+      return;
+    }
+
     let cancelled = false;
 
     const verifyAccess = async () => {
@@ -60,7 +71,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       cancelled = true;
       authSub.subscription.unsubscribe();
     };
-  }, [location.pathname, navigate]);
+  }, [parentSession, location.pathname, navigate]);
 
   // Loading state
   if (checkingAccess) {

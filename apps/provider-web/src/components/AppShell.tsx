@@ -120,9 +120,52 @@ function useGlobalMessageNotifications(userId: string | undefined) {
 const ACTIVE_JOB_STATUSES = ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'];
 
 /**
+ * Routes where the provider is filling out forms or managing account data.
+ * Auto-redirect to an active job is NEVER performed from these routes —
+ * instead, a non-intrusive banner is shown so the provider can return voluntarily.
+ */
+const PROTECTED_DATA_ENTRY_ROUTES = new Set([
+  '/provider/personal-information',
+  '/provider/documents',
+  '/documents',
+  '/provider/vehicles',
+  '/provider/account-security',
+  '/provider/bank-accounts',
+  '/bank-accounts',
+  '/payout',
+  '/provider/payout',
+  '/services',
+  '/services-list',
+  '/onboarding',
+  '/provider/help-support',
+  '/provider/tax-documents',
+  '/provider/ratings-reviews',
+  '/provider/notifications',
+  '/provider/reporting',
+  '/reporting',
+  '/profile',
+  '/earnings',
+  '/provider/earnings',
+  '/explore',
+  '/messages',
+  '/provider/messages',
+]);
+
+/**
+ * Routes where auto-redirect on startup/crash-recovery is allowed.
+ * Only truly neutral pages — the provider is not in the middle of anything.
+ */
+const AUTO_REDIRECT_ALLOWED_ROUTES = new Set([
+  '/home',
+  '/',
+]);
+
+/**
  * Track active job globally so a "Return to Job" banner appears on every page.
- * Also auto-redirects to the active job on first detection (crash recovery).
+ * Auto-redirects to the active job ONLY from neutral startup routes (e.g. /home).
+ * Data-entry / form screens are never interrupted.
  * Only considers jobs from the last 12 hours — older stuck jobs are auto-cancelled.
+ * Validates job ownership by querying provider_id = current user.
  */
 function useActiveJobTracker(userId: string | undefined) {
   const [activeJob, setActiveJob] = useState<{ id: string; status: string; service_name?: string; customer_name?: string } | null>(null);
@@ -151,9 +194,10 @@ function useActiveJobTracker(userId: string | undefined) {
             .then(() => {});
         }
 
+        // Query filters by provider_id = userId — validates job ownership at the DB level
         const { data } = await supabase
           .from('jobs')
-          .select('id, status, service_id, created_at, services(name), customers:customer_id(first_name)')
+          .select('id, status, service_id, provider_id, created_at, services(name), customers:customer_id(first_name)')
           .eq('provider_id', userId!)
           .in('status', ACTIVE_JOB_STATUSES)
           .gte('created_at', twelveHoursAgo)
@@ -161,6 +205,12 @@ function useActiveJobTracker(userId: string | undefined) {
           .maybeSingle();
         if (cancelled) return;
         if (data) {
+          // Double-check ownership in case RLS is misconfigured
+          if (data.provider_id !== userId) {
+            setActiveJob(null);
+            return;
+          }
+
           setActiveJob({
             id: data.id,
             status: data.status,
@@ -169,12 +219,15 @@ function useActiveJobTracker(userId: string | undefined) {
           });
 
           // Auto-redirect on first detection (crash / app restart recovery)
-          // Only if on a non-job page like /home
+          // ONLY from neutral startup routes — never from data-entry screens
           if (!hasAutoRedirected.current) {
             hasAutoRedirected.current = true;
             const path = location.pathname;
             const isAlreadyOnJob = path.startsWith('/job/') || path.startsWith('/complete/') || path.startsWith('/request/');
-            if (!isAlreadyOnJob) {
+            const isOnProtectedRoute = PROTECTED_DATA_ENTRY_ROUTES.has(path);
+            const isOnAutoRedirectRoute = AUTO_REDIRECT_ALLOWED_ROUTES.has(path);
+
+            if (!isAlreadyOnJob && !isOnProtectedRoute && isOnAutoRedirectRoute) {
               navigate(`/job/${data.id}`, { replace: true });
             }
           }
