@@ -438,8 +438,10 @@ export function ProviderDocuments() {
     if (missingDocs.length > 0) { setPageError(`Please upload: ${missingDocs.map(d => d.name).join(', ')}`); return; }
     if (!consentChecked) { setPageError('Please consent to background check'); return; }
 
-    // documents_pending email is now an admin-only template.
-    // It should be triggered by a server-side process when documents are received.
+    // Trigger documents-pending email (server verifies state, derives recipient/name, idempotent)
+    import('../../services/email.service').then(({ sendDocumentsPendingEmail }) => {
+      sendDocumentsPendingEmail();
+    }).catch(() => { /* non-blocking */ });
 
     navigate('/verification-pending');
   };

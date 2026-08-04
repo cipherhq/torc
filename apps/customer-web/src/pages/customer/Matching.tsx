@@ -374,24 +374,15 @@ export function Matching() {
         photo: provPhoto,
       });
 
-      // Notify 3rd party via SMS using the authorized template contract.
-      // The recipient phone is derived from the job's requester_phone field
-      // (stored securely during booking), not from client-supplied data.
+      // Notify 3rd party via SMS — server derives all content from DB records.
+      // Client sends only template name and jobId — no identity, address, or phone.
       if (context.whoNeedsHelp === 'new' && createdJobId && data?.provider_id) {
         (async () => {
           try {
-            const customerName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Someone';
-
             const { error: smsError } = await supabase.functions.invoke('send-sms', {
               body: {
                 messageTemplate: 'third_party_enroute',
-                templateData: {
-                  customerName,
-                  providerName: provName,
-                  address: context.location?.address || 'your location',
-                },
                 jobId: createdJobId,
-                recipientType: 'requester', // sends to job.requester_phone, not arbitrary to
               },
             });
 

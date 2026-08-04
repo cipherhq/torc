@@ -7,6 +7,9 @@ const corsHeaders = {
 
 const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
 
+// Valid job states for active-service notifications
+const ACTIVE_JOB_STATES = new Set(['accepted', 'enroute', 'arrived', 'inprogress']);
+
 // Approved message templates — ordinary clients cannot send arbitrary text
 const MESSAGE_TEMPLATES: Record<string, (data: Record<string, string>) => string> = {
   provider_enroute: (d) => `TORC: Your provider ${d.providerName || ''} is on the way! ETA: ${d.eta || 'soon'}. Track at ${d.trackingUrl || 'torcapp.com'}`,
@@ -38,6 +41,26 @@ async function claimRateLimitSlot(
   return data === true;
 }
 
+// Helper: load a profile's display name from DB
+async function loadProfileName(adminClient: any, userId: string): Promise<string> {
+  const { data } = await adminClient
+    .from('profiles')
+    .select('first_name, last_name')
+    .eq('id', userId)
+    .maybeSingle();
+  if (!data) return 'Unknown';
+  const first = data.first_name || '';
+  const last = data.last_name ? `${data.last_name.charAt(0)}.` : '';
+  return `${first} ${last}`.trim() || 'Unknown';
+}
+
+function jsonResp(body: Record<string, any>, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -58,9 +81,7 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Unauthorized' }, 401);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -68,124 +89,207 @@ Deno.serve(async (req) => {
     });
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Unauthorized' }, 401);
     }
 
     if (!serviceRoleKey) throw new Error('Missing service configuration.');
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { messageTemplate, templateData, jobId, recipientType } = await req.json();
+    const { messageTemplate, templateData, jobId } = await req.json();
 
     // --- Require template-based messages — no arbitrary text ---
     if (!messageTemplate) {
-      return new Response(JSON.stringify({ error: 'messageTemplate is required. Arbitrary message text is not accepted.' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'messageTemplate is required. Arbitrary message text is not accepted.' }, 400);
     }
 
     const templateFn = MESSAGE_TEMPLATES[messageTemplate];
     if (!templateFn) {
-      return new Response(JSON.stringify({ error: `Unknown message template: ${messageTemplate}` }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: `Unknown message template: ${messageTemplate}` }, 400);
     }
 
-    // --- Derive recipient from job (no arbitrary `to` for ordinary clients) ---
+    // --- Require jobId for all SMS templates ---
     if (!jobId) {
-      return new Response(JSON.stringify({ error: 'jobId is required. Recipients are derived from authorized jobs.' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'jobId is required. Recipients are derived from authorized jobs.' }, 400);
     }
 
+    // --- Load job with all needed fields ---
     const { data: job } = await adminClient
       .from('jobs')
-      .select('customer_id, provider_id, requester_phone, requester_type')
+      .select('customer_id, provider_id, requester_phone, requester_type, status, pickup_address, service_id')
       .eq('id', jobId)
       .maybeSingle();
 
     if (!job) {
-      return new Response(JSON.stringify({ error: 'Job not found' }), {
-        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Job not found' }, 404);
     }
 
-    // Verify the caller is part of this job
-    if (job.customer_id !== user.id && job.provider_id !== user.id) {
-      return new Response(JSON.stringify({ error: 'Not authorized for this job' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Determine recipient: 'requester' sends to the job's requester_phone (third-party),
-    // default sends to the other party (provider or customer).
+    // --- Template-specific authorization & server-derived data ---
     let recipientPhone: string;
+    let serverTemplateData: Record<string, string> = {};
 
-    if (recipientType === 'requester') {
-      // Third-party notification: the customer requested help for someone else.
-      // The phone is stored on the job record, derived from the booking, not caller-supplied.
-      if (job.requester_type !== 'other') {
-        return new Response(JSON.stringify({ error: 'Job is not a third-party request' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      if (!job.requester_phone) {
-        return new Response(JSON.stringify({ error: 'No requester phone on this job' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      recipientPhone = job.requester_phone;
-    } else {
-      // Default: send to the other job participant
-      const targetId = job.customer_id === user.id ? job.provider_id : job.customer_id;
-      if (!targetId) {
-        return new Response(JSON.stringify({ error: 'No target user for this job' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    switch (messageTemplate) {
+      case 'third_party_enroute': {
+        // Caller MUST be the customer
+        if (user.id !== job.customer_id) {
+          return jsonResp({ error: 'Only the customer can send third-party notifications' }, 403);
+        }
+        // Must be a third-party request
+        if (job.requester_type !== 'other') {
+          return jsonResp({ error: 'Job is not a third-party request' }, 400);
+        }
+        if (!job.requester_phone) {
+          return jsonResp({ error: 'No requester phone on this job' }, 400);
+        }
+        if (!job.provider_id) {
+          return jsonResp({ error: 'No provider assigned to this job' }, 400);
+        }
+        // Job must be in an active state
+        if (!ACTIVE_JOB_STATES.has(job.status)) {
+          return jsonResp({ error: `Cannot send notification for job in '${job.status}' state` }, 400);
+        }
+
+        recipientPhone = job.requester_phone;
+
+        // Derive ALL content server-side — ignore client-supplied identity/address fields
+        const [customerName, providerName] = await Promise.all([
+          loadProfileName(adminClient, job.customer_id),
+          loadProfileName(adminClient, job.provider_id),
+        ]);
+
+        serverTemplateData = {
+          customerName,
+          providerName,
+          address: job.pickup_address || 'your location',
+        };
+        break;
       }
 
-      const { data: targetProfile } = await adminClient
-        .from('profiles')
-        .select('phone')
-        .eq('id', targetId)
-        .maybeSingle();
+      case 'provider_enroute':
+      case 'provider_arrived': {
+        // Caller MUST be the provider
+        if (user.id !== job.provider_id) {
+          return jsonResp({ error: 'Only the assigned provider can send this notification' }, 403);
+        }
+        // Job must be in an active state
+        if (!ACTIVE_JOB_STATES.has(job.status)) {
+          return jsonResp({ error: `Cannot send notification for job in '${job.status}' state` }, 400);
+        }
+        // Recipient is the customer
+        if (!job.customer_id) {
+          return jsonResp({ error: 'No customer on this job' }, 400);
+        }
 
-      if (!targetProfile?.phone) {
-        return new Response(JSON.stringify({ error: 'Target user has no phone number' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        const { data: customerProfile } = await adminClient
+          .from('profiles')
+          .select('phone')
+          .eq('id', job.customer_id)
+          .maybeSingle();
+
+        if (!customerProfile?.phone) {
+          return jsonResp({ error: 'Customer has no phone number' }, 400);
+        }
+        recipientPhone = customerProfile.phone;
+
+        // Derive providerName server-side
+        const providerName = await loadProfileName(adminClient, job.provider_id);
+        serverTemplateData = { providerName };
+
+        // Allow client-supplied non-sensitive hints (eta, trackingUrl)
+        if (templateData?.eta) serverTemplateData.eta = String(templateData.eta);
+        if (templateData?.trackingUrl) serverTemplateData.trackingUrl = String(templateData.trackingUrl);
+        break;
       }
 
-      recipientPhone = targetProfile.phone;
+      case 'job_completed': {
+        // Caller must be provider OR customer
+        if (user.id !== job.provider_id && user.id !== job.customer_id) {
+          return jsonResp({ error: 'Not authorized for this job' }, 403);
+        }
+        // Job MUST be completed
+        if (job.status !== 'completed') {
+          return jsonResp({ error: 'Job is not completed' }, 400);
+        }
+
+        // Send to the other party
+        const targetId = user.id === job.customer_id ? job.provider_id : job.customer_id;
+        if (!targetId) {
+          return jsonResp({ error: 'No target user for this job' }, 400);
+        }
+
+        const { data: targetProfile } = await adminClient
+          .from('profiles')
+          .select('phone')
+          .eq('id', targetId)
+          .maybeSingle();
+
+        if (!targetProfile?.phone) {
+          return jsonResp({ error: 'Target user has no phone number' }, 400);
+        }
+        recipientPhone = targetProfile.phone;
+
+        // Derive amount server-side
+        serverTemplateData = {
+          amount: job.total_amount ? `$${Number(job.total_amount).toFixed(2)}` : '',
+        };
+        break;
+      }
+
+      case 'job_cancelled': {
+        // Caller must be the one who cancelled (customer or provider)
+        if (user.id !== job.provider_id && user.id !== job.customer_id) {
+          return jsonResp({ error: 'Not authorized for this job' }, 403);
+        }
+        // Job MUST be cancelled
+        if (job.status !== 'cancelled') {
+          return jsonResp({ error: 'Job is not cancelled' }, 400);
+        }
+
+        // Send to the other party
+        const targetId = user.id === job.customer_id ? job.provider_id : job.customer_id;
+        if (!targetId) {
+          return jsonResp({ error: 'No target user for this job' }, 400);
+        }
+
+        const { data: targetProfile } = await adminClient
+          .from('profiles')
+          .select('phone')
+          .eq('id', targetId)
+          .maybeSingle();
+
+        if (!targetProfile?.phone) {
+          return jsonResp({ error: 'Target user has no phone number' }, 400);
+        }
+        recipientPhone = targetProfile.phone;
+
+        // Use cancellation reason from job record, not client
+        serverTemplateData = {
+          reason: job.cancellation_reason || '',
+        };
+        break;
+      }
+
+      default:
+        return jsonResp({ error: `Unhandled template: ${messageTemplate}` }, 400);
     }
 
     if (!PHONE_REGEX.test(recipientPhone)) {
-      return new Response(JSON.stringify({ error: 'Invalid phone number format in profile.' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Invalid phone number format in profile.' }, 400);
     }
 
     // --- Durable rate limiting ---
     const userAllowed = await claimRateLimitSlot(adminClient, `sms:user:${user.id}`, 10, 3600);
     if (!userAllowed) {
-      return new Response(JSON.stringify({ error: 'SMS rate limit exceeded. Try again later.' }), {
-        status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'SMS rate limit exceeded. Try again later.' }, 429);
     }
     const numberAllowed = await claimRateLimitSlot(adminClient, `sms:number:${recipientPhone}`, 5, 3600);
     if (!numberAllowed) {
-      return new Response(JSON.stringify({ error: 'Too many messages to this number.' }), {
-        status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Too many messages to this number.' }, 429);
     }
 
-    // --- Generate message from template ---
-    const message = templateFn(templateData || {});
+    // --- Generate message from server-derived template data ---
+    const message = templateFn(serverTemplateData);
     if (message.length > MAX_MESSAGE_LENGTH) {
-      return new Response(JSON.stringify({ error: 'Generated message exceeds maximum length' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Generated message exceeds maximum length' }, 400);
     }
 
     // --- Send SMS via Twilio ---
@@ -208,19 +312,13 @@ Deno.serve(async (req) => {
     const result = await res.json();
     if (!res.ok) {
       console.error(`[send-sms] Twilio error: template=${messageTemplate}, code=${result?.code}`);
-      return new Response(JSON.stringify({ error: 'SMS send failed. Please try again.' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'SMS send failed. Please try again.' }, 500);
     }
 
     console.log(`[send-sms] Sent template=${messageTemplate} to=${recipientPhone.slice(0, 6)}***, sid=${result.sid}`);
-    return new Response(JSON.stringify({ success: true, sid: result.sid }), {
-      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ success: true, sid: result.sid }, 200);
   } catch (err: any) {
     console.error('[send-sms] Error:', err?.message);
-    return new Response(JSON.stringify({ error: 'Internal error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ error: 'Internal error' }, 500);
   }
 });

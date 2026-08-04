@@ -87,8 +87,10 @@ export function ProviderSignup() {
         }, { onConflict: 'id' });
       }
 
-      // Welcome email is now an admin-only template.
-      // It should be triggered by a server-side auth hook or database trigger.
+      // Trigger welcome email for the authenticated user (server derives recipient/name, idempotent)
+      import('../../services/email.service').then(({ sendWelcomeEmail }) => {
+        sendWelcomeEmail();
+      });
 
       localStorage.setItem('pendingVerificationEmail', email);
       navigate('/verify-email');
