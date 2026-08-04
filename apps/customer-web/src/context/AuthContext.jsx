@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router';
 import { Capacitor } from '@capacitor/core';
@@ -15,49 +15,168 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Once true, never reverts — prevents full-screen loading after bootstrap
+  const initialAuthDoneRef = useRef(false);
+  const [initialAuthDone, setInitialAuthDone] = useState(false);
+
+  // Track current user ID to detect identity changes vs same-user refreshes
+  const currentUserIdRef = useRef(null);
+
+  // Monotonic counter to deduplicate / cancel stale profile fetches
+  const profileFetchIdRef = useRef(0);
+
+  const markInitialAuthDone = useCallback(() => {
+    if (!initialAuthDoneRef.current) {
+      initialAuthDoneRef.current = true;
+      setInitialAuthDone(true);
+    }
+  }, []);
+
+  /**
+   * Fetch profile for a given userId. Uses a fetch counter so that if a newer
+   * fetch is started before this one completes, the stale result is discarded.
+   */
+  const fetchProfile = useCallback(async (userId) => {
+    const fetchId = ++profileFetchIdRef.current;
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      // Stale fetch — a newer one was started, discard this result
+      if (fetchId !== profileFetchIdRef.current) return;
+
+      // Get user_metadata as fallback for empty/missing profile fields
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const meta = authUser?.user_metadata || {};
+
+      if (fetchId !== profileFetchIdRef.current) return;
+
+      const profileBase = data || { id: userId, email: authUser?.email || '' };
+
+      const merged = {
+        ...profileBase,
+        first_name: profileBase.first_name || meta.first_name || '',
+        last_name: profileBase.last_name || meta.last_name || '',
+        full_name: profileBase.full_name || meta.full_name || '',
+        phone: profileBase.phone || meta.phone || '',
+        role: profileBase.role || meta.role || null,
+      };
+
+      setProfile(merged);
+    } catch (error) {
+      console.warn('Error fetching profile:', error);
+
+      if (fetchId !== profileFetchIdRef.current) return;
+
+      // Fallback to auth metadata so route guards don't blank the app.
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        const meta = authUser?.user_metadata || {};
+
+        if (fetchId !== profileFetchIdRef.current) return;
+
+        setProfile({
+          id: userId,
+          email: authUser?.email || '',
+          first_name: meta.first_name || '',
+          last_name: meta.last_name || '',
+          full_name: meta.full_name || '',
+          phone: meta.phone || '',
+          role: meta.role || null,
+        });
+      } catch {
+        // If even getUser fails, set a minimal profile so the app isn't stuck
+        if (fetchId !== profileFetchIdRef.current) return;
+        setProfile({ id: userId, email: '', role: null });
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let authSubscription;
 
-    // Check active session, then attach the auth listener
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session ?? null);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id).then(() => setIsHydrated(true));
+    // --- Initial bootstrap: resolve session once ---
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession ?? null);
+      setUser(initialSession?.user ?? null);
+      currentUserIdRef.current = initialSession?.user?.id ?? null;
+
+      if (initialSession?.user) {
+        fetchProfile(initialSession.user.id).then(() => {
+          setLoading(false);
+          markInitialAuthDone();
+        });
       } else {
         setLoading(false);
-        setIsHydrated(true);
+        markInitialAuthDone();
       }
     }).catch(() => {
       // Storage corrupted or unavailable — unblock the UI
       setLoading(false);
-      setIsHydrated(true);
+      markInitialAuthDone();
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session ?? null);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        // Only show loading screen and re-fetch profile on actual sign-in,
-        // not on TOKEN_REFRESHED which just updates the JWT. Re-fetching
-        // profile on token refresh sets loading=true, which unmounts the
-        // current page via ProtectedRoute and loses component state.
-        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-          setLoading(true);
-          fetchProfile(session.user.id);
+    // --- Auth state change listener ---
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      setSession(newSession ?? null);
+      setUser(newSession?.user ?? null);
+
+      if (newSession?.user) {
+        const newUserId = newSession.user.id;
+        const previousUserId = currentUserIdRef.current;
+        currentUserIdRef.current = newUserId;
+
+        if (event === 'TOKEN_REFRESHED') {
+          // JWT refreshed — supabase-js already updated the session.
+          // No profile re-fetch needed, no loading state change.
+          return;
         }
+
+        if (event === 'SIGNED_IN') {
+          if (previousUserId === newUserId) {
+            // Same user re-firing SIGNED_IN (native postMessage sync, tab focus, etc.)
+            // No state change needed — profile is already loaded.
+            return;
+          }
+          // Different user signed in — fetch profile silently (no loading=true)
+          fetchProfile(newUserId).then(() => {
+            // If initial auth wasn't done yet (edge case), mark it now
+            setLoading(false);
+            markInitialAuthDone();
+          });
+          return;
+        }
+
+        if (event === 'USER_UPDATED') {
+          // Profile data may have changed — refresh silently (no loading=true)
+          fetchProfile(newUserId);
+          return;
+        }
+
+        // Any other event with a user — fetch profile silently
+        fetchProfile(newUserId).then(() => {
+          setLoading(false);
+          markInitialAuthDone();
+        });
       } else {
+        // No user (SIGNED_OUT or session expired)
+        currentUserIdRef.current = null;
         setProfile(null);
         setLoading(false);
+        markInitialAuthDone();
       }
     });
     authSubscription = subscription;
 
     return () => authSubscription.unsubscribe();
-  }, []);
+  }, [fetchProfile, markInitialAuthDone]);
 
   // Listen for native bridge messages (session updates from the native app)
   useEffect(() => {
@@ -111,51 +230,6 @@ export function AuthProvider({ children }) {
     }, 1500);
     return () => clearTimeout(timer);
   }, [user?.id]);
-
-  async function fetchProfile(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      // Get user_metadata as fallback for empty/missing profile fields
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      const meta = authUser?.user_metadata || {};
-
-      const profileBase = data || { id: userId, email: authUser?.email || '' };
-
-      const merged = {
-        ...profileBase,
-        first_name: profileBase.first_name || meta.first_name || '',
-        last_name: profileBase.last_name || meta.last_name || '',
-        full_name: profileBase.full_name || meta.full_name || '',
-        phone: profileBase.phone || meta.phone || '',
-        role: profileBase.role || meta.role || 'customer',
-      };
-
-      setProfile(merged);
-    } catch (error) {
-      console.warn('Error fetching profile:', error);
-      // Fallback to auth metadata so route guards don't blank the app.
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      const meta = authUser?.user_metadata || {};
-      setProfile({
-        id: userId,
-        email: authUser?.email || '',
-        first_name: meta.first_name || '',
-        last_name: meta.last_name || '',
-        full_name: meta.full_name || '',
-        phone: meta.phone || '',
-        role: meta.role || 'customer',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -217,7 +291,7 @@ export function AuthProvider({ children }) {
 
   const updateProfile = async (updates) => {
     if (!user) throw new Error('No user logged in');
-    
+
     const { data, error } = await supabase
       .from('profiles')
       .update(updates)
@@ -245,7 +319,8 @@ export function AuthProvider({ children }) {
     refreshProfile: () => user && fetchProfile(user.id),
   };
 
-  if (!isHydrated) {
+  // Only show full-screen loading during initial bootstrap
+  if (!initialAuthDone) {
     return <LoadingScreen />;
   }
 
@@ -267,11 +342,23 @@ export function ProtectedRoute({ children, requiredRole = null }) {
   const resolvedRole = profile?.role || user?.user_metadata?.role || null;
   const isAuthorized = !requiredRole || resolvedRole === requiredRole;
 
+  // Track whether we've rendered children at least once while authenticated.
+  // Once true, we never show LoadingScreen again — only redirect on actual sign-out.
+  const hasRenderedRef = useRef(false);
+  if (isAuthenticated && isAuthorized) {
+    hasRenderedRef.current = true;
+  }
+
   useEffect(() => {
-    if (!loading && !isAuthenticated) {
+    // Only redirect after loading is complete
+    if (loading) return;
+
+    if (!isAuthenticated) {
       navigate('/login');
+      return;
     }
-    if (!loading && isAuthenticated && requiredRole && !isAuthorized) {
+
+    if (requiredRole && !isAuthorized) {
       if (resolvedRole === 'admin') {
         navigate('/admin');
       } else if (resolvedRole === 'provider') {
@@ -282,9 +369,23 @@ export function ProtectedRoute({ children, requiredRole = null }) {
     }
   }, [isAuthenticated, loading, navigate, requiredRole, isAuthorized, resolvedRole]);
 
-  if (loading) {
-    return <LoadingScreen />;
+  // After we've rendered children once, keep rendering them even during
+  // background profile refreshes — never unmount the active route tree.
+  if (hasRenderedRef.current && isAuthenticated) {
+    return children;
   }
 
-  return isAuthenticated && isAuthorized ? children : null;
+  // Initial load or not yet authenticated
+  if (loading || !isAuthenticated) {
+    // If truly loading (initial bootstrap), show loading screen.
+    // If not authenticated and not loading, the useEffect will redirect — render nothing briefly.
+    return loading ? <LoadingScreen /> : null;
+  }
+
+  // Authenticated but wrong role — useEffect will redirect
+  if (!isAuthorized) {
+    return null;
+  }
+
+  return children;
 }

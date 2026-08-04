@@ -2,12 +2,17 @@ import { createClient } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// Do not throw at module import time — this crashes before React can mount
+// and show a helpful error screen. Config validation in main.tsx will catch this.
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+  console.warn('[TORC] Missing Supabase environment variables. The app will show a configuration error screen.');
 }
+
+/** Whether the Supabase config is valid and the client is usable */
+export const supabaseConfigValid = Boolean(supabaseUrl && supabaseAnonKey);
 
 const isNative = Capacitor.isNativePlatform();
 

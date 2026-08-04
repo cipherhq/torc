@@ -8,25 +8,34 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  diagRef: string;
+}
+
+function generateDiagRef(): string {
+  return 'TORC-' + Math.random().toString(16).slice(2, 10);
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, error: null, diagRef: '' };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, diagRef: generateDiagRef() };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught:', error, errorInfo);
+    console.error(`[${this.state.diagRef}] ErrorBoundary caught:`, error.message, errorInfo.componentStack);
   }
 
-  handleReload = () => {
-    window.location.reload();
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null, diagRef: '' });
   };
 
   handleGoHome = () => {
     window.location.href = '/dashboard';
+  };
+
+  handleSignIn = () => {
+    window.location.href = '/login';
   };
 
   render() {
@@ -55,29 +64,41 @@ export class ErrorBoundary extends Component<Props, State> {
             Something went wrong
           </h2>
           <p style={{ color: '#6B7280', fontSize: 14, textAlign: 'center', marginBottom: 8, maxWidth: 400, lineHeight: 1.6 }}>
-            An unexpected error occurred. You can try reloading the page or going back to the dashboard.
+            An unexpected error occurred. You can try again, go to the dashboard, or sign in again.
           </p>
-          <p style={{ color: '#9CA3AF', fontSize: 12, marginBottom: 32, maxWidth: 400, textAlign: 'center', wordBreak: 'break-word' }}>
+          <p style={{ color: '#9CA3AF', fontSize: 12, marginBottom: 8, maxWidth: 400, textAlign: 'center', wordBreak: 'break-word' }}>
             {this.state.error?.message}
           </p>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <p style={{ color: '#D1D5DB', fontSize: 11, marginBottom: 32 }}>
+            Reference: {this.state.diagRef}
+          </p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
             <button
-              onClick={this.handleGoHome}
+              onClick={this.handleRetry}
               style={{
                 backgroundColor: '#F3F4F6', color: '#374151', border: 'none',
                 borderRadius: 12, padding: '12px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              Go to Dashboard
+              Retry
             </button>
             <button
-              onClick={this.handleReload}
+              onClick={this.handleGoHome}
               style={{
                 background: 'linear-gradient(to right, #008CE5, #0070B8)', color: '#FFFFFF', border: 'none',
                 borderRadius: 12, padding: '12px 24px', fontSize: 14, fontWeight: 'bold', cursor: 'pointer',
               }}
             >
-              Reload Page
+              Go to Dashboard
+            </button>
+            <button
+              onClick={this.handleSignIn}
+              style={{
+                backgroundColor: '#F3F4F6', color: '#374151', border: 'none',
+                borderRadius: 12, padding: '12px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Sign In
             </button>
           </div>
         </div>

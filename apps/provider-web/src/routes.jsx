@@ -35,10 +35,12 @@ import { AccountSecurity } from "./pages/provider/AccountSecurity";
 import { Explore } from "./pages/provider/Explore";
 import { ProviderReporting } from "./pages/provider/Reporting";
 import { AppShell } from "./components/AppShell";
+import { RouteErrorElement } from "./components/RouteErrorElement";
 
 export const router = createBrowserRouter([
   {
     Component: AppShell,
+    errorElement: <RouteErrorElement />,
     children: [
       {
         path: "/",

@@ -22,12 +22,14 @@ import { AdminServices } from "./pages/admin/Services";
 import { AdminTeam } from "./pages/admin/Team";
 import { AdminDirectory } from "./pages/admin/Directory";
 import { AppSelector } from "./pages/AppSelector";
+import { RouteErrorElement } from "./components/RouteErrorElement";
 
 export const router = createBrowserRouter(
   [
   {
     path: "/",
     element: <Navigate to="/dashboard" replace />,
+    errorElement: <RouteErrorElement />,
   },
   {
     path: "/apps",

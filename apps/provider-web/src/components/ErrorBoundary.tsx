@@ -7,21 +7,34 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  diagRef: string;
+}
+
+function generateDiagRef(): string {
+  return 'TORC-' + Math.random().toString(16).slice(2, 10);
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, error: null, diagRef: '' };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, diagRef: generateDiagRef() };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught:', error, errorInfo);
+    console.error(`[${this.state.diagRef}] ErrorBoundary caught:`, error.message, errorInfo.componentStack);
   }
 
-  handleReload = () => {
-    window.location.reload();
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null, diagRef: '' });
+  };
+
+  handleGoHome = () => {
+    window.location.href = '/home';
+  };
+
+  handleSignIn = () => {
+    window.location.href = '/login';
   };
 
   render() {
@@ -65,28 +78,69 @@ export class ErrorBoundary extends Component<Props, State> {
               color: 'rgba(255, 255, 255, 0.6)',
               fontSize: 14,
               textAlign: 'center',
-              marginBottom: 32,
+              marginBottom: 8,
               maxWidth: 400,
               lineHeight: 1.5,
             }}
           >
             {this.state.error?.message || 'An unexpected error occurred.'}
           </p>
-          <button
-            onClick={this.handleReload}
+          <p
             style={{
-              backgroundColor: '#2EFFAF',
-              color: '#0F1419',
-              border: 'none',
-              borderRadius: 16,
-              padding: '14px 32px',
-              fontSize: 16,
-              fontWeight: 'bold',
-              cursor: 'pointer',
+              color: 'rgba(255, 255, 255, 0.4)',
+              fontSize: 12,
+              marginBottom: 32,
             }}
           >
-            Reload App
-          </button>
+            Reference: {this.state.diagRef}
+          </p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              onClick={this.handleRetry}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 16,
+                padding: '14px 24px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={this.handleGoHome}
+              style={{
+                backgroundColor: '#2EFFAF',
+                color: '#0F1419',
+                border: 'none',
+                borderRadius: 16,
+                padding: '14px 24px',
+                fontSize: 14,
+                fontWeight: 'bold',
+                cursor: 'pointer',
+              }}
+            >
+              Go Home
+            </button>
+            <button
+              onClick={this.handleSignIn}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                color: '#fff',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 16,
+                padding: '14px 24px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Sign In
+            </button>
+          </div>
         </div>
       );
     }
