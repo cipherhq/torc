@@ -115,10 +115,8 @@ test.describe('Provider Redirect Safety — Active Job Polling', () => {
       route.abort('connectionrefused'),
     );
 
-    // Seed the Supabase session in localStorage before navigation
-    // Navigate to app root first so localStorage is accessible on correct origin
-    await page.goto('/');
-    await page.evaluate((session) => {
+    // Seed the Supabase session in localStorage BEFORE any page JS runs.
+    await page.addInitScript((session) => {
       localStorage.setItem(
         'sb-test-auth-token',
         JSON.stringify({

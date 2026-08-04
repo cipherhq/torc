@@ -83,11 +83,9 @@ test.describe('Customer Auth — Token Refresh Preserves Route & Form', () => {
       route.abort('connectionrefused'),
     );
 
-    // Seed the Supabase session in localStorage BEFORE any navigation
-    // so AuthContext.getSession() finds a valid session immediately.
-    // Navigate to the app root first so localStorage is accessible on the correct origin
-    await page.goto('/');
-    await page.evaluate((session) => {
+    // Seed the Supabase session in localStorage BEFORE any page JS runs.
+    // addInitScript runs before any script on every page load.
+    await page.addInitScript((session) => {
       localStorage.setItem(
         'sb-test-auth-token',
         JSON.stringify({
