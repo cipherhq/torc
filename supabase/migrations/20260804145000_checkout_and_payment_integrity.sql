@@ -420,7 +420,7 @@ BEGIN
     WHERE schemaname = 'public'
       AND tablename  = 'checkouts'
       AND cmd        = 'UPDATE'
-      AND (roles @> ARRAY['authenticated'] OR roles @> ARRAY['public'])
+      AND (roles::text[] @> ARRAY['authenticated'] OR roles::text[] @> ARRAY['public'])
   ) THEN
     RAISE EXCEPTION 'ASSERTION FAILED: An UPDATE policy exists on public.checkouts for authenticated/public role';
   END IF;
@@ -487,7 +487,7 @@ BEGIN
     WHERE schemaname = 'public'
       AND tablename  = 'checkouts'
       AND cmd        = 'INSERT'
-      AND (roles @> ARRAY['authenticated'] OR roles @> ARRAY['public'])
+      AND (roles::text[] @> ARRAY['authenticated'] OR roles::text[] @> ARRAY['public'])
   ) THEN
     RAISE EXCEPTION 'ASSERTION FAILED: An INSERT policy exists on public.checkouts for authenticated/public role';
   END IF;

@@ -82,12 +82,27 @@ test.describe('Customer Auth — Token Refresh Preserves Route & Form', () => {
     await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
       route.abort('connectionrefused'),
     );
+
+    // Seed the Supabase session in localStorage BEFORE any navigation
+    // so AuthContext.getSession() finds a valid session immediately.
+    await page.goto('about:blank');
+    await page.evaluate((session) => {
+      // Supabase stores sessions with key sb-<project-ref>-auth-token
+      // The ref comes from the URL: https://<ref>.supabase.co → ref = 'test'
+      localStorage.setItem(
+        'sb-test-auth-token',
+        JSON.stringify({
+          currentSession: session,
+          expiresAt: session.expires_at,
+        }),
+      );
+    }, TEST_SESSION);
   });
 
   test('navigate to /customer/personal-info, type into form fields, trigger token refresh — route stays mounted and values survive', async ({
     page,
   }) => {
-    // Navigate to the personal-info form page
+    // Navigate to the personal-info form page (session pre-seeded in beforeEach)
     await page.goto('/customer/personal-info');
     await page.waitForLoadState('networkidle');
 

@@ -114,12 +114,24 @@ test.describe('Provider Redirect Safety — Active Job Polling', () => {
     await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
       route.abort('connectionrefused'),
     );
+
+    // Seed the Supabase session in localStorage before navigation
+    await page.goto('about:blank');
+    await page.evaluate((session) => {
+      localStorage.setItem(
+        'sb-test-auth-token',
+        JSON.stringify({
+          currentSession: session,
+          expiresAt: session.expires_at,
+        }),
+      );
+    }, TEST_SESSION);
   });
 
   test('provider on /personal-information is NOT redirected after active-job polling cycle (10s wait)', async ({
     page,
   }) => {
-    // Navigate to a data entry form page
+    // Navigate to a data entry form page (session pre-seeded)
     await page.goto('/personal-information');
     await page.waitForLoadState('networkidle');
 
