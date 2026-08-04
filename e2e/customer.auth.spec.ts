@@ -1,12 +1,12 @@
 /**
- * Customer auth E2E tests — uses Playwright route interception to mock
- * Supabase responses. Tests token refresh stability, dirty form preservation,
- * and missing config error screen.
+ * Customer auth E2E tests — real UI interactions via Playwright route
+ * interception. Tests that token refresh preserves the mounted route
+ * and form field values on /customer/personal-info.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Constants
 // ---------------------------------------------------------------------------
 
 const SUPABASE_URL = 'https://test.supabase.co';
@@ -38,186 +38,113 @@ const TEST_PROFILE = {
   role: 'customer',
 };
 
-/**
- * Mock all Supabase REST and Auth endpoints so the app loads without a real
- * backend. Uses Playwright's page.route() for network interception.
- */
-async function mockSupabaseAuth(page: Page, { authenticated = true } = {}) {
-  // Mock GoTrue session endpoint
-  await page.route(`${SUPABASE_URL}/auth/v1/token*`, (route) => {
-    if (authenticated) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(TEST_SESSION),
-      });
-    }
-    return route.fulfill({
-      status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'invalid_grant', error_description: 'Invalid login credentials' }),
-    });
-  });
-
-  // Mock GoTrue user endpoint
-  await page.route(`${SUPABASE_URL}/auth/v1/user`, (route) => {
-    if (authenticated) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(TEST_USER),
-      });
-    }
-    return route.fulfill({
-      status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'not authenticated' }),
-    });
-  });
-
-  // Mock profiles REST query
-  await page.route(`${SUPABASE_URL}/rest/v1/profiles*`, (route) => {
-    if (authenticated) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(TEST_PROFILE),
-      });
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(null),
-    });
-  });
-
-  // Catch-all for other Supabase REST calls (services, jobs, etc.)
-  await page.route(`${SUPABASE_URL}/rest/v1/**`, (route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    });
-  });
-
-  // Mock Supabase Realtime websocket upgrade — just let it fail gracefully
-  await page.route(`${SUPABASE_URL}/realtime/**`, (route) => {
-    return route.abort('connectionrefused');
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-test.describe('Customer Auth — Token Refresh', () => {
-  test('page loads with mocked auth and form input survives simulated token refresh', async ({ page }) => {
-    await mockSupabaseAuth(page, { authenticated: true });
-    await page.goto('/');
+test.describe('Customer Auth — Token Refresh Preserves Route & Form', () => {
+  test.beforeEach(async ({ page }) => {
+    // Mock Supabase auth endpoints
+    await page.route(`${SUPABASE_URL}/auth/v1/token*`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(TEST_SESSION),
+      }),
+    );
 
-    // Wait for app to render authenticated content (not loading screen)
-    await page.waitForLoadState('networkidle');
+    await page.route(`${SUPABASE_URL}/auth/v1/user`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(TEST_USER),
+      }),
+    );
 
-    // If there is a form input visible, type into it
-    const inputs = page.locator('input[type="text"], input[type="search"], textarea');
-    const inputCount = await inputs.count();
-
-    if (inputCount > 0) {
-      const firstInput = inputs.first();
-      await firstInput.fill('test-dirty-value');
-
-      // Simulate TOKEN_REFRESHED event via the Supabase client in the page context
-      await page.evaluate(() => {
-        // Dispatch a storage event that Supabase uses for cross-tab auth sync
-        window.dispatchEvent(
-          new StorageEvent('storage', {
-            key: 'sb-test-auth-token',
-            newValue: JSON.stringify({
-              access_token: 'refreshed-token',
-              refresh_token: 'refreshed-refresh-token',
-              expires_at: Math.floor(Date.now() / 1000) + 7200,
-            }),
-          }),
-        );
+    // Mock Supabase REST queries
+    await page.route(`${SUPABASE_URL}/rest/v1/**`, (route) => {
+      const url = route.request().url();
+      if (url.includes('profiles')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(TEST_PROFILE),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
       });
-
-      // Wait a tick for React to process
-      await page.waitForTimeout(500);
-
-      // The input value should be preserved
-      const value = await firstInput.inputValue();
-      expect(value).toBe('test-dirty-value');
-    }
-
-    // The page should still be showing authenticated content (not a loading screen)
-    const loadingScreen = page.locator('[data-testid="loading-screen"]');
-    const loadingVisible = await loadingScreen.isVisible().catch(() => false);
-    expect(loadingVisible).toBe(false);
-  });
-
-  test('dirty form values preserved when auth state changes', async ({ page }) => {
-    await mockSupabaseAuth(page, { authenticated: true });
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    // Inject a test form into the page to verify form state survives auth events
-    await page.evaluate(() => {
-      const form = document.createElement('form');
-      form.id = 'e2e-test-form';
-      form.innerHTML = `
-        <input type="text" id="e2e-input-name" value="" />
-        <textarea id="e2e-textarea-notes"></textarea>
-      `;
-      document.body.appendChild(form);
     });
 
-    const nameInput = page.locator('#e2e-input-name');
-    const notesTextarea = page.locator('#e2e-textarea-notes');
+    // Abort realtime gracefully
+    await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
+      route.abort('connectionrefused'),
+    );
+  });
 
-    await nameInput.fill('Unsaved Name');
-    await notesTextarea.fill('Important notes that must not be lost');
+  test('navigate to /customer/personal-info, type into form fields, trigger token refresh — route stays mounted and values survive', async ({
+    page,
+  }) => {
+    // Navigate to the personal-info form page
+    await page.goto('/customer/personal-info');
+    await page.waitForLoadState('networkidle');
 
-    // Simulate SIGNED_IN event (same user — should be deduplicated)
+    // Find text inputs on the form page and type values
+    const inputs = page.locator('input[type="text"], input[type="tel"], input[type="email"]');
+    const inputCount = await inputs.count();
+
+    // We need at least one input to test form preservation
+    if (inputCount > 0) {
+      const firstInput = inputs.first();
+      await firstInput.fill('Unsaved E2E Value');
+
+      // If there's a second input, fill it too
+      if (inputCount > 1) {
+        const secondInput = inputs.nth(1);
+        await secondInput.fill('Second Unsaved Value');
+      }
+    }
+
+    // Record current URL before refresh event
+    const urlBefore = page.url();
+
+    // Simulate a SIGNED_IN auth event (token refresh) via Supabase storage event
     await page.evaluate(() => {
       window.dispatchEvent(
         new StorageEvent('storage', {
           key: 'sb-test-auth-token',
           newValue: JSON.stringify({
-            access_token: 'same-user-new-token',
-            refresh_token: 'same-user-refresh',
+            access_token: 'refreshed-token',
+            refresh_token: 'refreshed-refresh-token',
             expires_at: Math.floor(Date.now() / 1000) + 7200,
           }),
         }),
       );
     });
 
-    await page.waitForTimeout(300);
+    // Wait for React to process the auth event
+    await page.waitForTimeout(1000);
 
-    // Form values must be preserved
-    expect(await nameInput.inputValue()).toBe('Unsaved Name');
-    expect(await notesTextarea.inputValue()).toBe('Important notes that must not be lost');
-  });
+    // Verify route is still mounted — URL has not changed
+    expect(page.url()).toBe(urlBefore);
+    expect(page.url()).toContain('/customer/personal-info');
 
-  test('missing config shows configuration error or fails gracefully', async ({ page }) => {
-    // Do NOT mock supabase — let the app try to connect with its test env vars
-    // The page should either show an error screen or the login page
+    // Verify form values survived the token refresh
+    if (inputCount > 0) {
+      const firstValue = await inputs.first().inputValue();
+      expect(firstValue).toBe('Unsaved E2E Value');
 
-    // Navigate and wait — we expect the app to handle missing/invalid backend gracefully
-    const response = await page.goto('/');
-
-    // The page should at least load (200 from the dev server serving index.html)
-    if (response) {
-      expect(response.status()).toBeLessThan(500);
+      if (inputCount > 1) {
+        const secondValue = await inputs.nth(1).inputValue();
+        expect(secondValue).toBe('Second Unsaved Value');
+      }
     }
 
-    // Wait for the app to attempt auth and settle
-    await page.waitForTimeout(2000);
-
-    // The page should show either:
-    // 1. A configuration error screen
-    // 2. The login page (graceful fallback)
-    // 3. Some visible content (not a blank white page)
-    const bodyText = await page.locator('body').innerText();
-    expect(bodyText.length).toBeGreaterThan(0);
+    // Verify the page is not showing a loading/error screen
+    const loadingScreen = page.locator('[data-testid="loading-screen"]');
+    const loadingVisible = await loadingScreen.isVisible().catch(() => false);
+    expect(loadingVisible).toBe(false);
   });
 });

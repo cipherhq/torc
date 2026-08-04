@@ -1,8 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 
-const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl ?? 'https://apojatplmfsbimgcyjoo.supabase.co';
-const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFwb2phdHBsbWZzYmltZ2N5am9vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NjcyMjQsImV4cCI6MjA4NjM0MzIyNH0.eWizHl9jMS-E-SZ_JMmmZooYN9nuEufxupWOXCOulv8';
+const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl ?? '';
+const supabaseAnonKey = Constants.expoConfig?.extra?.supabaseAnonKey ?? '';
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('[TORC] Missing Supabase configuration in app.config / expo config.');
+}
 
 let _supabase: SupabaseClient | null = null;
 

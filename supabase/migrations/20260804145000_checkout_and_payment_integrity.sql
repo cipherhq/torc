@@ -5,7 +5,8 @@
 --   - No UPDATE RLS policy on checkouts (service_role bypasses RLS)
 --   - SECURITY DEFINER functions hardened with search_path, REVOKE/GRANT
 --   - expire_stale_jobs captures original status before UPDATE
---   - attempt_number column + unique constraint for retry idempotency
+--   - payment_attempts table for retry idempotency
+--   - Atomic rate limiting via claim_rate_limit_slot()
 --   - RLS/privilege assertion queries at the end
 
 BEGIN;
@@ -31,7 +32,6 @@ CREATE TABLE IF NOT EXISTS public.checkouts (
   stripe_customer_id TEXT,
   status          TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending','payment_processing','paid','failed','expired','refunded')),
-  attempt_number  INTEGER NOT NULL DEFAULT 1,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   paid_at         TIMESTAMPTZ,
@@ -43,24 +43,50 @@ CREATE INDEX IF NOT EXISTS idx_checkouts_payment_intent_id ON public.checkouts(p
 CREATE UNIQUE INDEX IF NOT EXISTS idx_checkouts_payment_intent_unique
   ON public.checkouts(payment_intent_id) WHERE payment_intent_id IS NOT NULL;
 
--- Unique constraint for retry idempotency: each attempt gets key checkoutId:attemptNumber
-ALTER TABLE public.checkouts
-  ADD CONSTRAINT uq_checkouts_id_attempt UNIQUE (id, attempt_number);
-
 ALTER TABLE public.checkouts ENABLE ROW LEVEL SECURITY;
 
--- Users can only SELECT and INSERT their own checkouts.
--- No UPDATE policy — service_role bypasses RLS by default in Supabase.
+-- Users can only SELECT their own checkouts.
+-- No INSERT/UPDATE policy — service_role (edge functions) creates checkouts, not clients.
 CREATE POLICY "Users can view own checkouts"
   ON public.checkouts FOR SELECT
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert own checkouts"
-  ON public.checkouts FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- Drop the unsafe UPDATE policy if it exists from a prior run
+-- Drop unsafe policies if they exist from a prior run
+DROP POLICY IF EXISTS "Users can insert own checkouts" ON public.checkouts;
 DROP POLICY IF EXISTS "Service role can update checkouts" ON public.checkouts;
+
+-- ============================================================
+-- 1b) Payment attempts — retry idempotency per checkout
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.payment_attempts (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  checkout_id            UUID NOT NULL REFERENCES public.checkouts(id) ON DELETE CASCADE,
+  attempt_number         INTEGER NOT NULL DEFAULT 1,
+  stripe_idempotency_key TEXT NOT NULL UNIQUE,
+  payment_intent_id      TEXT,
+  status                 TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','processing','succeeded','failed')),
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_checkout_id ON public.payment_attempts(checkout_id);
+
+ALTER TABLE public.payment_attempts ENABLE ROW LEVEL SECURITY;
+
+-- Service role handles writes (via edge functions); users can read their own via checkout
+CREATE POLICY "Service role only writes payment_attempts"
+  ON public.payment_attempts FOR ALL
+  USING (false);
+
+CREATE POLICY "Users can view own payment attempts"
+  ON public.payment_attempts FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.checkouts
+      WHERE checkouts.id = payment_attempts.checkout_id
+        AND checkouts.user_id = auth.uid()
+    )
+  );
 
 -- ============================================================
 -- 2) Processed webhook events — idempotency for Stripe webhooks
@@ -156,6 +182,47 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.cleanup_rate_limit_log() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.cleanup_rate_limit_log() FROM authenticated;
 GRANT  EXECUTE ON FUNCTION public.cleanup_rate_limit_log() TO service_role;
+
+-- ============================================================
+-- 6b) claim_rate_limit_slot — atomic COUNT+INSERT with advisory lock
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.claim_rate_limit_slot(
+  p_key TEXT,
+  p_max_count INTEGER,
+  p_window_seconds INTEGER
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_window_start TIMESTAMPTZ;
+  v_current_count INTEGER;
+BEGIN
+  v_window_start := now() - (p_window_seconds || ' seconds')::interval;
+
+  -- Lock the key to prevent concurrent races
+  PERFORM pg_advisory_xact_lock(hashtext(p_key));
+
+  SELECT count(*) INTO v_current_count
+  FROM public.rate_limit_log
+  WHERE key = p_key AND created_at >= v_window_start;
+
+  IF v_current_count >= p_max_count THEN
+    RETURN false;
+  END IF;
+
+  INSERT INTO public.rate_limit_log (key, action, created_at)
+  VALUES (p_key, 'claim', now());
+
+  RETURN true;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.claim_rate_limit_slot(TEXT, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.claim_rate_limit_slot(TEXT, INTEGER, INTEGER) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.claim_rate_limit_slot(TEXT, INTEGER, INTEGER) TO service_role;
 
 -- ============================================================
 -- 7) transition_job_status — SECURITY DEFINER, hardened
@@ -395,6 +462,34 @@ BEGIN
     'EXECUTE'
   ) THEN
     RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute cleanup_rate_limit_log';
+  END IF;
+END;
+$$;
+
+-- Assert: claim_rate_limit_slot is NOT executable by authenticated
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'authenticated',
+    'public.claim_rate_limit_slot(text, integer, integer)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute claim_rate_limit_slot';
+  END IF;
+END;
+$$;
+
+-- Assert: No INSERT policy on checkouts for authenticated users
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename  = 'checkouts'
+      AND cmd        = 'INSERT'
+      AND (roles @> ARRAY['authenticated'] OR roles @> ARRAY['public'])
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: An INSERT policy exists on public.checkouts for authenticated/public role';
   END IF;
 END;
 $$;

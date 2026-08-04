@@ -383,33 +383,27 @@ function getEmailContent(
   }
 }
 
-// ─── Durable rate limiting (database-backed) ────────────────────────
+// ─── Atomic rate limiting (database RPC, fail-closed) ───────────────
 
-async function checkDurableRateLimit(
+async function claimRateLimitSlot(
   adminClient: any,
   key: string,
   maxCount: number,
   windowSeconds: number
 ): Promise<boolean> {
-  const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString();
-
-  // Count recent actions in this window
-  const { count, error } = await adminClient
-    .from('rate_limit_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('key', key)
-    .gte('created_at', windowStart);
+  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
+    p_key: key,
+    p_max_count: maxCount,
+    p_window_seconds: windowSeconds,
+  });
 
   if (error) {
-    console.warn('[send-email] Rate limit check failed, allowing:', error.message);
-    return true; // Fail open to not block legitimate requests
+    // Fail closed — if we can't verify the rate limit, block the request
+    console.error('[send-email] Rate limit RPC failed, blocking:', error.message);
+    return false;
   }
 
-  if ((count || 0) >= maxCount) return false;
-
-  // Record this action
-  await adminClient.from('rate_limit_log').insert({ key, action: 'send_email' });
-  return true;
+  return data === true;
 }
 
 // ─── Main Handler ───────────────────────────────────────────────────
@@ -478,7 +472,7 @@ Deno.serve(async (req) => {
     }
 
     // ── Durable rate limiting ───────────────────────────────────────
-    const allowed = await checkDurableRateLimit(adminClient, `email:${user.id}`, 20, 3600);
+    const allowed = await claimRateLimitSlot(adminClient, `email:${user.id}`, 20, 3600);
     if (!allowed) {
       return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }), {
         status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },

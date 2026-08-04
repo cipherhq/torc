@@ -80,57 +80,47 @@ Deno.serve(async (req) => {
     const event = JSON.parse(rawBody);
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    // Idempotency check
-    const { data: existing } = await adminClient
-      .from('processed_webhook_events')
-      .select('event_id')
-      .eq('event_id', event.id)
-      .maybeSingle();
-
-    if (existing) {
-      return new Response(JSON.stringify({ received: true }), { status: 200 });
-    }
-
     const eventObject = event.data?.object;
-    const checkoutId = eventObject?.metadata?.checkout_id;
+    const checkoutId = eventObject?.metadata?.checkout_id || null;
+    // For payment_intent events, eventObject.id IS the PI ID.
+    // For charge events (e.g. charge.refunded), eventObject.payment_intent is the PI ID.
+    const paymentIntentId = eventObject?.payment_intent || eventObject?.id || null;
 
-    switch (event.type) {
-      case 'payment_intent.succeeded': {
-        if (checkoutId) {
-          await adminClient.from('checkouts').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', checkoutId);
-          await adminClient.from('jobs').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('checkout_id', checkoutId);
-        }
-        // Also update by payment_intent_id for backward compatibility
-        if (eventObject?.id) {
-          await adminClient.from('jobs').update({ payment_status: 'paid', paid_at: new Date().toISOString() }).eq('payment_intent_id', eventObject.id);
-        }
-        console.log(`[stripe-webhook] payment_intent.succeeded: pi=${eventObject?.id}, checkout=${checkoutId || 'none'}`);
-        break;
+    // Determine amount/currency from event object
+    const amount = eventObject?.amount || eventObject?.amount_received || null;
+    const currency = eventObject?.currency || null;
+
+    // Supported event types that we process atomically
+    const supportedEvents = [
+      'payment_intent.succeeded',
+      'payment_intent.payment_failed',
+      'charge.refunded',
+    ];
+
+    if (supportedEvents.includes(event.type)) {
+      // Use atomic RPC: handles idempotency, checkout+job updates in one transaction
+      const { data: result, error: rpcError } = await adminClient.rpc('process_stripe_webhook', {
+        p_event_id: event.id,
+        p_event_type: event.type,
+        p_payment_intent_id: paymentIntentId,
+        p_checkout_id: checkoutId,
+        p_amount: amount,
+        p_currency: currency,
+      });
+
+      if (rpcError) {
+        console.error(`[stripe-webhook] RPC error for ${event.type}:`, rpcError.message);
+        throw new Error(`Webhook RPC failed: ${rpcError.message}`);
       }
-      case 'payment_intent.payment_failed': {
-        if (checkoutId) {
-          await adminClient.from('checkouts').update({ status: 'failed' }).eq('id', checkoutId);
-          await adminClient.from('jobs').update({ payment_status: 'failed' }).eq('checkout_id', checkoutId);
-        }
-        console.log(`[stripe-webhook] payment_intent.payment_failed: pi=${eventObject?.id}`);
-        break;
+
+      if (result?.duplicate) {
+        console.log(`[stripe-webhook] Duplicate event ${event.id}, skipping`);
+      } else {
+        console.log(`[stripe-webhook] ${event.type}: pi=${paymentIntentId}, checkout=${checkoutId || 'none'}`);
       }
-      case 'charge.refunded': {
-        const piId = eventObject?.payment_intent;
-        if (piId) {
-          await adminClient.from('checkouts').update({ status: 'refunded' }).eq('payment_intent_id', piId);
-          await adminClient.from('jobs').update({ payment_status: 'refunded' }).eq('payment_intent_id', piId);
-        }
-        console.log(`[stripe-webhook] charge.refunded: pi=${piId || 'none'}`);
-        break;
-      }
-      default:
-        console.log(`[stripe-webhook] Unhandled event type: ${event.type}`);
+    } else {
+      console.log(`[stripe-webhook] Unhandled event type: ${event.type}`);
     }
-
-    await adminClient.from('processed_webhook_events').insert({
-      event_id: event.id, event_type: event.type, processed_at: new Date().toISOString(),
-    });
 
     return new Response(JSON.stringify({ received: true }), {
       status: 200, headers: { 'Content-Type': 'application/json' },

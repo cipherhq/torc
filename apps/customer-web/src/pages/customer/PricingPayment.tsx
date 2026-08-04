@@ -286,7 +286,7 @@ export function PricingPayment() {
         updateRequestContext({ checkoutId });
       }
 
-      // Server-authoritative checkout — send serviceId, not amount
+      // Server-authoritative checkout — send serviceId + booking snapshot fields
       const fnRes = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
         {
@@ -304,6 +304,14 @@ export function PricingPayment() {
             checkoutId,
             paymentMethodId: stripePaymentMethodId,
             savePaymentMethod: saveCard,
+            // Booking snapshot: stored on checkout for webhook-driven job creation
+            pickupLocation: context.location || null,
+            pickupAddress: context.location?.address || '',
+            destinationAddress: context.destinationAddress || '',
+            requesterType: context.whoNeedsHelp === 'new' ? 'other' : 'self',
+            requesterName: context.personName || '',
+            requesterPhone: context.personPhone || '',
+            customerNotes: context.notes || '',
           }),
         }
       );
@@ -311,12 +319,15 @@ export function PricingPayment() {
       if (!fnRes.ok) throw new Error(data?.error || `Payment failed (${fnRes.status})`);
 
       // Handle recovery: if checkout already succeeded, skip Stripe confirmation
+      // Note: we set payment_processing here — the webhook is the sole authority
+      // for marking payment as 'paid'. The job will be created with 'unpaid' and
+      // the webhook will update it atomically.
       if (data.status === 'paid' || data.status === 'succeeded') {
         updateRequestContext({
           paymentMethodId: selectedPayment || null,
           estimatedPrice: (data.priceBreakdown?.totalCents || 0) / 100,
           paymentIntentId: data.paymentIntentId,
-          paymentStatus: 'paid',
+          paymentStatus: 'payment_processing',
           paymentCurrency: 'USD',
           checkoutId,
         });
@@ -358,11 +369,13 @@ export function PricingPayment() {
         });
       }
 
+      // Never set paymentStatus to 'paid' from the client.
+      // The webhook is the sole authority for marking payment as paid.
       updateRequestContext({
         paymentMethodId: selectedPayment || null,
         estimatedPrice: (data.priceBreakdown?.totalCents || 0) / 100,
         paymentIntentId: paymentIntent.id,
-        paymentStatus: 'paid',
+        paymentStatus: 'payment_processing',
         paymentCurrency: (paymentIntent.currency || 'usd').toUpperCase(),
         checkoutId,
       });

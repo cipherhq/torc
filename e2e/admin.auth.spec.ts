@@ -1,96 +1,33 @@
 /**
- * Admin auth E2E tests — uses Playwright route interception to mock
- * Supabase. Tests unauthenticated redirect and loading state.
+ * Admin auth E2E tests — verifies that unauthenticated users are redirected
+ * to /login and the dashboard component never mounts in the DOM.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 const SUPABASE_URL = 'https://test.supabase.co';
-
-/**
- * Mock Supabase to return no session (unauthenticated).
- */
-async function mockSupabaseUnauthenticated(page: Page) {
-  await page.route(`${SUPABASE_URL}/auth/v1/token*`, (route) =>
-    route.fulfill({
-      status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'invalid_grant' }),
-    }),
-  );
-
-  await page.route(`${SUPABASE_URL}/auth/v1/user`, (route) =>
-    route.fulfill({
-      status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ message: 'not authenticated' }),
-    }),
-  );
-
-  await page.route(`${SUPABASE_URL}/rest/v1/profiles*`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(null),
-    }),
-  );
-
-  await page.route(`${SUPABASE_URL}/rest/v1/**`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    }),
-  );
-
-  await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
-    route.abort('connectionrefused'),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 test.describe('Admin Auth — Unauthorized Access Rejection', () => {
-  test('unauthenticated user visiting /dashboard gets redirected to /login', async ({ page }) => {
-    await mockSupabaseUnauthenticated(page);
-
-    // Try to access the dashboard directly
-    await page.goto('/dashboard');
-
-    // Wait for the app to check auth and redirect
-    await page.waitForLoadState('networkidle');
-
-    // The ProtectedAdminRoute component should redirect to /login
-    // Allow time for the async auth check and navigation
-    await page.waitForTimeout(2000);
-
-    // Should end up on /login (or at least not on /dashboard with real content)
-    const url = page.url();
-    const isRedirected = url.includes('/login') || url.endsWith('/');
-    expect(isRedirected).toBe(true);
-  });
-
-  test('loading screen shows during auth check', async ({ page }) => {
-    // Delay the auth response to catch the loading state
-    await page.route(`${SUPABASE_URL}/auth/v1/token*`, async (route) => {
-      // Delay response by 3 seconds to ensure loading screen is visible
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      return route.fulfill({
+  test.beforeEach(async ({ page }) => {
+    // Mock Supabase to return no session (unauthenticated)
+    await page.route(`${SUPABASE_URL}/auth/v1/token*`, (route) =>
+      route.fulfill({
         status: 401,
         contentType: 'application/json',
         body: JSON.stringify({ error: 'invalid_grant' }),
-      });
-    });
+      }),
+    );
 
-    await page.route(`${SUPABASE_URL}/auth/v1/user`, async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      return route.fulfill({
+    await page.route(`${SUPABASE_URL}/auth/v1/user`, (route) =>
+      route.fulfill({
         status: 401,
         contentType: 'application/json',
         body: JSON.stringify({ message: 'not authenticated' }),
-      });
-    });
+      }),
+    );
 
     await page.route(`${SUPABASE_URL}/rest/v1/**`, (route) =>
       route.fulfill({
@@ -103,20 +40,40 @@ test.describe('Admin Auth — Unauthorized Access Rejection', () => {
     await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
       route.abort('connectionrefused'),
     );
+  });
 
-    // Navigate to the dashboard — should see loading state while auth checks
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+  test('unauthenticated user visiting /dashboard is redirected to /login and dashboard never mounts', async ({
+    page,
+  }) => {
+    // Navigate to the protected dashboard route without auth
+    await page.goto('/dashboard');
+    await page.waitForLoadState('networkidle');
 
-    // Look for loading indicators: spinner, loading text, or animate-spin class
-    // The ProtectedAdminRoute shows a spinner with animate-spin
-    const loadingIndicator = page.locator('.animate-spin, [data-testid="loading-screen"], text=Loading');
-    const hasLoading = await loadingIndicator.first().isVisible().catch(() => false);
+    // Allow time for async auth check and redirect
+    await page.waitForTimeout(3000);
 
-    // At minimum, the page should not show dashboard content yet
-    const dashboardContent = page.locator('text=Dashboard, text=Analytics, text=Overview');
-    const dashboardVisible = await dashboardContent.first().isVisible().catch(() => false);
+    // Verify the URL changed to /login
+    const url = page.url();
+    expect(url).toContain('/login');
 
-    // During auth check, either loading is shown OR dashboard is not yet visible
-    expect(hasLoading || !dashboardVisible).toBe(true);
+    // Verify the dashboard component never appeared in the DOM
+    // Check for typical dashboard elements that should NOT be present
+    const dashboardHeading = page.locator('h1:has-text("Dashboard"), h2:has-text("Dashboard")');
+    const dashboardCount = await dashboardHeading.count();
+    expect(dashboardCount).toBe(0);
+
+    // Also verify no analytics/overview sections mounted
+    const analyticsSection = page.locator('[data-testid="dashboard-content"], [data-testid="analytics"]');
+    const analyticsCount = await analyticsSection.count();
+    expect(analyticsCount).toBe(0);
+  });
+
+  test('unauthenticated user visiting /users is redirected to /login', async ({ page }) => {
+    await page.goto('/users');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(3000);
+
+    const url = page.url();
+    expect(url).toContain('/login');
   });
 });

@@ -33,8 +33,9 @@ export interface RequestContext {
   paymentMethodId: string | null;
   estimatedPrice: number;
   paymentIntentId?: string | null;
-  paymentStatus?: 'unpaid' | 'requires_action' | 'paid' | 'failed' | 'refunded' | null;
+  paymentStatus?: 'unpaid' | 'requires_action' | 'payment_processing' | 'paid' | 'failed' | 'refunded' | null;
   paymentCurrency?: string | null;
+  checkoutId?: string | null;
 }
 
 interface StoredDraft {

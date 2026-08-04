@@ -76,8 +76,10 @@ export function Matching() {
             scheduledFor: context.scheduledFor || null,
             customerNotes: context.notes || '',
             paymentIntentId: context.paymentIntentId || null,
-            paymentStatus: context.paymentStatus || 'unpaid',
+            // Never pass payment_status from client -- createJob() always inserts 'unpaid'.
+            // The webhook atomically updates to 'paid' via checkout_id.
             paymentCurrency: context.paymentCurrency || 'USD',
+            checkoutId: context.checkoutId || null,
           };
 
           updateJobDetails(jobDetailsFromContext);

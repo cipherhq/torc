@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    const body = await req.json();
     const {
       serviceId,
       vehicleId,
@@ -100,7 +101,16 @@ Deno.serve(async (req) => {
       checkoutId,
       paymentMethodId,
       savePaymentMethod = false,
-    } = await req.json();
+      // Booking snapshot fields — stored on checkout for webhook-driven job creation
+      pickupLocation,
+      pickupAddress,
+      destinationLocation,
+      destinationAddress,
+      requesterType,
+      requesterName,
+      requesterPhone,
+      customerNotes,
+    } = body;
 
     // --- Input validation ---
     if (!serviceId || typeof serviceId !== 'string') {
@@ -296,6 +306,20 @@ Deno.serve(async (req) => {
 
     // --- Create/update checkout record BEFORE payment ---
     if (!existingCheckout) {
+      // Build booking snapshot with trusted client-provided booking details.
+      // These are stored on the checkout so the webhook can create the job
+      // from verified data without relying on client state.
+      const bookingSnapshot: Record<string, unknown> = {};
+      if (pickupLocation) bookingSnapshot.pickupLocation = pickupLocation;
+      if (pickupAddress) bookingSnapshot.pickupAddress = pickupAddress;
+      if (destinationLocation) bookingSnapshot.destinationLocation = destinationLocation;
+      if (destinationAddress) bookingSnapshot.destinationAddress = destinationAddress;
+      if (requesterType) bookingSnapshot.requesterType = requesterType;
+      if (requesterName) bookingSnapshot.requesterName = requesterName;
+      if (requesterPhone) bookingSnapshot.requesterPhone = requesterPhone;
+      if (customerNotes) bookingSnapshot.customerNotes = customerNotes;
+      if (scheduledFor) bookingSnapshot.scheduledFor = scheduledFor;
+
       const { error: insertError } = await supabaseAdmin.from('checkouts').insert({
         id: checkoutId,
         user_id: user.id,
@@ -311,6 +335,7 @@ Deno.serve(async (req) => {
         currency: 'USD',
         status: 'pending',
         attempt_number: 1,
+        booking_snapshot: Object.keys(bookingSnapshot).length > 0 ? bookingSnapshot : null,
       });
       if (insertError && !String(insertError.code).includes('23505')) {
         throw new Error('Failed to create checkout record.');

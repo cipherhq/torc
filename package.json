@@ -80,6 +80,7 @@
             "build:customer": "npm run build --workspace=customer-web",
             "build:provider": "npm run build --workspace=provider-web",
             "build:admin": "npm run build --workspace=admin-web",
-            "build:website": "npm run build --workspace=website"
+            "build:website": "npm run build --workspace=website",
+            "test:e2e": "npx playwright test --reporter=list"
       }
 }

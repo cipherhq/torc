@@ -17,27 +17,23 @@ const MESSAGE_TEMPLATES: Record<string, (data: Record<string, string>) => string
 
 const MAX_MESSAGE_LENGTH = 320;
 
-// Durable rate limiting (database-backed)
-async function checkDurableRateLimit(
+// Atomic rate limiting (database RPC, fail-closed)
+async function claimRateLimitSlot(
   adminClient: any,
   key: string,
   maxCount: number,
   windowSeconds: number
 ): Promise<boolean> {
-  const windowStart = new Date(Date.now() - windowSeconds * 1000).toISOString();
-  const { count, error } = await adminClient
-    .from('rate_limit_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('key', key)
-    .gte('created_at', windowStart);
-
+  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
+    p_key: key,
+    p_max_count: maxCount,
+    p_window_seconds: windowSeconds,
+  });
   if (error) {
-    console.warn('[send-sms] Rate limit check failed, allowing:', error.message);
-    return true;
+    console.error('[send-sms] Rate limit RPC failed, blocking:', error.message);
+    return false; // Fail closed
   }
-  if ((count || 0) >= maxCount) return false;
-  await adminClient.from('rate_limit_log').insert({ key, action: 'send_sms' });
-  return true;
+  return data === true;
 }
 
 Deno.serve(async (req) => {
@@ -149,13 +145,13 @@ Deno.serve(async (req) => {
     }
 
     // --- Durable rate limiting ---
-    const userAllowed = await checkDurableRateLimit(adminClient, `sms:user:${user.id}`, 10, 3600);
+    const userAllowed = await claimRateLimitSlot(adminClient, `sms:user:${user.id}`, 10, 3600);
     if (!userAllowed) {
       return new Response(JSON.stringify({ error: 'SMS rate limit exceeded. Try again later.' }), {
         status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    const numberAllowed = await checkDurableRateLimit(adminClient, `sms:number:${recipientPhone}`, 5, 3600);
+    const numberAllowed = await claimRateLimitSlot(adminClient, `sms:number:${recipientPhone}`, 5, 3600);
     if (!numberAllowed) {
       return new Response(JSON.stringify({ error: 'Too many messages to this number.' }), {
         status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
