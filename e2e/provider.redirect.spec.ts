@@ -1,7 +1,7 @@
 /**
  * Provider redirect safety E2E tests — verifies that active-job polling
  * does NOT redirect the provider away from data entry forms.
- * Navigates to /personal-information, waits through a full polling cycle,
+ * Navigates to /provider/personal-information, waits through a full polling cycle,
  * and confirms the form is still visible and the URL has not changed.
  *
  * Uses Playwright's storageState to seed the Supabase session in
@@ -141,15 +141,15 @@ test.describe('Provider Redirect Safety — Active Job Polling', () => {
     );
   });
 
-  test('provider on /personal-information is NOT redirected after active-job polling cycle (10s wait)', async ({
+  test('provider on /provider/personal-information is NOT redirected after active-job polling cycle (10s wait)', async ({
     page,
   }) => {
     // Navigate — storageState guarantees session is seeded before JS runs
-    await page.goto('/personal-information');
+    await page.goto('/provider/personal-information');
     await page.waitForLoadState('networkidle');
 
     // Must NOT redirect to /login
-    expect(page.url()).toContain('/personal-information');
+    expect(page.url()).toContain('/provider/personal-information');
 
     // Record the URL immediately after load
     const urlAfterLoad = page.url();
@@ -160,7 +160,7 @@ test.describe('Provider Redirect Safety — Active Job Polling', () => {
 
     // Verify URL has NOT changed — the provider was not redirected
     const urlAfterPolling = page.url();
-    expect(urlAfterPolling).toContain('/personal-information');
+    expect(urlAfterPolling).toContain('/provider/personal-information');
     expect(urlAfterPolling).not.toContain('/job/');
 
     // Verify the form is still visible on the page
