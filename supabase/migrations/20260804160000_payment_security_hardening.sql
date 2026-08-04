@@ -50,16 +50,21 @@ CREATE TRIGGER trg_prevent_client_payment_insert_paid
 
 -- ============================================================
 -- 3) Atomic webhook processing RPC
---    Replaces SELECT -> individual updates pattern with a single
---    atomic transaction. Idempotent via processed_webhook_events.
+--    Server-authoritative job creation from booking_snapshot.
+--    Idempotent via processed_webhook_events.
 -- ============================================================
+
+-- Drop old signature first (6 params) so we can create with 7 params
+DROP FUNCTION IF EXISTS public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT);
+
 CREATE OR REPLACE FUNCTION public.process_stripe_webhook(
   p_event_id TEXT,
   p_event_type TEXT,
   p_payment_intent_id TEXT,
   p_checkout_id TEXT DEFAULT NULL,
   p_amount INTEGER DEFAULT NULL,
-  p_currency TEXT DEFAULT NULL
+  p_currency TEXT DEFAULT NULL,
+  p_stripe_customer_id TEXT DEFAULT NULL
 )
 RETURNS JSON
 LANGUAGE plpgsql
@@ -68,60 +73,143 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_checkout RECORD;
+  v_job_id UUID;
+  v_snapshot JSONB;
 BEGIN
-  -- Claim the event first (unique constraint prevents duplicates)
+  -- 1. Claim event
   BEGIN
-    INSERT INTO public.processed_webhook_events (event_id, event_type, gateway)
+    INSERT INTO processed_webhook_events (event_id, event_type, gateway)
     VALUES (p_event_id, p_event_type, 'stripe');
   EXCEPTION WHEN unique_violation THEN
     RETURN json_build_object('success', true, 'duplicate', true);
   END;
 
-  -- Find the checkout (lock row for atomic update)
+  -- 2. Find and lock checkout
   IF p_checkout_id IS NOT NULL THEN
-    SELECT * INTO v_checkout FROM public.checkouts WHERE id = p_checkout_id::uuid FOR UPDATE;
+    SELECT * INTO v_checkout FROM checkouts WHERE id = p_checkout_id::uuid FOR UPDATE;
   ELSIF p_payment_intent_id IS NOT NULL THEN
-    SELECT * INTO v_checkout FROM public.checkouts WHERE payment_intent_id = p_payment_intent_id FOR UPDATE;
+    SELECT * INTO v_checkout FROM checkouts WHERE payment_intent_id = p_payment_intent_id FOR UPDATE;
+  END IF;
+
+  IF v_checkout IS NULL THEN
+    RETURN json_build_object('success', true, 'message', 'No checkout found');
   END IF;
 
   IF p_event_type = 'payment_intent.succeeded' THEN
-    IF v_checkout IS NOT NULL THEN
-      -- Validate consistency
-      IF v_checkout.payment_intent_id IS NOT NULL AND v_checkout.payment_intent_id != p_payment_intent_id THEN
-        RAISE EXCEPTION 'PaymentIntent ID mismatch';
-      END IF;
-
-      -- Mark checkout paid
-      UPDATE public.checkouts SET status = 'paid', paid_at = now() WHERE id = v_checkout.id;
-
-      -- Update any existing job linked to this checkout
-      UPDATE public.jobs SET payment_status = 'paid', paid_at = now() WHERE checkout_id = v_checkout.id;
-
-      -- Also update by payment_intent_id for backward compat
-      UPDATE public.jobs SET payment_status = 'paid', paid_at = now()
-        WHERE payment_intent_id = p_payment_intent_id AND payment_status != 'paid';
+    -- 3. Validate
+    IF v_checkout.payment_intent_id IS DISTINCT FROM p_payment_intent_id THEN
+      RAISE EXCEPTION 'PaymentIntent ID mismatch: expected %, got %', v_checkout.payment_intent_id, p_payment_intent_id;
     END IF;
+    IF p_amount IS NOT NULL AND p_amount != ROUND(v_checkout.total_amount * 100) THEN
+      RAISE EXCEPTION 'Amount mismatch: expected % cents, got %', ROUND(v_checkout.total_amount * 100), p_amount;
+    END IF;
+    IF p_currency IS NOT NULL AND LOWER(p_currency) != LOWER(v_checkout.currency) THEN
+      RAISE EXCEPTION 'Currency mismatch: expected %, got %', v_checkout.currency, p_currency;
+    END IF;
+    IF v_checkout.status = 'paid' THEN
+      -- Already paid (idempotent)
+      RETURN json_build_object('success', true, 'already_paid', true);
+    END IF;
+
+    -- 4. Mark checkout paid
+    UPDATE checkouts SET status = 'paid', paid_at = now() WHERE id = v_checkout.id;
+
+    -- 5. Create or update job
+    SELECT id INTO v_job_id FROM jobs WHERE checkout_id = v_checkout.id LIMIT 1;
+
+    IF v_job_id IS NULL THEN
+      -- Create job from booking_snapshot
+      v_snapshot := v_checkout.booking_snapshot;
+      IF v_snapshot IS NOT NULL THEN
+        INSERT INTO jobs (
+          customer_id, service_id, vehicle_id,
+          pickup_latitude, pickup_longitude, pickup_address,
+          destination_address,
+          requester_type, requester_name, requester_phone,
+          scheduled_for, customer_notes,
+          status, payment_status, payment_intent_id, payment_currency,
+          paid_at, checkout_id, base_price, total_amount, tax
+        ) VALUES (
+          v_checkout.user_id, v_checkout.service_id, v_checkout.vehicle_id,
+          (v_snapshot->'pickupLocation'->>'latitude')::numeric,
+          (v_snapshot->'pickupLocation'->>'longitude')::numeric,
+          v_snapshot->>'pickupAddress',
+          v_snapshot->>'destinationAddress',
+          COALESCE(v_snapshot->>'requesterType', 'self'),
+          v_snapshot->>'requesterName',
+          v_snapshot->>'requesterPhone',
+          v_checkout.scheduled_for,
+          v_snapshot->>'customerNotes',
+          'pending', 'paid', p_payment_intent_id, v_checkout.currency,
+          now(), v_checkout.id, v_checkout.base_price, v_checkout.total_amount, v_checkout.tax
+        ) RETURNING id INTO v_job_id;
+
+        -- Link job back to checkout
+        UPDATE checkouts SET job_id = v_job_id WHERE id = v_checkout.id;
+      END IF;
+    ELSE
+      -- Job already exists — mark paid
+      UPDATE jobs SET payment_status = 'paid', paid_at = now() WHERE id = v_job_id AND payment_status != 'paid';
+    END IF;
+
+    RETURN json_build_object('success', true, 'duplicate', false, 'job_id', v_job_id);
 
   ELSIF p_event_type = 'payment_intent.payment_failed' THEN
-    IF v_checkout IS NOT NULL THEN
-      UPDATE public.checkouts SET status = 'failed' WHERE id = v_checkout.id;
-      UPDATE public.jobs SET payment_status = 'failed' WHERE checkout_id = v_checkout.id;
-    END IF;
+    UPDATE checkouts SET status = 'failed' WHERE id = v_checkout.id;
+    UPDATE jobs SET payment_status = 'failed' WHERE checkout_id = v_checkout.id;
+    RETURN json_build_object('success', true, 'duplicate', false);
 
   ELSIF p_event_type = 'charge.refunded' THEN
-    IF v_checkout IS NOT NULL THEN
-      UPDATE public.checkouts SET status = 'refunded' WHERE id = v_checkout.id;
-      UPDATE public.jobs SET payment_status = 'refunded' WHERE checkout_id = v_checkout.id;
-    END IF;
+    UPDATE checkouts SET status = 'refunded' WHERE id = v_checkout.id;
+    UPDATE jobs SET payment_status = 'refunded' WHERE checkout_id = v_checkout.id;
+    RETURN json_build_object('success', true, 'duplicate', false);
   END IF;
 
-  RETURN json_build_object('success', true, 'duplicate', false);
+  RETURN json_build_object('success', true);
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT) FROM authenticated;
-GRANT  EXECUTE ON FUNCTION public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT) TO service_role;
+
+-- ============================================================
+-- 3b) claim_payment_attempt RPC — atomic idempotency key claim
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.claim_payment_attempt(
+  p_checkout_id UUID,
+  p_attempt_number INTEGER
+)
+RETURNS TEXT -- returns the idempotency key
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_key TEXT;
+BEGIN
+  IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  v_key := p_checkout_id::text || ':' || p_attempt_number::text;
+
+  INSERT INTO payment_attempts (checkout_id, attempt_number, stripe_idempotency_key, status)
+  VALUES (p_checkout_id, p_attempt_number, v_key, 'pending');
+  -- unique constraint on stripe_idempotency_key prevents duplicates
+
+  RETURN v_key;
+EXCEPTION WHEN unique_violation THEN
+  -- Concurrent retry tried the same attempt — return the key anyway
+  SELECT stripe_idempotency_key INTO v_key
+  FROM payment_attempts
+  WHERE checkout_id = p_checkout_id AND attempt_number = p_attempt_number;
+  RETURN v_key;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.claim_payment_attempt(UUID, INTEGER) FROM PUBLIC, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_payment_attempt(UUID, INTEGER) TO service_role;
 
 -- ============================================================
 -- Assertions
@@ -132,10 +220,23 @@ DO $$
 BEGIN
   IF has_function_privilege(
     'authenticated',
-    'public.process_stripe_webhook(text, text, text, text, integer, text)',
+    'public.process_stripe_webhook(text, text, text, text, integer, text, text)',
     'EXECUTE'
   ) THEN
     RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute process_stripe_webhook';
+  END IF;
+END;
+$$;
+
+-- Assert: claim_payment_attempt is NOT executable by authenticated
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'authenticated',
+    'public.claim_payment_attempt(uuid, integer)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute claim_payment_attempt';
   END IF;
 END;
 $$;

@@ -89,6 +89,7 @@ Deno.serve(async (req) => {
     // Determine amount/currency from event object
     const amount = eventObject?.amount || eventObject?.amount_received || null;
     const currency = eventObject?.currency || null;
+    const stripeCustomerId = eventObject?.customer || null;
 
     // Supported event types that we process atomically
     const supportedEvents = [
@@ -106,6 +107,7 @@ Deno.serve(async (req) => {
         p_checkout_id: checkoutId,
         p_amount: amount,
         p_currency: currency,
+        p_stripe_customer_id: stripeCustomerId,
       });
 
       if (rpcError) {

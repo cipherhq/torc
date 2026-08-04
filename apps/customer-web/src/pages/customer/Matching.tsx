@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
-import { Loader, MapPin, CheckCircle, Star, Clock, Navigation, User, ArrowLeft, CalendarCheck } from 'lucide-react';
+import { Loader, MapPin, CheckCircle, Star, Clock, Navigation, User, ArrowLeft, CalendarCheck, AlertTriangle } from 'lucide-react';
 import { getRequestContext } from '../../data/bookingDraftStore';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -23,15 +23,16 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export function Matching() {
   const navigate = useNavigate();
   const context = getRequestContext();
-  const { createJob, updateJobDetails, cancelJob, subscribeToJobUpdates } = useJob();
+  const { cancelJob, subscribeToJobUpdates } = useJob();
   const { user, profile } = useAuth() as any;
   const { isDark } = useTheme();
   const { isLoaded: mapsLoaded } = useGoogleMaps();
   const isScheduled = !!context.scheduledFor;
-  const jobCreated = useRef(false);
+  const jobPollingStarted = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
   const etaMinutesRef = useRef<number | null>(null);
+  const [webhookTimeout, setWebhookTimeout] = useState(false);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -52,160 +53,189 @@ export function Matching() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelCustomReason, setCancelCustomReason] = useState('');
 
-  // Step 1: Create the job and dispatch to providers in waves
+  // Step 1: Poll for a job linked to the checkout (created by webhook)
+  // The webhook's process_stripe_webhook RPC creates the job from booking_snapshot
+  // when payment_intent.succeeded fires. We poll until it appears.
   useEffect(() => {
-    if (jobCreated.current) return;
-    jobCreated.current = true;
+    if (jobPollingStarted.current) return;
+    jobPollingStarted.current = true;
 
-    async function startMatching() {
+    const checkoutId = context.checkoutId;
+    if (!checkoutId) {
+      setError('No checkout found. Please try booking again.');
+      return;
+    }
+
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    function handleJobFound(job: any) {
+      if (cancelled) return;
+      cancelled = true; // prevent double-handling
+
+      setCreatedJobId(job.id);
+      if (job.pickup_latitude && job.pickup_longitude) {
+        setPickupCoords({ lat: job.pickup_latitude, lng: job.pickup_longitude });
+      }
+
+      // Start tiered dispatch to providers
+      dispatchToProviders(job);
+    }
+
+    async function pollForJob() {
+      if (cancelled) return;
       try {
-        setError(null);
-        if (user) {
-          const jobDetailsFromContext = {
-            serviceId: context.serviceId || null,
-            pickupLocation: context.location
-              ? { latitude: context.location.lat, longitude: context.location.lng }
-              : null,
-            pickupAddress: context.location?.address || '',
-            destinationLocation: null,
-            destinationAddress: context.destinationAddress || '',
-            isHazardLocation: !!context.isHazardous,
-            requesterType: context.whoNeedsHelp === 'new' ? 'other' : 'self',
-            requesterName: context.personName || '',
-            requesterPhone: context.personPhone || '',
-            scheduledFor: context.scheduledFor || null,
-            customerNotes: context.notes || '',
-            paymentIntentId: context.paymentIntentId || null,
-            // Never pass payment_status from client -- createJob() always inserts 'unpaid'.
-            // The webhook atomically updates to 'paid' via checkout_id.
-            paymentCurrency: context.paymentCurrency || 'USD',
-            checkoutId: context.checkoutId || null,
-          };
+        const { data: job } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('checkout_id', checkoutId)
+          .maybeSingle();
 
-          updateJobDetails(jobDetailsFromContext);
-
-          const job = await createJob(context.paymentMethodId || null, jobDetailsFromContext);
-          if (job?.id) {
-            setCreatedJobId(job.id);
-            if (job.pickup_latitude && job.pickup_longitude) {
-              setPickupCoords({ lat: job.pickup_latitude, lng: job.pickup_longitude });
-            }
-
-            // Tiered radius dispatch
-            const customerFirst = profile?.first_name || '';
-            const customerLast = profile?.last_name || '';
-            const jobPayload = {
-              id: job.id,
-              pickup_address: job.pickup_address,
-              pickup_lat: job.pickup_latitude,
-              pickup_lng: job.pickup_longitude,
-              pickup_latitude: job.pickup_latitude,
-              pickup_longitude: job.pickup_longitude,
-              total_amount: job.total_amount,
-              base_price: job.base_price,
-              service_id: job.service_id,
-              created_at: job.created_at,
-              scheduled_for: job.scheduled_for,
-              customer_notes: job.customer_notes,
-              customer_first_name: customerFirst,
-              customer_last_name: customerLast ? customerLast.charAt(0) + '.' : '',
-            };
-
-            const notifiedProviders = new Set<string>();
-
-            // Helper: send job to specific providers via per-provider channels
-            async function notifyProviders(providerIds: string[]) {
-              const newProviders = providerIds.filter(id => !notifiedProviders.has(id));
-              for (const pid of newProviders) {
-                notifiedProviders.add(pid);
-                const ch = supabase.channel(`provider-job-${pid}`);
-                await ch.subscribe();
-                await ch.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
-                setTimeout(() => supabase.removeChannel(ch), 2000);
-              }
-            }
-
-            // Helper: check if job is still pending before expanding
-            async function isStillPending() {
-              if (providerFoundRef.current) return false;
-              const { data: check } = await supabase
-                .from('jobs').select('status').eq('id', job.id).single();
-              return check?.status === 'pending';
-            }
-
-            // Wave 1: providers within 5 miles (immediate)
-            if (job.pickup_latitude && job.pickup_longitude) {
-              try {
-                const { data: wave1 } = await supabase.rpc('get_nearby_providers', {
-                  p_pickup_lat: job.pickup_latitude,
-                  p_pickup_lng: job.pickup_longitude,
-                  p_radius_miles: 5,
-                  p_service_id: job.service_id,
-                });
-                if (wave1?.length) {
-                  await notifyProviders(wave1.map((p: any) => p.provider_id));
-                }
-              } catch (e) {
-                console.warn('Wave 1 dispatch error:', e);
-              }
-            }
-
-            // Wave 2: expand to 15 miles after 15 seconds
-            const wave2Timer = setTimeout(async () => {
-              if (!(await isStillPending())) return;
-              if (job.pickup_latitude && job.pickup_longitude) {
-                try {
-                  const { data: wave2 } = await supabase.rpc('get_nearby_providers', {
-                    p_pickup_lat: job.pickup_latitude,
-                    p_pickup_lng: job.pickup_longitude,
-                    p_radius_miles: 15,
-                    p_service_id: job.service_id,
-                  });
-                  if (wave2?.length) {
-                    await notifyProviders(wave2.map((p: any) => p.provider_id));
-                  }
-                } catch (e) {
-                  console.warn('Wave 2 dispatch error:', e);
-                }
-              }
-            }, 15000);
-
-            // Wave 3: global broadcast after 30 seconds (fallback for all providers)
-            const wave3Timer = setTimeout(async () => {
-              if (!(await isStillPending())) return;
-              const globalCh = supabase.channel('new-job-broadcast');
-              await globalCh.subscribe();
-              await globalCh.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
-              setTimeout(() => supabase.removeChannel(globalCh), 2000);
-            }, 30000);
-
-            dispatchCleanupRef.current = () => {
-              clearTimeout(wave2Timer);
-              clearTimeout(wave3Timer);
-            };
-
-            return;
-          }
+        if (job) {
+          handleJobFound(job);
         }
-      } catch (err: any) {
-        console.warn('Job creation failed:', err?.message || err);
-        setError('Could not create your request right now. Please try again.');
-        jobCreated.current = false;
+      } catch (err) {
+        console.warn('Job poll error:', err);
       }
     }
 
-    startMatching();
+    // Poll every 2 seconds
+    pollForJob(); // immediate first check
+    pollTimer = setInterval(pollForJob, 2000);
+
+    // Subscribe to real-time inserts on jobs filtered by checkout_id
+    realtimeChannel = supabase
+      .channel(`checkout-job-${checkoutId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'jobs',
+        filter: `checkout_id=eq.${checkoutId}`,
+      }, (payload) => {
+        if (payload.new) {
+          handleJobFound(payload.new);
+        }
+      })
+      .subscribe();
+
+    // After 30 seconds with no job, show recovery message
+    timeoutTimer = setTimeout(() => {
+      if (!cancelled) {
+        setWebhookTimeout(true);
+      }
+    }, 30000);
+
     return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (realtimeChannel) supabase.removeChannel(realtimeChannel);
       if (dispatchCleanupRef.current) dispatchCleanupRef.current();
     };
   }, []);
+
+  // Dispatch job to providers in tiered waves
+  function dispatchToProviders(job: any) {
+    const customerFirst = profile?.first_name || '';
+    const customerLast = profile?.last_name || '';
+    const jobPayload = {
+      id: job.id,
+      pickup_address: job.pickup_address,
+      pickup_lat: job.pickup_latitude,
+      pickup_lng: job.pickup_longitude,
+      pickup_latitude: job.pickup_latitude,
+      pickup_longitude: job.pickup_longitude,
+      total_amount: job.total_amount,
+      base_price: job.base_price,
+      service_id: job.service_id,
+      created_at: job.created_at,
+      scheduled_for: job.scheduled_for,
+      customer_notes: job.customer_notes,
+      customer_first_name: customerFirst,
+      customer_last_name: customerLast ? customerLast.charAt(0) + '.' : '',
+    };
+
+    const notifiedProviders = new Set<string>();
+
+    async function notifyProviders(providerIds: string[]) {
+      const newProviders = providerIds.filter(id => !notifiedProviders.has(id));
+      for (const pid of newProviders) {
+        notifiedProviders.add(pid);
+        const ch = supabase.channel(`provider-job-${pid}`);
+        await ch.subscribe();
+        await ch.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
+        setTimeout(() => supabase.removeChannel(ch), 2000);
+      }
+    }
+
+    async function isStillPending() {
+      if (providerFoundRef.current) return false;
+      const { data: check } = await supabase
+        .from('jobs').select('status').eq('id', job.id).single();
+      return check?.status === 'pending';
+    }
+
+    // Wave 1: providers within 5 miles (immediate)
+    if (job.pickup_latitude && job.pickup_longitude) {
+      (async () => {
+        try {
+          const { data: wave1 } = await supabase.rpc('get_nearby_providers', {
+            p_pickup_lat: job.pickup_latitude,
+            p_pickup_lng: job.pickup_longitude,
+            p_radius_miles: 5,
+            p_service_id: job.service_id,
+          });
+          if (wave1?.length) {
+            await notifyProviders(wave1.map((p: any) => p.provider_id));
+          }
+        } catch (e) {
+          console.warn('Wave 1 dispatch error:', e);
+        }
+      })();
+    }
+
+    // Wave 2: expand to 15 miles after 15 seconds
+    const wave2Timer = setTimeout(async () => {
+      if (!(await isStillPending())) return;
+      if (job.pickup_latitude && job.pickup_longitude) {
+        try {
+          const { data: wave2 } = await supabase.rpc('get_nearby_providers', {
+            p_pickup_lat: job.pickup_latitude,
+            p_pickup_lng: job.pickup_longitude,
+            p_radius_miles: 15,
+            p_service_id: job.service_id,
+          });
+          if (wave2?.length) {
+            await notifyProviders(wave2.map((p: any) => p.provider_id));
+          }
+        } catch (e) {
+          console.warn('Wave 2 dispatch error:', e);
+        }
+      }
+    }, 15000);
+
+    // Wave 3: global broadcast after 30 seconds
+    const wave3Timer = setTimeout(async () => {
+      if (!(await isStillPending())) return;
+      const globalCh = supabase.channel('new-job-broadcast');
+      await globalCh.subscribe();
+      await globalCh.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
+      setTimeout(() => supabase.removeChannel(globalCh), 2000);
+    }, 30000);
+
+    dispatchCleanupRef.current = () => {
+      clearTimeout(wave2Timer);
+      clearTimeout(wave3Timer);
+    };
+  }
 
   // Subscribe to real-time job updates via JobContext
   useEffect(() => {
     if (!createdJobId) return;
 
     const unsubscribe = subscribeToJobUpdates(createdJobId, () => {
-      // Job updated - currentJob state will be refreshed automatically
       console.log('Job updated via subscribeToJobUpdates');
     });
 
@@ -872,12 +902,35 @@ export function Matching() {
                 <button
                   onClick={() => {
                     setError(null);
-                    jobCreated.current = false;
+                    jobPollingStarted.current = false;
                     window.location.reload();
                   }}
                   className="px-4 py-2 rounded-xl text-sm font-semibold text-[#081427] bg-gradient-to-r from-[#008CE5] to-[#0070B8]"
                 >
                   Retry
+                </button>
+              </motion.div>
+            )}
+
+            {webhookTimeout && !createdJobId && !error && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 rounded-2xl p-4 border border-yellow-500/30"
+                style={{ backgroundColor: 'rgba(245,158,11,0.08)' }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                  <p className="text-yellow-300 text-sm font-semibold">Taking longer than expected</p>
+                </div>
+                <p className="text-sm mb-3" style={{ color: subColor }}>
+                  Your payment was processed but the job is still being created. Please wait a moment or check your activity page.
+                </p>
+                <button
+                  onClick={() => navigate('/activity')}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-[#081427] bg-gradient-to-r from-[#008CE5] to-[#0070B8]"
+                >
+                  View Activity
                 </button>
               </motion.div>
             )}

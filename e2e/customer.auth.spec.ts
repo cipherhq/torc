@@ -2,6 +2,10 @@
  * Customer auth E2E tests — real UI interactions via Playwright route
  * interception. Tests that token refresh preserves the mounted route
  * and form field values on /customer/personal-info.
+ *
+ * Uses Playwright's storageState to seed the Supabase session in
+ * localStorage BEFORE the page loads, avoiding the race condition
+ * where addInitScript runs after Supabase has already checked storage.
  */
 import { test, expect } from '@playwright/test';
 
@@ -37,6 +41,27 @@ const TEST_PROFILE = {
   phone: '+15551234567',
   role: 'customer',
 };
+
+// ---------------------------------------------------------------------------
+// storageState — seeds localStorage before any page JS runs
+// ---------------------------------------------------------------------------
+
+test.use({
+  storageState: {
+    cookies: [],
+    origins: [
+      {
+        origin: 'http://localhost:7002',
+        localStorage: [
+          {
+            name: 'sb-test-auth-token',
+            value: JSON.stringify(TEST_SESSION),
+          },
+        ],
+      },
+    ],
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -82,33 +107,18 @@ test.describe('Customer Auth — Token Refresh Preserves Route & Form', () => {
     await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
       route.abort('connectionrefused'),
     );
-
-    // Seed the Supabase session in localStorage BEFORE any page JS runs.
-    // addInitScript runs before any script on every navigation.
-    const sessionJson = JSON.stringify({
-      currentSession: TEST_SESSION,
-      expiresAt: TEST_SESSION.expires_at,
-    });
-    await page.addInitScript(`
-      try {
-        window.localStorage.setItem('sb-test-auth-token', ${JSON.stringify(sessionJson)});
-      } catch(e) {}
-    `);
   });
 
   test('navigate to /customer/personal-info, type into form fields, trigger token refresh — route stays mounted and values survive', async ({
     page,
-  }, testInfo) => {
-    // This test requires the Supabase client to accept the seeded localStorage session.
-    // In CI, the async storage initialization may race with React mount. The behavior
-    // is proven by unit tests (auth.test.jsx hasRenderedRef tests). Skip if page
-    // redirects to /login (session not picked up), but pass if form is reachable.
+  }) => {
     await page.goto('/customer/personal-info');
     await page.waitForLoadState('networkidle');
-    if (page.url().includes('/login')) {
-      testInfo.skip(true, 'Supabase client did not pick up seeded session in CI environment');
-      return;
-    }
+
+    // storageState guarantees the session is available before any JS runs.
+    // The page must NOT redirect to /login.
+    expect(page.url()).toContain('/customer/personal-info');
+
     // Find text inputs on the form page and type values
     const inputs = page.locator('input[type="text"], input[type="tel"], input[type="email"]');
     const inputCount = await inputs.count();

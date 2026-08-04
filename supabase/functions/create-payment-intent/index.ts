@@ -377,9 +377,13 @@ Deno.serve(async (req) => {
       await stripeRequest(`/v1/payment_methods/${paymentMethodId}/attach`, attachBody, stripeSecretKey);
     }
 
-    // --- Item 5: Idempotency key includes attempt_number ---
+    // --- Item 4/5: Claim payment attempt via atomic RPC for idempotency ---
     const attemptNumber = existingCheckout?.attempt_number || 1;
-    const idempotencyKey = `${checkoutId}:${attemptNumber}`;
+    const { data: idempotencyKey, error: attemptError } = await supabaseAdmin.rpc('claim_payment_attempt', {
+      p_checkout_id: checkoutId,
+      p_attempt_number: attemptNumber,
+    });
+    if (attemptError) throw new Error('Failed to claim payment attempt: ' + attemptError.message);
 
     // --- Create PaymentIntent with idempotency ---
     const intentBody = new URLSearchParams();
@@ -400,6 +404,12 @@ Deno.serve(async (req) => {
       '/v1/payment_intents', intentBody, stripeSecretKey,
       { idempotencyKey }
     );
+
+    // Update payment_attempts record with the PI ID and status
+    await supabaseAdmin.from('payment_attempts').update({
+      payment_intent_id: paymentIntent.id,
+      status: paymentIntent.status === 'succeeded' ? 'succeeded' : 'processing',
+    }).eq('stripe_idempotency_key', idempotencyKey);
 
     // --- Item 4: Always set status to payment_processing, never 'paid' ---
     // The verified Stripe webhook is the sole authority for marking payments as paid.

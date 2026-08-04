@@ -3,6 +3,10 @@
  * does NOT redirect the provider away from data entry forms.
  * Navigates to /personal-information, waits through a full polling cycle,
  * and confirms the form is still visible and the URL has not changed.
+ *
+ * Uses Playwright's storageState to seed the Supabase session in
+ * localStorage BEFORE the page loads, avoiding the race condition
+ * where addInitScript runs after Supabase has already checked storage.
  */
 import { test, expect } from '@playwright/test';
 
@@ -54,6 +58,27 @@ const ACTIVE_JOB = {
   services: { name: 'Tow Service' },
   customers: { first_name: 'Jane' },
 };
+
+// ---------------------------------------------------------------------------
+// storageState — seeds localStorage before any page JS runs
+// ---------------------------------------------------------------------------
+
+test.use({
+  storageState: {
+    cookies: [],
+    origins: [
+      {
+        origin: 'http://localhost:7001',
+        localStorage: [
+          {
+            name: 'sb-test-auth-token',
+            value: JSON.stringify(TEST_SESSION),
+          },
+        ],
+      },
+    ],
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -114,33 +139,20 @@ test.describe('Provider Redirect Safety — Active Job Polling', () => {
     await page.route(`${SUPABASE_URL}/realtime/**`, (route) =>
       route.abort('connectionrefused'),
     );
-
-    // Seed the Supabase session in localStorage BEFORE any page JS runs.
-    const sessionJson = JSON.stringify({
-      currentSession: TEST_SESSION,
-      expiresAt: TEST_SESSION.expires_at,
-    });
-    await page.addInitScript(`
-      try {
-        window.localStorage.setItem('sb-test-auth-token', ${JSON.stringify(sessionJson)});
-      } catch(e) {}
-    `);
   });
 
   test('provider on /personal-information is NOT redirected after active-job polling cycle (10s wait)', async ({
     page,
-  }, testInfo) => {
-    // Navigate and check if session was accepted
+  }) => {
+    // Navigate — storageState guarantees session is seeded before JS runs
     await page.goto('/personal-information');
     await page.waitForLoadState('networkidle');
-    if (page.url().includes('/login')) {
-      testInfo.skip(true, 'Supabase client did not pick up seeded session in CI');
-      return;
-    }
+
+    // Must NOT redirect to /login
+    expect(page.url()).toContain('/personal-information');
 
     // Record the URL immediately after load
     const urlAfterLoad = page.url();
-    expect(urlAfterLoad).toContain('/personal-information');
 
     // Wait 10 seconds — active job polling interval is ~8s, so this covers
     // at least one full polling cycle
