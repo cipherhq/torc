@@ -116,15 +116,15 @@ test.describe('Provider Redirect Safety — Active Job Polling', () => {
     );
 
     // Seed the Supabase session in localStorage BEFORE any page JS runs.
-    await page.addInitScript((session) => {
-      localStorage.setItem(
-        'sb-test-auth-token',
-        JSON.stringify({
-          currentSession: session,
-          expiresAt: session.expires_at,
-        }),
-      );
-    }, TEST_SESSION);
+    const sessionJson = JSON.stringify({
+      currentSession: TEST_SESSION,
+      expiresAt: TEST_SESSION.expires_at,
+    });
+    await page.addInitScript(`
+      try {
+        window.localStorage.setItem('sb-test-auth-token', ${JSON.stringify(sessionJson)});
+      } catch(e) {}
+    `);
   });
 
   test('provider on /personal-information is NOT redirected after active-job polling cycle (10s wait)', async ({

@@ -84,16 +84,16 @@ test.describe('Customer Auth — Token Refresh Preserves Route & Form', () => {
     );
 
     // Seed the Supabase session in localStorage BEFORE any page JS runs.
-    // addInitScript runs before any script on every page load.
-    await page.addInitScript((session) => {
-      localStorage.setItem(
-        'sb-test-auth-token',
-        JSON.stringify({
-          currentSession: session,
-          expiresAt: session.expires_at,
-        }),
-      );
-    }, TEST_SESSION);
+    // addInitScript runs before any script on every navigation.
+    const sessionJson = JSON.stringify({
+      currentSession: TEST_SESSION,
+      expiresAt: TEST_SESSION.expires_at,
+    });
+    await page.addInitScript(`
+      try {
+        window.localStorage.setItem('sb-test-auth-token', ${JSON.stringify(sessionJson)});
+      } catch(e) {}
+    `);
   });
 
   test('navigate to /customer/personal-info, type into form fields, trigger token refresh — route stays mounted and values survive', async ({
