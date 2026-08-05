@@ -14,10 +14,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  *
  * Key invariants:
  *   - Idempotency key from claim RPC is immutable (used as-is for Stripe)
- *   - Error messages are NEVER passed in p_stripe_refund_id
- *   - Missing payment_intent_id on a paid job -> manual_review (not succeeded)
+ *   - Error messages are NEVER passed in p_stripe_refund_id (null when unknown)
+ *   - Missing payment_intent_id on a paid job -> missing_payment_intent status
  *   - Network timeouts are treated as unknown/retryable, not confirmed failures
+ *   - Permanent Stripe errors are finalized as permanent_failure
  *   - If a previous attempt stored a stripe_refund_id, we GET it instead of creating
+ *   - Unpaid jobs use finalize_expiry_no_refund RPC
+ *   - begin_expiry_refund_request RPC is called before any Stripe call
  *
  * Authentication: service-role key or shared CRON_SECRET via Authorization header.
  */
@@ -112,6 +115,20 @@ async function stripeGet(
   }
 }
 
+function classifyStripeError(error: any): 'retryable' | 'permanent' | 'unknown' {
+  const code = error?.stripeError?.code;
+  const type = error?.stripeError?.type;
+  const status = error?.status;
+
+  // Network timeout or unknown
+  if (error?.isTimeout || !type) return 'unknown';
+  // Rate limit or server error
+  if (status === 429 || (status && status >= 500)) return 'retryable';
+  // Invalid request / configuration
+  if (type === 'invalid_request_error') return 'permanent';
+  return 'retryable';
+}
+
 interface ClaimedJob {
   job_id: string;
   payment_intent_id: string | null;
@@ -185,56 +202,33 @@ Deno.serve(async (req) => {
 
     // Step 2: Process each claimed job
     for (const job of jobs) {
-      let refundId: string | null = null;
-      let refundStatus: string;
-      let errorMessage: string | null = null;
-
-      // Look up the job's payment_status and check for existing stripe_refund_id
+      // Look up the job's payment_status
       const { data: jobRecord } = await adminClient
         .from('jobs')
         .select('payment_status')
         .eq('id', job.job_id)
         .single();
 
-      const { data: existingOp } = await adminClient
-        .from('job_expiry_refund_operations')
-        .select('stripe_refund_id')
-        .eq('id', job.operation_id)
-        .single();
-
       const paymentStatus = jobRecord?.payment_status;
-      const existingRefundId = existingOp?.stripe_refund_id;
 
       if (!job.payment_intent_id) {
         if (paymentStatus === 'paid') {
-          // BLOCKER 4: paid job but missing payment_intent_id -> manual_review
+          // BLOCKER 4: paid job but missing payment_intent_id -> finalize with missing_payment_intent
           console.log(
-            `[expire-pending-jobs] Job ${job.job_id}: paid but no payment_intent_id, routing to manual_review.`
+            `[expire-pending-jobs] Job ${job.job_id}: paid but no payment_intent_id, finalizing as missing_payment_intent.`
           );
-          errorMessage = 'Paid job missing payment_intent_id — requires manual review';
 
-          // Update operation with error context
-          await adminClient
-            .from('job_expiry_refund_operations')
-            .update({
-              status: 'refund_failed',
-              last_error: errorMessage,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.operation_id)
-            .eq('claim_token', job.claim_token);
-
-          // Finalize as manual_review (not succeeded)
-          const { error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
+          const { data: result, error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
             p_operation_id: job.operation_id,
             p_claim_token: job.claim_token,
-            p_stripe_refund_id: 'manual_review',
-            p_stripe_refund_status: 'manual_review',
+            p_stripe_refund_id: null,
+            p_stripe_refund_status: 'missing_payment_intent',
+            p_error_message: 'Job is paid but payment_intent_id is missing',
           });
 
           if (finalizeError) {
             console.error(
-              `[expire-pending-jobs] Job ${job.job_id}: manual_review finalize error:`,
+              `[expire-pending-jobs] Job ${job.job_id}: missing_payment_intent finalize error:`,
               finalizeError.message
             );
           }
@@ -243,52 +237,32 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Unpaid job (payment_status != 'paid') — safe to expire without refund
+        // BLOCKER 5: Unpaid job — use finalize_expiry_no_refund RPC
         console.log(
           `[expire-pending-jobs] Job ${job.job_id}: unpaid (payment_status=${paymentStatus}), expiring without refund.`
         );
 
         try {
-          // For unpaid jobs, finalize as succeeded with no refund needed
-          // We set the job to expired directly since no money to refund
-          await adminClient
-            .from('jobs')
-            .update({ status: 'expired', updated_at: new Date().toISOString() })
-            .eq('id', job.job_id);
-
-          await adminClient
-            .from('job_expiry_refund_operations')
-            .update({
-              status: 'finalized',
-              stripe_refund_status: 'not_required',
-              completed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.operation_id)
-            .eq('claim_token', job.claim_token);
-
-          // Audit trail
-          await adminClient.from('job_status_audit').insert({
-            job_id: job.job_id,
-            previous_status: 'pending',
-            new_status: 'expired',
-            actor_type: 'system',
-            reason: 'No provider available. No payment to refund.',
+          const { data: result, error: noRefundError } = await adminClient.rpc('finalize_expiry_no_refund', {
+            p_operation_id: job.operation_id,
+            p_claim_token: job.claim_token,
           });
 
-          await adminClient.from('job_events').insert({
-            job_id: job.job_id,
-            event_type: 'job_expired_no_provider',
-            actor_type: 'system',
-            metadata: {
-              reason: 'no_provider',
-              previous_status: 'pending',
-              payment_status: paymentStatus || 'none',
-              operation_id: job.operation_id,
-            },
-          });
-
-          succeeded++;
+          if (noRefundError) {
+            console.error(
+              `[expire-pending-jobs] Job ${job.job_id}: finalize_expiry_no_refund error:`,
+              noRefundError.message
+            );
+            failed++;
+          } else if (result?.success === false) {
+            console.error(
+              `[expire-pending-jobs] Job ${job.job_id}: finalize_expiry_no_refund returned error:`,
+              result.error
+            );
+            failed++;
+          } else {
+            succeeded++;
+          }
         } catch (err: any) {
           console.error(
             `[expire-pending-jobs] Job ${job.job_id}: unpaid expiry error:`,
@@ -301,21 +275,31 @@ Deno.serve(async (req) => {
 
       // --- Paid job with payment_intent_id: issue Stripe refund ---
 
-      // BLOCKER 2: Transition to refund_requesting before calling Stripe
-      await adminClient
-        .from('job_expiry_refund_operations')
-        .update({
-          status: 'refund_requesting',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', job.operation_id)
-        .eq('claim_token', job.claim_token);
+      // BLOCKER 6: Call begin_expiry_refund_request RPC before Stripe
+      const { data: beginResult, error: beginErr } = await adminClient.rpc('begin_expiry_refund_request', {
+        p_operation_id: job.operation_id,
+        p_claim_token: job.claim_token,
+      });
+
+      if (beginErr || !beginResult?.success) {
+        console.log(`[expire-pending-jobs] Job ${job.job_id}: cannot begin refund request`);
+        failed++;
+        continue;
+      }
+
+      // Get idempotency_key and stripe_refund_id from the RPC result
+      const idempotencyKey = beginResult.idempotency_key || job.idempotency_key;
+      const existingRefundId = beginResult.stripe_refund_id;
+
+      let refundId: string | null = null;
+      let refundStatus: string;
+      let errorMessage: string | null = null;
 
       try {
         let refund: any;
 
-        if (existingRefundId && existingRefundId !== 'manual_review') {
-          // Previous attempt stored a refund ID — retrieve it instead of creating
+        // BLOCKER 7: If existing refund ID is known, retrieve instead of creating
+        if (existingRefundId) {
           console.log(
             `[expire-pending-jobs] Job ${job.job_id}: retrieving existing refund ${existingRefundId}`
           );
@@ -328,9 +312,9 @@ Deno.serve(async (req) => {
           refundBody.append('metadata[job_id]', job.job_id);
           refundBody.append('metadata[reason]', 'no_provider_expiry');
 
-          // BLOCKER 1: Use idempotency_key as-is (immutable from claim RPC)
+          // Use idempotency_key as-is (immutable from RPC)
           refund = await stripePost('/v1/refunds', refundBody, stripeSecretKey, {
-            idempotencyKey: job.idempotency_key,
+            idempotencyKey: idempotencyKey,
           });
         }
 
@@ -340,61 +324,59 @@ Deno.serve(async (req) => {
           `[expire-pending-jobs] Job ${job.job_id}: Stripe refund ${refundId} status=${refundStatus}`
         );
       } catch (err: any) {
-        // Handle network timeouts as unknown/retryable, not confirmed failures
-        if (err.isTimeout) {
+        // BLOCKER 10: Classify Stripe errors
+        const errorClass = classifyStripeError(err);
+
+        if (errorClass === 'permanent') {
+          // Permanent Stripe error — finalize as permanent_failure
           console.error(
-            `[expire-pending-jobs] Job ${job.job_id}: Stripe request timed out (retryable)`
+            `[expire-pending-jobs] Job ${job.job_id}: permanent Stripe error: ${err?.message}`
           );
-          errorMessage = 'Stripe request timed out — will retry on next run';
 
-          // Leave operation in refund_requesting state so it can be reclaimed
-          // after lease expiry. Store error for visibility.
-          await adminClient
-            .from('job_expiry_refund_operations')
-            .update({
-              last_error: errorMessage,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.operation_id)
-            .eq('claim_token', job.claim_token);
+          const { error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
+            p_operation_id: job.operation_id,
+            p_claim_token: job.claim_token,
+            p_stripe_refund_id: null,
+            p_stripe_refund_status: 'permanent_failure',
+            p_error_message: err?.message || 'Permanent Stripe error',
+          });
 
+          if (finalizeError) {
+            console.error(
+              `[expire-pending-jobs] Job ${job.job_id}: permanent_failure finalize error:`,
+              finalizeError.message
+            );
+          }
           failed++;
           continue;
         }
 
-        refundStatus = 'failed';
-        errorMessage = err?.message || 'Stripe refund request failed';
+        // Retryable or unknown — leave in refund_requesting for reclaim
         console.error(
-          `[expire-pending-jobs] Job ${job.job_id}: Stripe refund error:`,
-          errorMessage
+          `[expire-pending-jobs] Job ${job.job_id}: ${errorClass} Stripe error (will retry): ${err?.message}`
         );
+
+        await adminClient
+          .from('job_expiry_refund_operations')
+          .update({
+            last_error: err?.message || 'Stripe request failed — will retry',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', job.operation_id)
+          .eq('claim_token', job.claim_token);
+
+        failed++;
+        continue;
       }
 
       // Step 3: Finalize in database
       try {
-        // BLOCKER 7: Never pass error messages in p_stripe_refund_id.
-        // Pass proper refund ID or null-safe value. Error context goes via
-        // direct update to last_error on the operation row.
-        const finalRefundId = refundId || 'none';
-
-        if (errorMessage) {
-          // Store error message in last_error via direct update (not in p_stripe_refund_id)
-          await adminClient
-            .from('job_expiry_refund_operations')
-            .update({
-              last_error: errorMessage,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.operation_id)
-            .eq('claim_token', job.claim_token);
-        }
-
         const { data: result, error: finalizeError } = await adminClient.rpc(
           'finalize_expiry_refund',
           {
             p_operation_id: job.operation_id,
             p_claim_token: job.claim_token,
-            p_stripe_refund_id: finalRefundId,
+            p_stripe_refund_id: refundId,
             p_stripe_refund_status: refundStatus!,
           }
         );

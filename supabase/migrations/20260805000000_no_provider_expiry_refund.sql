@@ -4,10 +4,12 @@
 -- This migration:
 --   1. Creates job_expiry_refund_operations table (claim-based state machine)
 --   2. Creates claim_expiry_eligible_jobs() RPC (batch claim with locking)
---   3. Creates finalize_expiry_refund() RPC (atomic finalization)
---   4. Updates accept_job() to reject jobs with active expiry claims
---   5. Disables expire_stale_jobs() (raises exception, revokes access)
---   6. REVOKE/GRANT + privilege assertions
+--   3. Creates begin_expiry_refund_request() RPC (transition to refund_requesting)
+--   4. Creates finalize_expiry_refund() RPC (atomic finalization for paid jobs)
+--   5. Creates finalize_expiry_no_refund() RPC (atomic finalization for unpaid jobs)
+--   6. Updates accept_job() to reject jobs with active expiry operations
+--   7. Disables expire_stale_jobs() (raises exception, revokes access)
+--   8. REVOKE/GRANT + privilege assertions
 
 BEGIN;
 
@@ -23,7 +25,8 @@ CREATE TABLE IF NOT EXISTS public.job_expiry_refund_operations (
   status              TEXT NOT NULL DEFAULT 'claimed'
     CHECK (status IN (
       'claimed', 'refund_requesting', 'refund_pending', 'refund_succeeded',
-      'refund_failed_retryable', 'manual_review', 'finalized', 'abandoned'
+      'refund_failed_retryable', 'manual_review', 'finalized',
+      'abandoned_before_refund', 'no_refund_required'
     )),
   stripe_refund_id    TEXT,
   stripe_refund_status TEXT,
@@ -40,6 +43,11 @@ CREATE TABLE IF NOT EXISTS public.job_expiry_refund_operations (
 -- One operation per job
 CREATE UNIQUE INDEX IF NOT EXISTS idx_expiry_ops_job
   ON public.job_expiry_refund_operations(job_id);
+
+-- Unique partial index on stripe_refund_id to prevent duplicate refunds
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expiry_ops_stripe_refund
+  ON public.job_expiry_refund_operations(stripe_refund_id)
+  WHERE stripe_refund_id IS NOT NULL;
 
 -- RLS: no client access
 ALTER TABLE public.job_expiry_refund_operations ENABLE ROW LEVEL SECURITY;
@@ -109,7 +117,7 @@ BEGIN
       AND NOT EXISTS (
         SELECT 1 FROM public.job_expiry_refund_operations op
         WHERE op.job_id = j.id
-          AND op.status NOT IN ('abandoned', 'refund_failed_retryable')
+          AND op.status NOT IN ('abandoned_before_refund', 'no_refund_required', 'refund_failed_retryable')
           AND (op.lease_expires_at IS NULL OR op.lease_expires_at > now())
       )
     ORDER BY j.created_at ASC
@@ -158,9 +166,9 @@ BEGIN
 
       v_op_id := v_existing_op.id;
 
-      -- Only reclaim if retryable-failed or lease expired on claimed
+      -- Only reclaim if retryable-failed or lease expired on claimed/refund_requesting
       IF v_existing_op.status = 'refund_failed_retryable'
-         OR (v_existing_op.status = 'claimed'
+         OR (v_existing_op.status IN ('claimed', 'refund_requesting')
              AND v_existing_op.lease_expires_at IS NOT NULL
              AND v_existing_op.lease_expires_at <= now())
       THEN
@@ -209,8 +217,56 @@ GRANT  EXECUTE ON FUNCTION public.claim_expiry_eligible_jobs(INTEGER) TO service
 
 
 -- ============================================================
--- 3) finalize_expiry_refund -- atomic finalization RPC
---    BLOCKER 7: separate p_error_message parameter
+-- 3) begin_expiry_refund_request -- transition to refund_requesting
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.begin_expiry_refund_request(
+  p_operation_id UUID,
+  p_claim_token UUID
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_op RECORD;
+BEGIN
+  IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  SELECT * INTO v_op FROM job_expiry_refund_operations WHERE id = p_operation_id FOR UPDATE;
+  IF NOT FOUND THEN RETURN json_build_object('success', false, 'error', 'NOT_FOUND'); END IF;
+  IF v_op.claim_token IS DISTINCT FROM p_claim_token THEN
+    RETURN json_build_object('success', false, 'error', 'STALE_CLAIM');
+  END IF;
+  -- Only transition from 'claimed' or reclaimed states
+  IF v_op.status NOT IN ('claimed', 'refund_failed_retryable') THEN
+    RETURN json_build_object('success', false, 'error', 'INVALID_STATE', 'current_status', v_op.status);
+  END IF;
+
+  UPDATE job_expiry_refund_operations
+  SET status = 'refund_requesting', attempt_count = attempt_count + 1, updated_at = now()
+  WHERE id = p_operation_id;
+
+  RETURN json_build_object('success', true,
+    'idempotency_key', v_op.idempotency_key,
+    'payment_intent_id', v_op.payment_intent_id,
+    'stripe_refund_id', v_op.stripe_refund_id,
+    'job_id', v_op.job_id,
+    'checkout_id', v_op.checkout_id
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.begin_expiry_refund_request(UUID, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.begin_expiry_refund_request(UUID, UUID) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.begin_expiry_refund_request(UUID, UUID) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.begin_expiry_refund_request(UUID, UUID) TO service_role;
+
+
+-- ============================================================
+-- 4) finalize_expiry_refund -- atomic finalization RPC (paid jobs)
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.finalize_expiry_refund(
   p_operation_id         UUID,
@@ -244,7 +300,14 @@ BEGIN
   END IF;
 
   -- ================================================================
-  -- BLOCKER 6: Idempotent finalization
+  -- Validate claim token BEFORE duplicate/idempotency handling
+  -- ================================================================
+  IF v_op.claim_token IS DISTINCT FROM p_claim_token THEN
+    RETURN json_build_object('success', false, 'error', 'CLAIM_TOKEN_MISMATCH');
+  END IF;
+
+  -- ================================================================
+  -- Idempotent finalization
   -- If already finalized, check if it is the same refund or a conflict
   -- ================================================================
   IF v_op.status = 'finalized' THEN
@@ -262,14 +325,9 @@ BEGIN
         'message', 'Operation was already finalized with a different refund ID');
     END IF;
     -- Same refund or no new refund_id => idempotent success
-    RETURN json_build_object('success', true, 'status', 'finalized',
+    RETURN json_build_object('success', true, 'status', 'already_finalized',
       'already_finalized', true,
       'job_id', v_op.job_id, 'refund_id', v_op.stripe_refund_id);
-  END IF;
-
-  -- Stale claim tokens fail (but finalized ops handled above)
-  IF v_op.claim_token IS DISTINCT FROM p_claim_token THEN
-    RETURN json_build_object('success', false, 'error', 'CLAIM_TOKEN_MISMATCH');
   END IF;
 
   -- ================================================================
@@ -296,7 +354,7 @@ BEGIN
 
   IF NOT FOUND THEN
     UPDATE public.job_expiry_refund_operations
-    SET status = 'abandoned', last_error = 'Job not found'
+    SET status = 'manual_review', last_error = 'Job not found'
     WHERE id = p_operation_id;
     RETURN json_build_object('success', false, 'error', 'JOB_NOT_FOUND');
   END IF;
@@ -306,7 +364,13 @@ BEGIN
   -- ================================================================
   IF p_stripe_refund_status = 'succeeded' THEN
 
-    -- BLOCKER 6: If job is already expired/refunded by this operation, repair and return success
+    -- Require a real refund ID for succeeded status
+    IF p_stripe_refund_id IS NULL THEN
+      RETURN json_build_object('success', false, 'error', 'REFUND_ID_REQUIRED',
+        'message', 'stripe_refund_id is required when status is succeeded');
+    END IF;
+
+    -- If job is already expired/refunded by this operation, repair and return success
     IF v_job.status = 'expired' AND v_job.payment_status = 'refunded' THEN
       UPDATE public.job_expiry_refund_operations
       SET status = 'finalized',
@@ -314,7 +378,7 @@ BEGIN
           stripe_refund_status = p_stripe_refund_status,
           completed_at = COALESCE(v_op.completed_at, now())
       WHERE id = p_operation_id;
-      RETURN json_build_object('success', true, 'status', 'finalized',
+      RETURN json_build_object('success', true, 'status', 'already_finalized',
         'already_finalized', true, 'repaired', true,
         'job_id', v_op.job_id, 'refund_id', COALESCE(p_stripe_refund_id, v_op.stripe_refund_id));
     END IF;
@@ -322,13 +386,14 @@ BEGIN
     -- Only finalize if job is still pending with no provider
     IF v_job.status != 'pending' OR v_job.provider_id IS NOT NULL THEN
       UPDATE public.job_expiry_refund_operations
-      SET status = 'abandoned',
-          last_error = 'Job no longer eligible: status=' || v_job.status
+      SET status = 'manual_review',
+          last_error = 'Refund succeeded but job changed: status=' || v_job.status
                        || ', provider_id=' || COALESCE(v_job.provider_id::text, 'null'),
           stripe_refund_id = COALESCE(p_stripe_refund_id, v_op.stripe_refund_id),
           stripe_refund_status = p_stripe_refund_status
       WHERE id = p_operation_id;
       RETURN json_build_object('success', false, 'error', 'JOB_NO_LONGER_ELIGIBLE',
+        'status', 'manual_review',
         'message', 'Refund succeeded but job was already accepted/changed. Manual review needed.');
     END IF;
 
@@ -426,8 +491,93 @@ GRANT  EXECUTE ON FUNCTION public.finalize_expiry_refund(UUID, UUID, TEXT, TEXT,
 
 
 -- ============================================================
--- 4) Update accept_job() to reject jobs with active expiry claims
---    BLOCKER 5: Block on ALL non-terminal-safe states (no lease check)
+-- 5) finalize_expiry_no_refund -- atomic finalization for unpaid jobs
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.finalize_expiry_no_refund(
+  p_operation_id UUID,
+  p_claim_token UUID
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_op RECORD;
+  v_job RECORD;
+  v_checkout RECORD;
+BEGIN
+  IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  SELECT * INTO v_op FROM job_expiry_refund_operations WHERE id = p_operation_id FOR UPDATE;
+  IF NOT FOUND THEN RETURN json_build_object('success', false, 'error', 'NOT_FOUND'); END IF;
+  IF v_op.claim_token IS DISTINCT FROM p_claim_token THEN
+    RETURN json_build_object('success', false, 'error', 'STALE_CLAIM');
+  END IF;
+
+  SELECT * INTO v_job FROM jobs WHERE id = v_op.job_id FOR UPDATE;
+  IF NOT FOUND THEN
+    UPDATE job_expiry_refund_operations SET status = 'manual_review', last_error = 'Job not found' WHERE id = p_operation_id;
+    RETURN json_build_object('success', false, 'error', 'JOB_NOT_FOUND');
+  END IF;
+
+  IF v_job.status != 'pending' OR v_job.provider_id IS NOT NULL THEN
+    UPDATE job_expiry_refund_operations SET status = 'manual_review', last_error = 'Job changed' WHERE id = p_operation_id;
+    RETURN json_build_object('success', false, 'error', 'JOB_CHANGED');
+  END IF;
+
+  -- Verify payment state: only safe unpaid/failed states
+  IF v_job.payment_status NOT IN ('unpaid', 'failed') THEN
+    UPDATE job_expiry_refund_operations SET status = 'manual_review',
+      last_error = 'Payment status ' || v_job.payment_status || ' requires review'
+    WHERE id = p_operation_id;
+    RETURN json_build_object('success', false, 'error', 'PAYMENT_REVIEW_NEEDED');
+  END IF;
+
+  -- Check checkout too
+  IF v_op.checkout_id IS NOT NULL THEN
+    SELECT * INTO v_checkout FROM checkouts WHERE id = v_op.checkout_id;
+    IF v_checkout IS NOT NULL AND v_checkout.status IN ('paid', 'refunded') THEN
+      UPDATE job_expiry_refund_operations SET status = 'manual_review',
+        last_error = 'Checkout status ' || v_checkout.status || ' contradicts unpaid job'
+      WHERE id = p_operation_id;
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_INCONSISTENCY');
+    END IF;
+  END IF;
+
+  -- Atomically expire
+  UPDATE jobs SET status = 'expired', updated_at = now() WHERE id = v_op.job_id;
+
+  UPDATE job_expiry_refund_operations SET
+    status = 'no_refund_required', completed_at = now()
+  WHERE id = p_operation_id;
+
+  INSERT INTO job_status_audit (job_id, previous_status, new_status, actor_type, reason)
+  VALUES (v_op.job_id, v_job.status, 'expired', 'system', 'No provider available. No payment captured.');
+
+  INSERT INTO job_events (job_id, event_type, actor_type, metadata)
+  VALUES (v_op.job_id, 'job_expired_no_provider', 'system',
+    jsonb_build_object('reason', 'no_provider', 'payment_status', v_job.payment_status));
+
+  INSERT INTO notifications (user_id, type, title, message)
+  VALUES (v_job.customer_id, 'service', 'Service Request Expired',
+    'No provider was available for your request. You were not charged.');
+
+  RETURN json_build_object('success', true, 'status', 'no_refund_required', 'job_id', v_op.job_id);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.finalize_expiry_no_refund(UUID, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.finalize_expiry_no_refund(UUID, UUID) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.finalize_expiry_no_refund(UUID, UUID) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.finalize_expiry_no_refund(UUID, UUID) TO service_role;
+
+
+-- ============================================================
+-- 6) Update accept_job() to reject jobs with active expiry operations
+--    BLOCKER 8: ALL states except abandoned_before_refund block acceptance
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.accept_job(
   p_job_id UUID,
@@ -461,14 +611,12 @@ BEGIN
       'current_status', v_job.status, 'current_provider_id', v_job.provider_id);
   END IF;
 
-  -- BLOCKER 5: Block acceptance when ANY non-terminal-safe expiry operation exists.
-  -- Only 'abandoned' and 'refund_failed_retryable' are safe for acceptance.
-  -- No lease_expires_at check -- once a refund is in-flight, acceptance is blocked
-  -- even if the worker lease has expired.
+  -- BLOCKER 8: Block acceptance when ANY expiry operation exists
+  -- EXCEPT abandoned_before_refund (meaning no refund was ever initiated).
   IF EXISTS (
     SELECT 1 FROM job_expiry_refund_operations
     WHERE job_id = p_job_id
-      AND status NOT IN ('abandoned', 'refund_failed_retryable')
+      AND status != 'abandoned_before_refund'
   ) THEN
     RETURN jsonb_build_object('success', false, 'error', 'JOB_EXPIRY_IN_PROGRESS',
       'message', 'This job is being expired due to no provider availability');
@@ -523,7 +671,8 @@ GRANT  EXECUTE ON FUNCTION public.accept_job(UUID, UUID) TO authenticated;
 
 
 -- ============================================================
--- 5) BLOCKER 8: Disable expire_stale_jobs()
+-- 7) BLOCKER 2: Disable expire_stale_jobs()
+--    Match original signature: RETURNS INTEGER, param p_max_age_hours
 --    Replace body with RAISE EXCEPTION, revoke from ALL roles
 -- ============================================================
 
@@ -538,14 +687,14 @@ END;
 $$;
 
 -- Replace the function body so it raises an exception if called
-CREATE OR REPLACE FUNCTION public.expire_stale_jobs(p_batch_size INTEGER DEFAULT 50)
-RETURNS VOID
+CREATE OR REPLACE FUNCTION public.expire_stale_jobs(p_max_age_hours INTEGER DEFAULT 2)
+RETURNS INTEGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  RAISE EXCEPTION 'DEPRECATED: expire_stale_jobs has been replaced by the claim-based expiry pipeline';
+  RAISE EXCEPTION 'DEPRECATED: expire_stale_jobs has been replaced. Use claim_expiry_eligible_jobs + finalize_expiry_refund.';
 END;
 $$;
 
@@ -561,7 +710,7 @@ COMMENT ON FUNCTION public.expire_stale_jobs(INTEGER) IS
 
 
 -- ============================================================
--- 6) Privilege assertions
+-- 8) Privilege assertions
 -- ============================================================
 
 -- Assert: job_expiry_refund_operations has RLS enabled
@@ -604,6 +753,32 @@ BEGIN
 END;
 $$;
 
+-- Assert: begin_expiry_refund_request is NOT executable by authenticated
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'authenticated',
+    'public.begin_expiry_refund_request(uuid, uuid)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute begin_expiry_refund_request';
+  END IF;
+END;
+$$;
+
+-- Assert: begin_expiry_refund_request is NOT executable by anon
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'anon',
+    'public.begin_expiry_refund_request(uuid, uuid)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: anon role can execute begin_expiry_refund_request';
+  END IF;
+END;
+$$;
+
 -- Assert: finalize_expiry_refund is NOT executable by authenticated
 DO $$
 BEGIN
@@ -630,7 +805,33 @@ BEGIN
 END;
 $$;
 
--- BLOCKER 8 assertion: service_role cannot execute expire_stale_jobs
+-- Assert: finalize_expiry_no_refund is NOT executable by authenticated
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'authenticated',
+    'public.finalize_expiry_no_refund(uuid, uuid)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute finalize_expiry_no_refund';
+  END IF;
+END;
+$$;
+
+-- Assert: finalize_expiry_no_refund is NOT executable by anon
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'anon',
+    'public.finalize_expiry_no_refund(uuid, uuid)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: anon role can execute finalize_expiry_no_refund';
+  END IF;
+END;
+$$;
+
+-- BLOCKER 2 assertion: service_role cannot execute expire_stale_jobs
 DO $$
 BEGIN
   IF has_function_privilege(

@@ -163,47 +163,83 @@ Deno.serve(async (req) => {
             });
           }
         }
-        // Fallback: if no nested refunds but there's a refund ID at top level
-        if (refundObjects.length === 0 && eventObject?.id) {
-          refundObjects.push({
-            id: eventObject.id,
-            status: eventObject.status || 'succeeded',
-            payment_intent: eventObject.payment_intent,
-          });
-        }
       }
 
       for (const refundObj of refundObjects) {
-        const refundId = refundObj.id;
+        try {
+          const refundId = refundObj.id;
 
-        // Look up pending expiry operation by stripe_refund_id
-        const { data: expiryOp } = await adminClient
-          .from('job_expiry_refund_operations')
-          .select('id, claim_token, status')
-          .eq('stripe_refund_id', refundId)
-          .eq('status', 'refund_pending')
-          .maybeSingle();
+          // BLOCKER 11: Correlate by exact stripe_refund_id only
+          const { data: expiryOp, error: lookupError } = await adminClient
+            .from('job_expiry_refund_operations')
+            .select('id, claim_token, status, job_id')
+            .eq('stripe_refund_id', refundId)
+            .eq('status', 'refund_pending')
+            .maybeSingle();
 
-        if (expiryOp) {
-          // Determine refund outcome
-          const refundStatus = refundObj.status; // 'succeeded' or 'failed'
+          if (lookupError) {
+            console.error(
+              `[stripe-webhook] Error looking up expiry operation for refund ${refundId}:`,
+              lookupError.message
+            );
+            continue;
+          }
 
-          const { error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
+          if (!expiryOp) continue;
+
+          // Verify payment_intent matches if present
+          if (refundObj.payment_intent && expiryOp.job_id) {
+            const { data: jobRecord } = await adminClient
+              .from('jobs')
+              .select('payment_intent_id')
+              .eq('id', expiryOp.job_id)
+              .single();
+
+            if (jobRecord?.payment_intent_id && refundObj.payment_intent !== jobRecord.payment_intent_id) {
+              console.error(
+                `[stripe-webhook] Payment intent mismatch for refund ${refundId}: ` +
+                `expected ${jobRecord.payment_intent_id}, got ${refundObj.payment_intent}`
+              );
+              continue;
+            }
+          }
+
+          // Only finalize when Stripe explicitly says succeeded or failed
+          const refundStatus = refundObj.status;
+          if (!refundStatus || (refundStatus !== 'succeeded' && refundStatus !== 'failed')) {
+            console.log(
+              `[stripe-webhook] Refund ${refundId} status is '${refundStatus}', not finalizing yet`
+            );
+            continue;
+          }
+
+          const { data: result, error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
             p_operation_id: expiryOp.id,
             p_claim_token: expiryOp.claim_token,
             p_stripe_refund_id: refundId,
-            p_stripe_refund_status: refundStatus || 'succeeded',
+            p_stripe_refund_status: refundStatus,
           });
 
+          // Check both RPC error and result.success
           if (finalizeError) {
             console.error(
-              `[stripe-webhook] Failed to finalize pending expiry refund: op=${expiryOp.id}, error=${finalizeError.message}`
+              `[stripe-webhook] Failed to finalize expiry refund: op=${expiryOp.id}, error=${finalizeError.message}`
+            );
+          } else if (result?.success === false) {
+            console.error(
+              `[stripe-webhook] Finalize returned failure: op=${expiryOp.id}, error=${result.error}`
             );
           } else {
             console.log(
-              `[stripe-webhook] Finalized pending expiry refund: op=${expiryOp.id}, status=${refundStatus}`
+              `[stripe-webhook] Finalized expiry refund: op=${expiryOp.id}, status=${refundStatus}`
             );
           }
+        } catch (refundErr: any) {
+          // If finalization fails, log but don't crash (webhook must return 200)
+          console.error(
+            `[stripe-webhook] Exception processing refund correlation:`,
+            refundErr?.message
+          );
         }
       }
     }

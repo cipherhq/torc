@@ -328,42 +328,55 @@ describe('Stale Claim Token Cannot Finalize (BLOCKER)', () => {
   });
 });
 
-describe('Network Timeout is Retryable (BLOCKER 6)', () => {
-  it('timeout error is NOT treated as a confirmed failure', () => {
-    // Simulates edge function behavior for network timeouts
-    type ErrorOutcome = 'permanent_failure' | 'retryable' | 'success';
+describe('Stripe Error Classification (BLOCKER 10)', () => {
+  // Mirror the classifyStripeError function from the edge function
+  function classifyStripeError(error: any): 'retryable' | 'permanent' | 'unknown' {
+    const type = error?.stripeError?.type;
+    const status = error?.status;
+    if (error?.isTimeout || !type) return 'unknown';
+    if (status === 429 || (status && status >= 500)) return 'retryable';
+    if (type === 'invalid_request_error') return 'permanent';
+    return 'retryable';
+  }
 
-    function classifyError(err: { isTimeout?: boolean; isStripeError?: boolean }): ErrorOutcome {
-      if (err.isTimeout) {
-        // Network timeout -> unknown state, must retry
-        return 'retryable';
-      }
-      if (err.isStripeError) {
-        // Stripe confirmed error -> permanent failure
-        return 'permanent_failure';
-      }
-      return 'permanent_failure';
-    }
-
-    // Timeout -> retryable (NOT permanent failure)
-    expect(classifyError({ isTimeout: true })).toBe('retryable');
-
-    // Stripe API error -> permanent failure
-    expect(classifyError({ isStripeError: true })).toBe('permanent_failure');
-
-    // Generic error -> permanent failure
-    expect(classifyError({})).toBe('permanent_failure');
+  it('timeout error is classified as unknown (retryable)', () => {
+    expect(classifyStripeError({ isTimeout: true })).toBe('unknown');
   });
 
-  it('timeout does NOT finalize the operation as failed', () => {
-    // On timeout, the operation stays in refund_requesting state
+  it('rate limit (429) is classified as retryable', () => {
+    expect(classifyStripeError({ status: 429, stripeError: { type: 'rate_limit_error' } })).toBe('retryable');
+  });
+
+  it('server error (500) is classified as retryable', () => {
+    expect(classifyStripeError({ status: 500, stripeError: { type: 'api_error' } })).toBe('retryable');
+  });
+
+  it('invalid_request_error is classified as permanent', () => {
+    expect(classifyStripeError({ stripeError: { type: 'invalid_request_error' } })).toBe('permanent');
+  });
+
+  it('generic error without type is classified as unknown', () => {
+    expect(classifyStripeError({})).toBe('unknown');
+  });
+
+  it('permanent errors finalize as permanent_failure', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    expect(edgeFnSource).toContain("p_stripe_refund_status: 'permanent_failure'");
+  });
+
+  it('retryable/unknown errors leave operation in refund_requesting for reclaim', () => {
+    // On retryable/unknown error, the operation stays in refund_requesting state
     // and will be reclaimed on the next run after lease expiry
     let operationStatus = 'refund_requesting';
-    const isTimeout = true;
+    const errorClass = classifyStripeError({ isTimeout: true });
 
-    if (isTimeout) {
+    if (errorClass === 'unknown' || errorClass === 'retryable') {
       // Do NOT call finalize — leave in refund_requesting
-      // The next cron run will reclaim after lease expiry
       operationStatus = 'refund_requesting'; // unchanged
     }
 
@@ -396,24 +409,45 @@ describe('Old expire_stale_jobs Deprecation (BLOCKER 7)', () => {
   });
 });
 
-describe('Error Messages Never in p_stripe_refund_id (BLOCKER 7)', () => {
-  it('edge function source never passes error text as refund ID', () => {
+describe('No Sentinel Refund IDs (BLOCKER 4+5)', () => {
+  it('edge function source never passes sentinel strings as p_stripe_refund_id', () => {
     const edgeFnPath = path.join(
       REPO_ROOT,
       'supabase/functions/expire-pending-jobs/index.ts'
     );
     const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
 
-    // Must NOT contain the old pattern: refundId || errorMessage || 'error'
-    expect(edgeFnSource).not.toContain("refundId || errorMessage || 'error'");
-    expect(edgeFnSource).not.toContain('errorMessage || \'error\'');
+    // Must NOT contain sentinel values in p_stripe_refund_id
+    expect(edgeFnSource).not.toContain("refundId || 'none'");
+    expect(edgeFnSource).not.toContain("p_stripe_refund_id: 'none'");
+    expect(edgeFnSource).not.toContain("p_stripe_refund_id: 'error'");
+    expect(edgeFnSource).not.toContain("p_stripe_refund_id: 'manual_review'");
+    expect(edgeFnSource).not.toContain("refundId || errorMessage");
+    expect(edgeFnSource).not.toContain("errorMessage || 'error'");
 
-    // Must NOT pass error messages as p_stripe_refund_id
-    // The source should use a proper refund ID or a safe sentinel
-    expect(edgeFnSource).toContain('p_stripe_refund_id');
+    // Must pass null when no refund ID is available
+    expect(edgeFnSource).toContain('p_stripe_refund_id: null');
+  });
 
-    // Should store errors in last_error, not in refund ID
-    expect(edgeFnSource).toContain('last_error');
+  it('unpaid jobs use finalize_expiry_no_refund RPC', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    expect(edgeFnSource).toContain('finalize_expiry_no_refund');
+  });
+
+  it('paid job with missing PI uses missing_payment_intent status, not manual_review sentinel', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    expect(edgeFnSource).toContain("'missing_payment_intent'");
+    expect(edgeFnSource).toContain('Job is paid but payment_intent_id is missing');
   });
 });
 
@@ -429,18 +463,35 @@ describe('Edge Function Structure', () => {
     expect(edgeFnSource).toContain('method: \'GET\'');
   });
 
-  it('transitions to refund_requesting before Stripe call', () => {
+  it('calls begin_expiry_refund_request before Stripe call', () => {
     const edgeFnPath = path.join(
       REPO_ROOT,
       'supabase/functions/expire-pending-jobs/index.ts'
     );
     const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
 
-    expect(edgeFnSource).toContain('refund_requesting');
-    // The update must come BEFORE the Stripe call
-    const requestingIdx = edgeFnSource.indexOf('refund_requesting');
+    // begin_expiry_refund_request must be called
+    expect(edgeFnSource).toContain('begin_expiry_refund_request');
+
+    // It must come BEFORE the Stripe call
+    const beginIdx = edgeFnSource.indexOf('begin_expiry_refund_request');
     const stripeCallIdx = edgeFnSource.indexOf('stripePost(\'/v1/refunds\'');
-    expect(requestingIdx).toBeLessThan(stripeCallIdx);
+    expect(beginIdx).toBeLessThan(stripeCallIdx);
+  });
+
+  it('classifies Stripe errors as retryable vs permanent', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    expect(edgeFnSource).toContain('classifyStripeError');
+    expect(edgeFnSource).toContain("'retryable'");
+    expect(edgeFnSource).toContain("'permanent'");
+    expect(edgeFnSource).toContain("'unknown'");
+    expect(edgeFnSource).toContain('invalid_request_error');
+    expect(edgeFnSource).toContain("'permanent_failure'");
   });
 
   it('handles timeout with AbortController', () => {
@@ -468,8 +519,8 @@ describe('Edge Function Structure', () => {
   });
 });
 
-describe('Stripe Webhook Expiry Correlation (BLOCKER 3)', () => {
-  it('webhook handler checks for pending expiry operations on refund events', () => {
+describe('Stripe Webhook Expiry Correlation (BLOCKER 11)', () => {
+  it('webhook correlates by exact stripe_refund_id only', () => {
     const webhookPath = path.join(
       REPO_ROOT,
       'supabase/functions/stripe-webhook/index.ts'
@@ -480,14 +531,43 @@ describe('Stripe Webhook Expiry Correlation (BLOCKER 3)', () => {
     expect(webhookSource).toContain('charge.refunded');
     expect(webhookSource).toContain('refund.updated');
 
-    // Must look up job_expiry_refund_operations
-    expect(webhookSource).toContain('job_expiry_refund_operations');
+    // Must look up by exact stripe_refund_id
+    expect(webhookSource).toContain("eq('stripe_refund_id', refundId)");
+    expect(webhookSource).toContain("eq('status', 'refund_pending')");
 
-    // Must only match refund_pending status
-    expect(webhookSource).toContain("'refund_pending'");
+    // Must verify payment_intent matches
+    expect(webhookSource).toContain('payment_intent_id');
+    expect(webhookSource).toContain('Payment intent mismatch');
 
-    // Must call finalize_expiry_refund
-    expect(webhookSource).toContain('finalize_expiry_refund');
+    // Must NOT default unknown status to succeeded
+    expect(webhookSource).not.toContain("refundStatus || 'succeeded'");
+
+    // Must only finalize on explicit succeeded or failed
+    expect(webhookSource).toContain("refundStatus !== 'succeeded'");
+    expect(webhookSource).toContain("refundStatus !== 'failed'");
+  });
+
+  it('webhook checks both RPC error and result.success', () => {
+    const webhookPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/stripe-webhook/index.ts'
+    );
+    const webhookSource = fs.readFileSync(webhookPath, 'utf-8');
+
+    expect(webhookSource).toContain('result?.success === false');
+    expect(webhookSource).toContain('finalizeError');
+  });
+
+  it('webhook handles lookup errors without crashing', () => {
+    const webhookPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/stripe-webhook/index.ts'
+    );
+    const webhookSource = fs.readFileSync(webhookPath, 'utf-8');
+
+    // Must catch exceptions so webhook returns 200
+    expect(webhookSource).toContain('catch (refundErr');
+    expect(webhookSource).toContain('lookupError');
   });
 
   it('webhook preserves existing signature verification', () => {

@@ -158,11 +158,29 @@ jobs:
             cancelled_at TIMESTAMPTZ
           );
           ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+          CREATE TABLE IF NOT EXISTS public.job_events (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            job_id UUID NOT NULL,
+            event_type TEXT NOT NULL,
+            actor_id UUID,
+            actor_type TEXT,
+            metadata JSONB,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS public.notifications (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID,
+            type TEXT,
+            title TEXT,
+            message TEXT,
+            action_url TEXT,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
           SQL
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -211,6 +229,31 @@ jobs:
           END $$;
 
           DO $$ BEGIN RAISE NOTICE 'All RLS and privilege assertions passed.'; END $$;
+          SQL
+      - name: Test expiry lifecycle RPCs
+        run: |
+          DB="postgresql://postgres:postgres@localhost:5432/torc_test"
+          psql "$DB" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Insert test data
+          INSERT INTO auth.users (id) VALUES ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid);
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc', 'Test', 50);
+          INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+          VALUES ('aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'test-svc', 'pending', 'unpaid', now() - interval '3 hours');
+
+          -- Test 1: Eligible job is claimed
+          DO $$ DECLARE v JSONB; BEGIN
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 1, 'Should claim 1 job';
+            RAISE NOTICE 'Test 1 PASSED: eligible job claimed';
+          END $$;
+
+          -- Cleanup
+          DELETE FROM job_expiry_refund_operations;
+          DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-000000000001'::uuid;
+          DELETE FROM auth.users WHERE id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+          DELETE FROM services WHERE id = 'test-svc';
           SQL
       - name: Test claim-token ownership RPCs
         run: |
@@ -333,3 +376,5 @@ jobs:
         run: deno check supabase/functions/create-payment-intent/index.ts
       - name: Check stripe-webhook compiles
         run: deno check supabase/functions/stripe-webhook/index.ts
+      - name: Check expire-pending-jobs compiles
+        run: deno check supabase/functions/expire-pending-jobs/index.ts
