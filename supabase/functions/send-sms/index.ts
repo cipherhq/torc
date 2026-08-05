@@ -292,20 +292,20 @@ Deno.serve(async (req) => {
       return jsonResp({ error: 'Generated message exceeds maximum length' }, 400);
     }
 
-    // --- Durable SMS idempotency (claim AFTER all validation, BEFORE send) ---
-    // Determine recipient role for event key differentiation
+    // --- Durable SMS idempotency with claim-token ownership ---
     const recipientRole = recipientPhone === job.requester_phone ? 'requester'
       : (user.id === job.customer_id ? 'provider' : 'customer');
     const smsEventKey = `sms:${messageTemplate}:${jobId}:${recipientRole}`;
 
-    const { data: smsClaimed, error: smsClaimErr } = await adminClient.rpc('claim_notification_delivery', {
+    // Claim returns UUID token or null
+    const { data: smsClaimToken, error: smsClaimErr } = await adminClient.rpc('claim_notification_delivery', {
       p_event_key: smsEventKey, p_channel: 'sms', p_template: messageTemplate,
     });
     if (smsClaimErr) {
       console.error('[send-sms] Delivery claim failed:', smsClaimErr.message);
       return jsonResp({ error: 'Internal error' }, 500);
     }
-    if (!smsClaimed) {
+    if (!smsClaimToken) {
       return jsonResp({ success: true, message: 'SMS already sent' }, 200);
     }
 
@@ -329,17 +329,17 @@ Deno.serve(async (req) => {
     const result = await res.json();
     if (!res.ok) {
       console.error(`[send-sms] Twilio error: template=${messageTemplate}, code=${result?.code}`);
-      // Mark failed so it can be retried
+      // Mark failed WITH token — allows retry, prevents stale worker overwrite
       await adminClient.rpc('mark_notification_delivery', {
-        p_event_key: smsEventKey, p_status: 'failed',
+        p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'failed',
         p_error_message: `Twilio ${result?.code || res.status}`,
       });
       return jsonResp({ error: 'SMS send failed. Please try again.' }, 500);
     }
 
-    // Mark sent — prevents future duplicate
+    // Mark sent WITH token — prevents future duplicate + stale worker overwrite
     await adminClient.rpc('mark_notification_delivery', {
-      p_event_key: smsEventKey, p_status: 'sent',
+      p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'sent',
       p_external_id: result.sid, p_recipient: recipientPhone,
     });
 

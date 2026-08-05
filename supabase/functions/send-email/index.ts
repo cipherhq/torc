@@ -268,13 +268,12 @@ function providerCompletionEmail(data: {
   customerName: string;
   serviceName: string;
   date: string;
-  payout: string;
   address: string;
   jobId: string;
   duration?: string;
 }): { subject: string; html: string } {
   return {
-    subject: `Job Complete — Earned ${data.payout}`,
+    subject: `Job Complete — TORC`,
     html: baseLayout(`
       <div class="header">
         <h1>Job Complete!</h1>
@@ -282,12 +281,10 @@ function providerCompletionEmail(data: {
       </div>
       <div class="body">
         <h2>Nice job, ${data.providerName}!</h2>
-        <p>You've successfully completed a service. Here's your earnings summary:</p>
+        <p>Your job has been completed successfully.</p>
 
         <div class="card">
           <div style="text-align:center; margin-bottom: 16px;">
-            <p class="amount-label">You Earned</p>
-            <p class="amount" style="color: #22C55E;">${data.payout}</p>
             <span class="badge badge-success">Completed</span>
           </div>
           <div class="divider"></div>
@@ -317,9 +314,9 @@ function providerCompletionEmail(data: {
           </div>
         </div>
 
-        <p>Your earnings will be deposited to your linked bank account. Keep up the great work!</p>
+        <p>View your earnings dashboard for payout details. Keep up the great work!</p>
         <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">View Earnings</a>
+          <a href="https://torcapp.com" class="btn">View Dashboard</a>
         </p>
       </div>
     `),
@@ -338,7 +335,8 @@ function escapeHtml(str: string): string {
 
 // ─── Durable notification delivery (claim/mark pattern) ─────────────
 
-async function claimDelivery(adminClient: any, eventKey: string, template: string): Promise<boolean> {
+/** Claim delivery — returns UUID token on success, null if already sent/in-progress */
+async function claimDelivery(adminClient: any, eventKey: string, template: string): Promise<string | null> {
   const { data, error } = await adminClient.rpc('claim_notification_delivery', {
     p_event_key: eventKey,
     p_channel: 'email',
@@ -346,22 +344,30 @@ async function claimDelivery(adminClient: any, eventKey: string, template: strin
   });
   if (error) {
     console.error('[send-email] Delivery claim failed, blocking:', error.message);
-    return false;
+    return null;
   }
-  return data === true;
+  // RPC returns UUID or null
+  return data || null;
 }
 
+/** Mark delivery — requires the claim token for ownership. Returns true if this token owns the claim. */
 async function markDelivery(
-  adminClient: any, eventKey: string, status: 'sent' | 'failed',
+  adminClient: any, eventKey: string, claimToken: string, status: 'sent' | 'failed',
   externalId?: string, errorMessage?: string, recipient?: string
-) {
-  await adminClient.rpc('mark_notification_delivery', {
+): Promise<boolean> {
+  const { data, error } = await adminClient.rpc('mark_notification_delivery', {
     p_event_key: eventKey,
+    p_claim_token: claimToken,
     p_status: status,
     p_external_id: externalId || null,
     p_error_message: errorMessage || null,
     p_recipient: recipient || null,
   });
+  if (error) {
+    console.warn('[send-email] Mark delivery failed:', error.message);
+    return false;
+  }
+  return data === true;
 }
 
 // ─── Rate limiting (still used for abuse protection, not idempotency) ─
@@ -502,6 +508,7 @@ Deno.serve(async (req) => {
 
     let recipient: string;
     let deliveryEventKey: string | null = null;
+    let deliveryClaimToken: string | null = null;
     let emailContent: { subject: string; html: string };
 
     // ─────────────────────────────────────────────────────────────────
@@ -564,8 +571,8 @@ Deno.serve(async (req) => {
 
       // Claim AFTER validation — exactly once per user, permanent
       deliveryEventKey = `welcome:${user.id}`;
-      const claimed = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
-      if (!claimed) {
+      deliveryClaimToken = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
+      if (!deliveryClaimToken) {
         return jsonResp({ success: true, message: 'Welcome email already sent' }, 200);
       }
     }
@@ -579,14 +586,13 @@ Deno.serve(async (req) => {
         return jsonResp({ error: 'Only providers can trigger document notifications' }, 403);
       }
 
-      // Verify actual document state and get submission cycle identifier
+      // Verify actual document state and get ALL pending documents for cycle identity
       const { data: pendingDocs, error: docErr } = await adminClient
         .from('documents')
         .select('id, updated_at')
         .eq('provider_id', user.id)
         .eq('status', 'pending')
-        .order('updated_at', { ascending: false })
-        .limit(5);
+        .order('id', { ascending: true });
 
       if (docErr || !pendingDocs || pendingDocs.length === 0) {
         return jsonResp({ error: 'No pending documents found for your account' }, 400);
@@ -600,13 +606,17 @@ Deno.serve(async (req) => {
       const name = escapeHtml(callerProfile?.first_name || 'there');
       emailContent = documentsPendingEmail(name);
 
-      // Key by submission cycle: sorted pending doc IDs create a deterministic version.
-      // A new submission (different IDs or updated_at) creates a new cycle key.
-      const cycleIds = pendingDocs.map((d: any) => d.id).sort().join(',');
-      const cycleHash = cycleIds.slice(0, 32); // truncate for key length
+      // Build deterministic cycle identity from ALL pending (id, updated_at) pairs.
+      // Same exact submission → same key. Reupload/update → different key.
+      const canonicalPairs = pendingDocs
+        .map((d: any) => `${d.id}:${d.updated_at}`)
+        .join('|');
+      // SHA-256 hash for a stable, fixed-length key
+      const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalPairs));
+      const cycleHash = [...new Uint8Array(hashBuffer)].map(b => b.toString(16).padStart(2, '0')).join('');
       deliveryEventKey = `documents_pending:${user.id}:${cycleHash}`;
-      const claimed = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
-      if (!claimed) {
+      deliveryClaimToken = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
+      if (!deliveryClaimToken) {
         return jsonResp({ success: true, message: 'Documents pending email already sent for this submission' }, 200);
       }
     }
@@ -688,13 +698,12 @@ Deno.serve(async (req) => {
         }
         recipient = providerProfile.email;
 
-        // No trusted provider_payout column exists — never show customer gross as earnings
+        // No trusted provider_payout column exists — neutral completion email
         emailContent = providerCompletionEmail({
           providerName,
           customerName,
           serviceName,
           date,
-          payout: 'See your earnings dashboard',
           address,
           jobId: job.id,
           duration,
@@ -703,8 +712,8 @@ Deno.serve(async (req) => {
 
       // Claim AFTER all validation and content derivation — just before send
       deliveryEventKey = `${template}:${jobId}`;
-      const claimed = await claimDelivery(adminClient, deliveryEventKey, template);
-      if (!claimed) {
+      deliveryClaimToken = await claimDelivery(adminClient, deliveryEventKey, template);
+      if (!deliveryClaimToken) {
         return jsonResp({ success: true, message: 'This email has already been sent' }, 200);
       }
     } else {
@@ -724,22 +733,28 @@ Deno.serve(async (req) => {
     const result = await res.json();
     if (!res.ok) {
       console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
-      // Mark as failed so it can be retried
-      if (deliveryEventKey) {
-        await markDelivery(adminClient, deliveryEventKey, 'failed', undefined, `Resend HTTP ${res.status}`, recipient);
+      // Mark failed with ownership token — allows retry
+      if (deliveryEventKey && deliveryClaimToken) {
+        await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, `Resend HTTP ${res.status}`, recipient);
       }
       return jsonResp({ error: 'Email send failed' }, 500);
     }
 
-    // Mark as sent — prevents future duplicate
-    if (deliveryEventKey) {
-      await markDelivery(adminClient, deliveryEventKey, 'sent', result.id, undefined, recipient);
+    // Mark sent with ownership token — prevents future duplicate
+    if (deliveryEventKey && deliveryClaimToken) {
+      await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'sent', result.id, undefined, recipient);
     }
 
     console.log(`[send-email] Sent template=${template}, id=${result.id}`);
     return jsonResp({ success: true, id: result.id }, 200);
   } catch (err: any) {
     console.error('[send-email] Error:', err?.message);
+    // Mark failed on any exception after claim
+    if (deliveryEventKey && deliveryClaimToken) {
+      try {
+        await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, err?.message);
+      } catch { /* best effort */ }
+    }
     return jsonResp({ error: 'Internal error' }, 500);
   }
 });
