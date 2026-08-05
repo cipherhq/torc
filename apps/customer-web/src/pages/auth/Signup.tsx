@@ -102,10 +102,9 @@ export function Signup() {
         }, { onConflict: 'id' });
       }
 
-      // Trigger welcome email for the authenticated user (server derives recipient/name, idempotent)
-      import('../../services/email.service').then(({ sendWelcomeEmail }) => {
-        sendWelcomeEmail();
-      });
+      // Welcome email is triggered on first authenticated session (after email verification),
+      // not here, because signUp may not yet have a valid session.
+      // See AuthContext — welcome is sent on first SIGNED_IN event, idempotent.
 
       localStorage.setItem('pendingVerificationEmail', email);
       navigate('/verify-email');

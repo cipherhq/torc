@@ -336,25 +336,41 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
-// ─── Atomic rate limiting (database RPC, fail-closed) ───────────────
+// ─── Durable notification delivery (claim/mark pattern) ─────────────
 
-async function claimRateLimitSlot(
-  adminClient: any,
-  key: string,
-  maxCount: number,
-  windowSeconds: number
-): Promise<boolean> {
-  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
-    p_key: key,
-    p_max_count: maxCount,
-    p_window_seconds: windowSeconds,
+async function claimDelivery(adminClient: any, eventKey: string, template: string): Promise<boolean> {
+  const { data, error } = await adminClient.rpc('claim_notification_delivery', {
+    p_event_key: eventKey,
+    p_channel: 'email',
+    p_template: template,
   });
-
   if (error) {
-    console.error('[send-email] Rate limit RPC failed, blocking:', error.message);
+    console.error('[send-email] Delivery claim failed, blocking:', error.message);
     return false;
   }
+  return data === true;
+}
 
+async function markDelivery(
+  adminClient: any, eventKey: string, status: 'sent' | 'failed',
+  externalId?: string, errorMessage?: string, recipient?: string
+) {
+  await adminClient.rpc('mark_notification_delivery', {
+    p_event_key: eventKey,
+    p_status: status,
+    p_external_id: externalId || null,
+    p_error_message: errorMessage || null,
+    p_recipient: recipient || null,
+  });
+}
+
+// ─── Rate limiting (still used for abuse protection, not idempotency) ─
+
+async function claimRateLimitSlot(adminClient: any, key: string, max: number, window: number): Promise<boolean> {
+  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
+    p_key: key, p_max_count: max, p_window_seconds: window,
+  });
+  if (error) { console.error('[send-email] Rate limit failed, blocking:', error.message); return false; }
   return data === true;
 }
 
@@ -485,6 +501,7 @@ Deno.serve(async (req) => {
     // ── Route by template category ──────────────────────────────────
 
     let recipient: string;
+    let deliveryEventKey: string | null = null;
     let emailContent: { subject: string; html: string };
 
     // ─────────────────────────────────────────────────────────────────
@@ -537,12 +554,11 @@ Deno.serve(async (req) => {
     // SELF-SERVICE: welcome
     // ─────────────────────────────────────────────────────────────────
     else if (template === 'welcome') {
-      // Idempotency: only send once per user
-      const idempotent = await claimRateLimitSlot(
-        adminClient, `notification:welcome:${user.id}`, 1, 86400
-      );
-      if (!idempotent) {
-        return jsonResp({ error: 'Welcome email already sent' }, 409);
+      // Durable idempotency: exactly once per user, forever
+      deliveryEventKey = `welcome:${user.id}`;
+      const claimed = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
+      if (!claimed) {
+        return jsonResp({ success: true, message: 'Welcome email already sent' }, 200);
       }
 
       // Recipient is the caller themselves — derive from profile/auth
@@ -576,12 +592,11 @@ Deno.serve(async (req) => {
         return jsonResp({ error: 'No pending documents found for your account' }, 400);
       }
 
-      // Idempotency: one per 24h window
-      const idempotent = await claimRateLimitSlot(
-        adminClient, `notification:documents_pending:${user.id}`, 1, 86400
-      );
-      if (!idempotent) {
-        return jsonResp({ error: 'Documents pending email already sent recently' }, 409);
+      // Durable idempotency: once per user (re-claimable after document resubmission via failed state)
+      deliveryEventKey = `documents_pending:${user.id}`;
+      const claimed = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
+      if (!claimed) {
+        return jsonResp({ success: true, message: 'Documents pending email already sent' }, 200);
       }
 
       // Recipient is the caller themselves
@@ -605,7 +620,7 @@ Deno.serve(async (req) => {
       // Load full job record
       const { data: job } = await adminClient
         .from('jobs')
-        .select('id, customer_id, provider_id, service_id, status, pickup_address, total_amount, completed_at, started_at, cancellation_reason')
+        .select('id, customer_id, provider_id, service_id, status, pickup_address, total_amount, provider_payout, completed_at, started_at, cancellation_reason')
         .eq('id', jobId)
         .maybeSingle();
 
@@ -623,12 +638,11 @@ Deno.serve(async (req) => {
         return jsonResp({ error: 'Not authorized for this job' }, 403);
       }
 
-      // Idempotency: one email per template per job
-      const idempotent = await claimRateLimitSlot(
-        adminClient, `notification:${template}:${jobId}`, 1, 86400
-      );
-      if (!idempotent) {
-        return jsonResp({ error: 'This email has already been sent for this job' }, 409);
+      // Durable idempotency: exactly once per job per template, forever
+      deliveryEventKey = `${template}:${jobId}`;
+      const claimed = await claimDelivery(adminClient, deliveryEventKey, template);
+      if (!claimed) {
+        return jsonResp({ success: true, message: 'This email has already been sent' }, 200);
       }
 
       // Load profiles and service name in parallel
@@ -679,13 +693,18 @@ Deno.serve(async (req) => {
         }
         recipient = providerProfile.email;
 
-        // Provider payout: use total_amount (platform takes a cut, but we show gross for now)
+        // Provider payout: use provider_payout if it exists, otherwise omit amount
+        // Do NOT show customer gross (total_amount) as provider earnings
+        const providerPayout = job.provider_payout
+          ? `$${Number(job.provider_payout).toFixed(2)}`
+          : undefined;
+
         emailContent = providerCompletionEmail({
           providerName,
           customerName,
           serviceName,
           date,
-          payout: totalAmount,
+          payout: providerPayout || 'See your earnings dashboard',
           address,
           jobId: job.id,
           duration,
@@ -708,7 +727,16 @@ Deno.serve(async (req) => {
     const result = await res.json();
     if (!res.ok) {
       console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
+      // Mark as failed so it can be retried
+      if (deliveryEventKey) {
+        await markDelivery(adminClient, deliveryEventKey, 'failed', undefined, `Resend HTTP ${res.status}`, recipient);
+      }
       return jsonResp({ error: 'Email send failed' }, 500);
+    }
+
+    // Mark as sent — prevents future duplicate
+    if (deliveryEventKey) {
+      await markDelivery(adminClient, deliveryEventKey, 'sent', result.id, undefined, recipient);
     }
 
     console.log(`[send-email] Sent template=${template}, id=${result.id}`);

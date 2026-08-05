@@ -12,7 +12,7 @@ const ACTIVE_JOB_STATES = new Set(['accepted', 'enroute', 'arrived', 'inprogress
 
 // Approved message templates — ordinary clients cannot send arbitrary text
 const MESSAGE_TEMPLATES: Record<string, (data: Record<string, string>) => string> = {
-  provider_enroute: (d) => `TORC: Your provider ${d.providerName || ''} is on the way! ETA: ${d.eta || 'soon'}. Track at ${d.trackingUrl || 'torcapp.com'}`,
+  provider_enroute: (d) => `TORC: Your provider ${d.providerName || ''} is on the way!${d.trackingUrl ? ` Track at ${d.trackingUrl}` : ''} — TORC`,
   provider_arrived: (d) => `TORC: Your provider ${d.providerName || ''} has arrived at your location.`,
   job_completed: (d) => `TORC: Your service has been completed. Total: ${d.amount || ''}. Rate your experience in the app.`,
   job_cancelled: (d) => `TORC: Your service request has been cancelled. ${d.reason || ''}`,
@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
     // --- Load job with all needed fields ---
     const { data: job } = await adminClient
       .from('jobs')
-      .select('customer_id, provider_id, requester_phone, requester_type, status, pickup_address, service_id')
+      .select('customer_id, provider_id, requester_phone, requester_type, status, pickup_address, service_id, total_amount, cancellation_reason')
       .eq('id', jobId)
       .maybeSingle();
 
@@ -194,9 +194,9 @@ Deno.serve(async (req) => {
         const providerName = await loadProfileName(adminClient, job.provider_id);
         serverTemplateData = { providerName };
 
-        // Allow client-supplied non-sensitive hints (eta, trackingUrl)
-        if (templateData?.eta) serverTemplateData.eta = String(templateData.eta);
-        if (templateData?.trackingUrl) serverTemplateData.trackingUrl = String(templateData.trackingUrl);
+        // Derive tracking URL server-side from approved domain + jobId
+        serverTemplateData.trackingUrl = `https://torcapp.com/tracking/${jobId}`;
+        // ETA is omitted — no trusted server-side source currently available
         break;
       }
 
