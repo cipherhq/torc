@@ -589,7 +589,7 @@ BEGIN
   -- Any evidence of captured payment (paid, refunded, payment_processing, paid_at, payment_intent_id) → manual_review.
   IF v_op.checkout_id IS NOT NULL THEN
     SELECT * INTO v_checkout FROM checkouts WHERE id = v_op.checkout_id;
-    IF v_checkout IS NOT NULL THEN
+    IF FOUND THEN
       -- Reject any checkout status that implies captured or processed payment
       IF v_checkout.status IS NULL
          OR v_checkout.status NOT IN ('pending', 'failed', 'expired')
