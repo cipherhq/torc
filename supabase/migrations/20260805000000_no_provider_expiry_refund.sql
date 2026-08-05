@@ -588,30 +588,36 @@ BEGIN
   -- The only safe checkout states for no-refund expiry are: NULL/missing, 'pending', 'failed', 'expired'.
   -- Any evidence of captured payment (paid, refunded, payment_processing, paid_at, payment_intent_id) → manual_review.
   IF v_op.checkout_id IS NOT NULL THEN
-    SELECT * INTO v_checkout FROM checkouts WHERE id = v_op.checkout_id;
-    IF FOUND THEN
-      -- Reject any checkout status that implies captured or processed payment
-      IF v_checkout.status IS NULL
-         OR v_checkout.status NOT IN ('pending', 'failed', 'expired')
-      THEN
-        UPDATE job_expiry_refund_operations SET status = 'manual_review',
-          last_error = 'Checkout status ' || COALESCE(v_checkout.status, 'NULL') || ' not proven safe for no-refund expiry'
-        WHERE id = p_operation_id;
-        RETURN json_build_object('success', false, 'error', 'CHECKOUT_INCONSISTENCY');
-      END IF;
-      -- Reject if checkout has evidence of payment capture
-      IF v_checkout.paid_at IS NOT NULL THEN
-        UPDATE job_expiry_refund_operations SET status = 'manual_review',
-          last_error = 'Checkout has paid_at set — payment may have been captured'
-        WHERE id = p_operation_id;
-        RETURN json_build_object('success', false, 'error', 'CHECKOUT_PAID_AT_SET');
-      END IF;
-      IF v_checkout.payment_intent_id IS NOT NULL THEN
-        UPDATE job_expiry_refund_operations SET status = 'manual_review',
-          last_error = 'Checkout has payment_intent_id — payment may have been initiated'
-        WHERE id = p_operation_id;
-        RETURN json_build_object('success', false, 'error', 'CHECKOUT_HAS_PAYMENT_INTENT');
-      END IF;
+    SELECT * INTO v_checkout FROM checkouts WHERE id = v_op.checkout_id FOR UPDATE;
+    IF NOT FOUND THEN
+      -- Referenced checkout does not exist — inconsistent financial data.
+      -- Cannot prove no payment was captured. Fail closed.
+      UPDATE job_expiry_refund_operations SET status = 'manual_review',
+        last_error = 'Referenced checkout ' || v_op.checkout_id || ' does not exist — cannot verify payment state'
+      WHERE id = p_operation_id;
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_NOT_FOUND');
+    END IF;
+    -- Reject any checkout status that implies captured or processed payment
+    IF v_checkout.status IS NULL
+       OR v_checkout.status NOT IN ('pending', 'failed', 'expired')
+    THEN
+      UPDATE job_expiry_refund_operations SET status = 'manual_review',
+        last_error = 'Checkout status ' || COALESCE(v_checkout.status, 'NULL') || ' not proven safe for no-refund expiry'
+      WHERE id = p_operation_id;
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_INCONSISTENCY');
+    END IF;
+    -- Reject if checkout has evidence of payment capture
+    IF v_checkout.paid_at IS NOT NULL THEN
+      UPDATE job_expiry_refund_operations SET status = 'manual_review',
+        last_error = 'Checkout has paid_at set — payment may have been captured'
+      WHERE id = p_operation_id;
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_PAID_AT_SET');
+    END IF;
+    IF v_checkout.payment_intent_id IS NOT NULL THEN
+      UPDATE job_expiry_refund_operations SET status = 'manual_review',
+        last_error = 'Checkout has payment_intent_id — payment may have been initiated'
+      WHERE id = p_operation_id;
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_HAS_PAYMENT_INTENT');
     END IF;
   END IF;
 

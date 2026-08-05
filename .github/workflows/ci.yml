@@ -173,6 +173,7 @@ jobs:
           CREATE TABLE IF NOT EXISTS public.notifications (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             user_id UUID,
+            job_id UUID,
             type TEXT,
             title TEXT,
             message TEXT,
@@ -698,6 +699,89 @@ jobs:
             DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
           END $$;
 
+          -- ============================================================
+          -- Test 21: Missing referenced checkout → fail closed to manual_review
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON;
+            v_job_status TEXT; v_payment_status TEXT; v_op_status TEXT;
+            v_audit_count INT; v_event_count INT; v_notif_count INT;
+            v_reclaim JSONB; v_reconcile JSONB;
+          BEGIN
+            -- Create unpaid job referencing a nonexistent checkout
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, checkout_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000021'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours',
+                    'aaaaaaaa-0000-0000-0000-cccc00000021'::uuid);
+            -- NOTE: no INSERT into checkouts — the checkout_id is dangling
+
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+
+            -- Claim the job
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 1, 'Test 21 FAILED: must claim exactly 1 job';
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+
+            -- Attempt finalize_expiry_no_refund — should fail closed
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+
+            -- 1. finalization returns success=false
+            ASSERT (result::jsonb)->>'success' = 'false', 'Test 21 FAILED (1): must return success=false';
+
+            -- 2. error is CHECKOUT_NOT_FOUND
+            ASSERT (result::jsonb)->>'error' = 'CHECKOUT_NOT_FOUND', 'Test 21 FAILED (2): error must be CHECKOUT_NOT_FOUND';
+
+            -- 3. operation status becomes manual_review
+            SELECT status INTO v_op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT v_op_status = 'manual_review', 'Test 21 FAILED (3): operation must be manual_review';
+
+            -- 4. job remains pending
+            SELECT status INTO v_job_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+            ASSERT v_job_status = 'pending', 'Test 21 FAILED (4): job must remain pending';
+
+            -- 5. job payment_status remains unchanged
+            SELECT payment_status INTO v_payment_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+            ASSERT v_payment_status = 'unpaid', 'Test 21 FAILED (5): payment_status must remain unpaid';
+
+            -- 6. no job_status_audit expired record
+            SELECT count(*) INTO v_audit_count FROM job_status_audit
+            WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid AND new_status = 'expired';
+            ASSERT v_audit_count = 0, 'Test 21 FAILED (6): no expired audit record must exist';
+
+            -- 7. no job_expired_no_provider event
+            SELECT count(*) INTO v_event_count FROM job_events
+            WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid AND event_type = 'job_expired_no_provider';
+            ASSERT v_event_count = 0, 'Test 21 FAILED (7): no job_expired_no_provider event must exist';
+
+            -- 8. no 'not charged' notification
+            SELECT count(*) INTO v_notif_count FROM notifications
+            WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid
+              AND message ILIKE '%not charged%';
+            ASSERT v_notif_count = 0, 'Test 21 FAILED (8): no expiry notification must exist';
+
+            -- 9. claim_expiry_eligible_jobs does not reclaim it
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v_reclaim;
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM jsonb_array_elements(v_reclaim) e
+              WHERE e->>'job_id' = 'aaaaaaaa-0000-0000-0000-eeee00000021'
+            ), 'Test 21 FAILED (9): manual_review op must not be reclaimed';
+
+            -- 10. reconcile_pending_refunds does not reclaim it
+            SELECT reconcile_pending_refunds(10, 0)::jsonb INTO v_reconcile;
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM jsonb_array_elements(COALESCE(v_reconcile, '[]'::jsonb)) e
+              WHERE e->>'operation_id' = op_id::text
+            ), 'Test 21 FAILED (10): manual_review op must not be reconciled';
+
+            RAISE NOTICE 'Test 21 PASSED: Missing referenced checkout → manual_review (fail closed)';
+
+            -- Cleanup
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+          END $$;
+
           -- Cleanup test data
           DELETE FROM services WHERE id = 'test-svc-expiry';
           DELETE FROM auth.users WHERE id IN (
@@ -705,7 +789,7 @@ jobs:
             'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid
           );
 
-          DO $$ BEGIN RAISE NOTICE 'All 20 expiry lifecycle tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 21 expiry lifecycle tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
