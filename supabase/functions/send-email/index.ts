@@ -457,6 +457,11 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  // Declare cleanup state BEFORE try so catch can access them
+  let adminClient: any = null;
+  let deliveryEventKey: string | null = null;
+  let deliveryClaimToken: string | null = null;
+
   try {
     if (!RESEND_API_KEY) throw new Error('Email service not configured.');
 
@@ -487,7 +492,7 @@ Deno.serve(async (req) => {
     }
 
     if (!serviceRoleKey) throw new Error('Missing service configuration.');
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    adminClient = createClient(supabaseUrl, serviceRoleKey);
 
     // ── Load caller profile ─────────────────────────────────────────
     const { data: callerProfile } = await adminClient
@@ -507,8 +512,6 @@ Deno.serve(async (req) => {
     // ── Route by template category ──────────────────────────────────
 
     let recipient: string;
-    let deliveryEventKey: string | null = null;
-    let deliveryClaimToken: string | null = null;
     let emailContent: { subject: string; html: string };
 
     // ─────────────────────────────────────────────────────────────────
@@ -720,41 +723,49 @@ Deno.serve(async (req) => {
       return jsonResp({ error: `Unhandled template: ${template}` }, 400);
     }
 
-    // ── Send via Resend ─────────────────────────────────────────────
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ from: FROM_EMAIL, to: [recipient], subject: emailContent!.subject, html: emailContent!.html }),
-    });
+    // ── Send via Resend (nested try/catch for post-claim safety) ────
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ from: FROM_EMAIL, to: [recipient], subject: emailContent!.subject, html: emailContent!.html }),
+      });
 
-    const result = await res.json();
-    if (!res.ok) {
-      console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
-      // Mark failed with ownership token — allows retry
+      const result = await res.json();
+      if (!res.ok) {
+        console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
+        if (deliveryEventKey && deliveryClaimToken) {
+          await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, `Resend HTTP ${res.status}`, recipient);
+        }
+        return jsonResp({ error: 'Email send failed' }, 500);
+      }
+
+      // Mark sent with ownership token
       if (deliveryEventKey && deliveryClaimToken) {
-        await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, `Resend HTTP ${res.status}`, recipient);
+        const finalized = await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'sent', result.id, undefined, recipient);
+        if (!finalized) {
+          console.error(`[send-email] RECONCILIATION WARNING: mark_sent returned false for ${deliveryEventKey} — ownership lost, external send may have completed`);
+        }
+      }
+
+      console.log(`[send-email] Sent template=${template}, id=${result.id}`);
+      return jsonResp({ success: true, id: result.id }, 200);
+    } catch (sendErr: any) {
+      // Network/fetch/JSON error after claim — mark failed with owned token
+      console.error(`[send-email] Send error after claim: ${sendErr?.message}`);
+      if (deliveryEventKey && deliveryClaimToken) {
+        try {
+          await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, sendErr?.message);
+        } catch { /* best effort */ }
       }
       return jsonResp({ error: 'Email send failed' }, 500);
     }
-
-    // Mark sent with ownership token — prevents future duplicate
-    if (deliveryEventKey && deliveryClaimToken) {
-      await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'sent', result.id, undefined, recipient);
-    }
-
-    console.log(`[send-email] Sent template=${template}, id=${result.id}`);
-    return jsonResp({ success: true, id: result.id }, 200);
   } catch (err: any) {
+    // Pre-claim errors (auth, validation, etc.) — no delivery row to clean up
     console.error('[send-email] Error:', err?.message);
-    // Mark failed on any exception after claim
-    if (deliveryEventKey && deliveryClaimToken) {
-      try {
-        await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, err?.message);
-      } catch { /* best effort */ }
-    }
     return jsonResp({ error: 'Internal error' }, 500);
   }
 });

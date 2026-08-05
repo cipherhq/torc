@@ -260,6 +260,55 @@ describe('documents_pending Submission Cycle', () => {
   });
 });
 
+describe('Thrown-network error after claim (email/SMS)', () => {
+  let log: TokenOwnershipLog;
+  beforeEach(() => { log = new TokenOwnershipLog(); });
+
+  it('thrown Resend error after claim: marks failed, immediate retry gets NEW token', () => {
+    // Simulate: claim succeeds, Resend fetch throws
+    const token1 = log.claim('email:invoice:job-net1')!;
+    expect(token1).toBeTruthy();
+    // Simulate network error → mark failed with owned token
+    const markResult = log.mark('email:invoice:job-net1', token1, 'failed');
+    expect(markResult).toBe(true);
+    // Immediate retry gets NEW token (no 10-minute wait)
+    const token2 = log.claim('email:invoice:job-net1');
+    expect(token2).toBeTruthy();
+    expect(token2).not.toBe(token1);
+  });
+
+  it('thrown Twilio error after claim: marks failed, immediate retry gets NEW token', () => {
+    const token1 = log.claim('sms:enroute:job-net2:cust')!;
+    expect(token1).toBeTruthy();
+    const markResult = log.mark('sms:enroute:job-net2:cust', token1, 'failed');
+    expect(markResult).toBe(true);
+    const token2 = log.claim('sms:enroute:job-net2:cust');
+    expect(token2).toBeTruthy();
+    expect(token2).not.toBe(token1);
+  });
+
+  it('stale token still cannot finalize after reclaim', () => {
+    const tokenA = log.claim('sms:stale:j1:p')!;
+    // Expire lease
+    const entry = (log as any).entries.get('sms:stale:j1:p')!;
+    entry.leaseExpiresAt = Date.now() - 1;
+    const tokenB = log.claim('sms:stale:j1:p')!;
+    // Old token finalize must fail
+    expect(log.mark('sms:stale:j1:p', tokenA, 'sent')).toBe(false);
+    // New token finalize must succeed
+    expect(log.mark('sms:stale:j1:p', tokenB, 'sent')).toBe(true);
+  });
+
+  it('mark-sent returning false is detectable (lost ownership)', () => {
+    const token = log.claim('detect:ownership:loss')!;
+    // Simulate ownership lost: force a different token on the row
+    const entry = (log as any).entries.get('detect:ownership:loss')!;
+    entry.claimToken = crypto.randomUUID(); // another worker reclaimed
+    const result = log.mark('detect:ownership:loss', token, 'sent');
+    expect(result).toBe(false); // ownership lost — must be detected
+  });
+});
+
 describe('Service Contract (identifier-only)', () => {
   it('sendCustomerInvoiceEmail takes only jobId', async () => {
     const mod = await import('../services/email.service');

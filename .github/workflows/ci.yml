@@ -316,3 +316,20 @@ jobs:
             exit 1
           fi
           echo "Security scan passed."
+
+  edge-function-check:
+    name: Edge Function Compile Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v1.x
+      - name: Check send-email compiles
+        run: deno check supabase/functions/send-email/index.ts
+      - name: Check send-sms compiles
+        run: deno check supabase/functions/send-sms/index.ts
+      - name: Check create-payment-intent compiles
+        run: deno check supabase/functions/create-payment-intent/index.ts
+      - name: Check stripe-webhook compiles
+        run: deno check supabase/functions/stripe-webhook/index.ts

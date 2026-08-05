@@ -66,6 +66,10 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  // Declare cleanup state before try so catch can access if needed
+  let smsEventKey: string | null = null;
+  let smsClaimToken: string | null = null;
+
   try {
     const twilioSid = Deno.env.get('TWILIO_ACCOUNT_SID');
     const twilioToken = Deno.env.get('TWILIO_AUTH_TOKEN');
@@ -295,57 +299,73 @@ Deno.serve(async (req) => {
     // --- Durable SMS idempotency with claim-token ownership ---
     const recipientRole = recipientPhone === job.requester_phone ? 'requester'
       : (user.id === job.customer_id ? 'provider' : 'customer');
-    const smsEventKey = `sms:${messageTemplate}:${jobId}:${recipientRole}`;
+    smsEventKey = `sms:${messageTemplate}:${jobId}:${recipientRole}`;
 
     // Claim returns UUID token or null
-    const { data: smsClaimToken, error: smsClaimErr } = await adminClient.rpc('claim_notification_delivery', {
+    const { data: claimedToken, error: smsClaimErr } = await adminClient.rpc('claim_notification_delivery', {
       p_event_key: smsEventKey, p_channel: 'sms', p_template: messageTemplate,
     });
     if (smsClaimErr) {
       console.error('[send-sms] Delivery claim failed:', smsClaimErr.message);
       return jsonResp({ error: 'Internal error' }, 500);
     }
-    if (!smsClaimToken) {
+    if (!claimedToken) {
       return jsonResp({ success: true, message: 'SMS already sent' }, 200);
     }
+    smsClaimToken = claimedToken;
 
-    // --- Send SMS via Twilio ---
-    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
-    const body = new URLSearchParams({
-      To: recipientPhone,
-      MessagingServiceSid: twilioMessagingServiceSid,
-      Body: message,
-    });
-
-    const res = await fetch(twilioUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: 'Basic ' + btoa(`${twilioSid}:${twilioToken}`),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    });
-
-    const result = await res.json();
-    if (!res.ok) {
-      console.error(`[send-sms] Twilio error: template=${messageTemplate}, code=${result?.code}`);
-      // Mark failed WITH token — allows retry, prevents stale worker overwrite
-      await adminClient.rpc('mark_notification_delivery', {
-        p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'failed',
-        p_error_message: `Twilio ${result?.code || res.status}`,
+    // --- Send SMS via Twilio (nested try/catch for post-claim safety) ---
+    try {
+      const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
+      const body = new URLSearchParams({
+        To: recipientPhone,
+        MessagingServiceSid: twilioMessagingServiceSid,
+        Body: message,
       });
+
+      const res = await fetch(twilioUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: 'Basic ' + btoa(`${twilioSid}:${twilioToken}`),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+      });
+
+      const result = await res.json();
+      if (!res.ok) {
+        console.error(`[send-sms] Twilio error: template=${messageTemplate}, code=${result?.code}`);
+        await adminClient.rpc('mark_notification_delivery', {
+          p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'failed',
+          p_error_message: `Twilio ${result?.code || res.status}`,
+        });
+        return jsonResp({ error: 'SMS send failed. Please try again.' }, 500);
+      }
+
+      // Mark sent — check ownership
+      const { data: finalized } = await adminClient.rpc('mark_notification_delivery', {
+        p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'sent',
+        p_external_id: result.sid, p_recipient: recipientPhone,
+      });
+      if (!finalized) {
+        console.error(`[send-sms] RECONCILIATION WARNING: mark_sent returned false for ${smsEventKey} — ownership lost`);
+      }
+
+      console.log(`[send-sms] Sent template=${messageTemplate} to=${recipientPhone.slice(0, 6)}***, sid=${result.sid}`);
+      return jsonResp({ success: true, sid: result.sid }, 200);
+    } catch (sendErr: any) {
+      // Network/fetch error after claim — mark failed with owned token for immediate retry
+      console.error(`[send-sms] Send error after claim: ${sendErr?.message}`);
+      try {
+        await adminClient.rpc('mark_notification_delivery', {
+          p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'failed',
+          p_error_message: sendErr?.message,
+        });
+      } catch { /* best effort */ }
       return jsonResp({ error: 'SMS send failed. Please try again.' }, 500);
     }
-
-    // Mark sent WITH token — prevents future duplicate + stale worker overwrite
-    await adminClient.rpc('mark_notification_delivery', {
-      p_event_key: smsEventKey, p_claim_token: smsClaimToken, p_status: 'sent',
-      p_external_id: result.sid, p_recipient: recipientPhone,
-    });
-
-    console.log(`[send-sms] Sent template=${messageTemplate} to=${recipientPhone.slice(0, 6)}***, sid=${result.sid}`);
-    return jsonResp({ success: true, sid: result.sid }, 200);
   } catch (err: any) {
+    // Pre-claim errors — no delivery row to clean up
     console.error('[send-sms] Error:', err?.message);
     return jsonResp({ error: 'Internal error' }, 500);
   }
