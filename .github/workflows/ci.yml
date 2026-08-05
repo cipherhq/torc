@@ -636,8 +636,14 @@ jobs:
             SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
             op_id := (v->0->>'operation_id')::uuid;
             ct := (v->0->>'claim_token')::uuid;
+            -- Debug: check what the operation has
+            DECLARE op_checkout UUID; job_checkout UUID;
+            BEGIN
+              SELECT checkout_id INTO op_checkout FROM job_expiry_refund_operations WHERE id = op_id;
+              SELECT checkout_id INTO job_checkout FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
+              RAISE NOTICE 'Test 18 debug: op_checkout=%, job_checkout=%', op_checkout, job_checkout;
+            END;
             SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
-            -- Debug: show what the function returned
             RAISE NOTICE 'Test 18 result: %', result::text;
             ASSERT (result::jsonb)->>'success' = 'false', 'Test 18 FAILED: must not succeed. Got: ' || result::text;
             RAISE NOTICE 'Test 18 PASSED: Checkout with paid_at → rejected';
