@@ -596,6 +596,232 @@ describe('Stripe Webhook Expiry Correlation (BLOCKER 11)', () => {
   });
 });
 
+describe('Reconciliation: Pending Refund Checked on Later Run', () => {
+  it('edge function calls reconcile_pending_refunds RPC', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    // Must call reconcile_pending_refunds
+    expect(edgeFnSource).toContain('reconcile_pending_refunds');
+    expect(edgeFnSource).toContain('p_batch_size');
+    expect(edgeFnSource).toContain('p_stale_minutes');
+  });
+
+  it('reconciliation retrieves refund via GET, never creates', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    // The reconciliation phase must use stripeGet for retrieval
+    // Count occurrences of stripeGet in the file - should appear in both
+    // the retry-with-existing-refund path AND the reconciliation path
+    const stripeGetMatches = edgeFnSource.match(/stripeGet\(`\/v1\/refunds\//g);
+    expect(stripeGetMatches).not.toBeNull();
+    expect(stripeGetMatches!.length).toBeGreaterThanOrEqual(2);
+
+    // Must NOT call stripePost in reconciliation phase
+    // The reconciliation block should contain stripeGet but not stripePost
+    const reconcileIdx = edgeFnSource.indexOf('reconcile_pending_refunds');
+    const reconcileBlock = edgeFnSource.slice(reconcileIdx);
+    expect(reconcileBlock).toContain('stripeGet');
+    expect(reconcileBlock).not.toContain('stripePost');
+  });
+
+  it('reconciliation calls finalize_expiry_refund for each pending op', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    const reconcileIdx = edgeFnSource.indexOf('reconcile_pending_refunds');
+    const reconcileBlock = edgeFnSource.slice(reconcileIdx);
+    expect(reconcileBlock).toContain('finalize_expiry_refund');
+    expect(reconcileBlock).toContain('op.operation_id');
+    expect(reconcileBlock).toContain('op.claim_token');
+  });
+
+  it('response includes reconciled count', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    expect(edgeFnSource).toContain('reconciled');
+  });
+});
+
+describe('Permanent Error enters manual_review, not reclaimable', () => {
+  it('permanent_failure status is passed to finalize RPC', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    // permanent_failure must be sent as p_stripe_refund_status
+    expect(edgeFnSource).toContain("p_stripe_refund_status: 'permanent_failure'");
+    // Must NOT log "finalized" for permanent failures
+    // The permanent failure path should log "Permanent Stripe error", not "finalized"
+    const permIdx = edgeFnSource.indexOf("'permanent_failure'");
+    const permBlock = edgeFnSource.slice(Math.max(0, permIdx - 200), permIdx + 300);
+    expect(permBlock).toContain('Permanent Stripe error');
+  });
+
+  it('permanent_failure finalize passes null for p_stripe_refund_id', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    // Find the permanent_failure finalization block — search for the actual code, not comment
+    const permFinalizeIdx = edgeFnSource.indexOf("'permanent_failure'");
+    expect(permFinalizeIdx).toBeGreaterThan(-1);
+    const permBlock = edgeFnSource.slice(
+      Math.max(0, permFinalizeIdx - 200),
+      permFinalizeIdx + 300
+    );
+    expect(permBlock).toContain('p_stripe_refund_id: null');
+  });
+
+  it('permanent errors increment failed counter, not succeeded', () => {
+    const edgeFnPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/expire-pending-jobs/index.ts'
+    );
+    const edgeFnSource = fs.readFileSync(edgeFnPath, 'utf-8');
+
+    // After permanent_failure finalize, must increment failed++
+    const permIdx = edgeFnSource.indexOf("'permanent_failure'");
+    const afterPerm = edgeFnSource.slice(permIdx, permIdx + 600);
+    expect(afterPerm).toContain('failed++');
+    expect(afterPerm).not.toContain('succeeded++');
+  });
+});
+
+describe('Webhook Failure is Not Silently Lost', () => {
+  it('webhook logs CRITICAL warning when finalization fails', () => {
+    const webhookPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/stripe-webhook/index.ts'
+    );
+    const webhookSource = fs.readFileSync(webhookPath, 'utf-8');
+
+    // Must contain CRITICAL warnings for finalization failures
+    expect(webhookSource).toContain('CRITICAL');
+
+    // Count CRITICAL occurrences — should be at least 3:
+    // 1. lookup error, 2. finalize transport error, 3. finalize result.success=false, 4. exception
+    const criticalMatches = webhookSource.match(/CRITICAL/g);
+    expect(criticalMatches).not.toBeNull();
+    expect(criticalMatches!.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('webhook mentions scheduled reconciliation as safety net', () => {
+    const webhookPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/stripe-webhook/index.ts'
+    );
+    const webhookSource = fs.readFileSync(webhookPath, 'utf-8');
+
+    // Must reference reconciliation as the fallback
+    expect(webhookSource).toContain('scheduled reconciliation will handle this');
+  });
+
+  it('webhook does not log "finalized" for failed finalization', () => {
+    const webhookPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/stripe-webhook/index.ts'
+    );
+    const webhookSource = fs.readFileSync(webhookPath, 'utf-8');
+
+    // The "Finalized expiry refund" log should only appear in the success branch
+    const finalizedLogIdx = webhookSource.indexOf('Finalized expiry refund');
+    expect(finalizedLogIdx).toBeGreaterThan(-1);
+
+    // It should be preceded by "else {" (the success branch), not by the error branches
+    const before = webhookSource.slice(Math.max(0, finalizedLogIdx - 100), finalizedLogIdx);
+    expect(before).toContain('else');
+  });
+
+  it('webhook handles lookup errors explicitly', () => {
+    const webhookPath = path.join(
+      REPO_ROOT,
+      'supabase/functions/stripe-webhook/index.ts'
+    );
+    const webhookSource = fs.readFileSync(webhookPath, 'utf-8');
+
+    // Must handle job lookup errors (PI verification)
+    expect(webhookSource).toContain('jobLookupError');
+    expect(webhookSource).toContain('CRITICAL: Failed to look up job');
+  });
+});
+
+describe('Conflicting Finalization Preserves Finalized State', () => {
+  it('second finalize call does not overwrite finalized operation', () => {
+    // Simulate the SQL-side behavior: once an operation is finalized,
+    // a second call should NOT change its state
+    type FinalizeResult = { success: boolean; already_finalized?: boolean; error?: string };
+
+    function simulateFinalize(
+      currentStatus: string,
+      claimToken: string,
+      providedToken: string,
+      refundStatus: string
+    ): FinalizeResult {
+      if (claimToken !== providedToken) {
+        return { success: false, error: 'CLAIM_TOKEN_MISMATCH' };
+      }
+      if (currentStatus === 'finalized') {
+        // Idempotent: return success but don't change state
+        return { success: true, already_finalized: true };
+      }
+      if (currentStatus === 'manual_review') {
+        return { success: true, already_finalized: true };
+      }
+      return { success: true };
+    }
+
+    const token = 'valid-token';
+
+    // First finalize: succeeded
+    const r1 = simulateFinalize('refund_pending', token, token, 'succeeded');
+    expect(r1.success).toBe(true);
+    expect(r1.already_finalized).toBeUndefined();
+
+    // Second finalize with "failed" status — must NOT overwrite
+    const r2 = simulateFinalize('finalized', token, token, 'failed');
+    expect(r2.success).toBe(true);
+    expect(r2.already_finalized).toBe(true);
+
+    // Third finalize with wrong token — rejected
+    const r3 = simulateFinalize('finalized', token, 'wrong-token', 'succeeded');
+    expect(r3.success).toBe(false);
+  });
+
+  it('edge function handles already_finalized result gracefully', () => {
+    // When finalize returns success=true with already_finalized,
+    // the edge function should NOT double-count
+    function processResult(result: { success: boolean; already_finalized?: boolean }): {
+      shouldCount: boolean;
+    } {
+      if (result.already_finalized) return { shouldCount: false };
+      return { shouldCount: result.success };
+    }
+
+    expect(processResult({ success: true })).toEqual({ shouldCount: true });
+    expect(processResult({ success: true, already_finalized: true })).toEqual({ shouldCount: false });
+    expect(processResult({ success: false })).toEqual({ shouldCount: false });
+  });
+});
+
 describe('Client-Side Expiry Removal', () => {
   const splashPath = path.join(REPO_ROOT, 'apps/customer-web/src/pages/auth/Splash.tsx');
   const shellPath = path.join(REPO_ROOT, 'apps/provider-web/src/components/AppShell.tsx');

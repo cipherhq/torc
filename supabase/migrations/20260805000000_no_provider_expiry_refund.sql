@@ -7,9 +7,10 @@
 --   3. Creates begin_expiry_refund_request() RPC (transition to refund_requesting)
 --   4. Creates finalize_expiry_refund() RPC (atomic finalization for paid jobs)
 --   5. Creates finalize_expiry_no_refund() RPC (atomic finalization for unpaid jobs)
---   6. Updates accept_job() to reject jobs with active expiry operations
---   7. Disables expire_stale_jobs() (raises exception, revokes access)
---   8. REVOKE/GRANT + privilege assertions
+--   6. Creates reconcile_pending_refunds() RPC (batch claim stale refund_pending ops)
+--   7. Updates accept_job() to reject jobs with active expiry operations
+--   8. Disables expire_stale_jobs() (raises exception, revokes access)
+--   9. REVOKE/GRANT + privilege assertions
 
 BEGIN;
 
@@ -322,13 +323,14 @@ BEGIN
        AND v_op.stripe_refund_id IS DISTINCT FROM p_stripe_refund_id
     THEN
       -- Different refund_id for an already-finalized operation => conflict
+      -- Do NOT change status, stripe_refund_id, or completed_at -- only record the conflict
       UPDATE public.job_expiry_refund_operations
-      SET status = 'manual_review',
-          last_error = 'Conflict: finalized with refund ' || v_op.stripe_refund_id
+      SET last_error = 'Conflict: finalized with refund ' || v_op.stripe_refund_id
                        || ' but received different refund ' || p_stripe_refund_id
       WHERE id = p_operation_id;
-      RETURN json_build_object('success', false, 'error', 'CONFLICT_MANUAL_REVIEW',
-        'message', 'Operation was already finalized with a different refund ID');
+      RETURN json_build_object('success', false, 'error', 'CONFLICT',
+        'message', 'Operation was already finalized with a different refund ID',
+        'manual_review_needed', true);
     END IF;
     -- Same refund or no new refund_id => idempotent success
     RETURN json_build_object('success', true, 'status', 'already_finalized',
@@ -471,6 +473,22 @@ BEGIN
       'job_id', v_op.job_id, 'refund_id', p_stripe_refund_id);
 
   -- ================================================================
+  -- Refund PERMANENT FAILURE (non-retryable, needs manual review)
+  -- ================================================================
+  ELSIF p_stripe_refund_status = 'permanent_failure' THEN
+
+    UPDATE public.job_expiry_refund_operations
+    SET status = 'manual_review',
+        stripe_refund_id = COALESCE(p_stripe_refund_id, v_op.stripe_refund_id),
+        stripe_refund_status = p_stripe_refund_status,
+        last_error = p_error_message
+    WHERE id = p_operation_id;
+
+    -- Do NOT change job status, do NOT notify customer
+    RETURN json_build_object('success', false, 'status', 'manual_review',
+      'job_id', v_op.job_id, 'error', COALESCE(p_error_message, 'permanent_failure'));
+
+  -- ================================================================
   -- Refund FAILED (retryable)
   -- ================================================================
   ELSE
@@ -582,7 +600,66 @@ GRANT  EXECUTE ON FUNCTION public.finalize_expiry_no_refund(UUID, UUID) TO servi
 
 
 -- ============================================================
--- 6) Update accept_job() to reject jobs with active expiry operations
+-- 6) reconcile_pending_refunds -- batch claim stale refund_pending ops
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.reconcile_pending_refunds(
+  p_batch_size INTEGER DEFAULT 10,
+  p_stale_minutes INTEGER DEFAULT 30
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_op RECORD;
+  v_token UUID;
+  v_results JSON[];
+BEGIN
+  IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  v_results := ARRAY[]::JSON[];
+
+  FOR v_op IN
+    SELECT * FROM job_expiry_refund_operations
+    WHERE status = 'refund_pending'
+      AND stripe_refund_id IS NOT NULL
+      AND updated_at < now() - (p_stale_minutes || ' minutes')::interval
+    ORDER BY updated_at ASC
+    LIMIT p_batch_size
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    v_token := gen_random_uuid();
+    UPDATE job_expiry_refund_operations
+    SET claim_token = v_token,
+        lease_expires_at = now() + interval '5 minutes',
+        attempt_count = attempt_count + 1
+    WHERE id = v_op.id;
+
+    v_results := v_results || json_build_object(
+      'operation_id', v_op.id,
+      'job_id', v_op.job_id,
+      'stripe_refund_id', v_op.stripe_refund_id,
+      'idempotency_key', v_op.idempotency_key,
+      'claim_token', v_token,
+      'payment_intent_id', v_op.payment_intent_id
+    )::json;
+  END LOOP;
+
+  RETURN array_to_json(v_results);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.reconcile_pending_refunds(INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.reconcile_pending_refunds(INTEGER, INTEGER) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.reconcile_pending_refunds(INTEGER, INTEGER) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.reconcile_pending_refunds(INTEGER, INTEGER) TO service_role;
+
+
+-- ============================================================
+-- 7) Update accept_job() to reject jobs with active expiry operations
 --    BLOCKER 8: ALL states except abandoned_before_refund block acceptance
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.accept_job(
@@ -677,7 +754,7 @@ GRANT  EXECUTE ON FUNCTION public.accept_job(UUID, UUID) TO authenticated;
 
 
 -- ============================================================
--- 7) BLOCKER 2: Disable expire_stale_jobs()
+-- 8) BLOCKER 2: Disable expire_stale_jobs()
 --    Match original signature: RETURNS INTEGER, param p_max_age_hours
 --    Replace body with RAISE EXCEPTION, revoke from ALL roles
 -- ============================================================
@@ -716,7 +793,7 @@ COMMENT ON FUNCTION public.expire_stale_jobs(INTEGER) IS
 
 
 -- ============================================================
--- 8) Privilege assertions
+-- 9) Privilege assertions
 -- ============================================================
 
 -- Assert: job_expiry_refund_operations has RLS enabled
@@ -833,6 +910,32 @@ BEGIN
     'EXECUTE'
   ) THEN
     RAISE EXCEPTION 'ASSERTION FAILED: anon role can execute finalize_expiry_no_refund';
+  END IF;
+END;
+$$;
+
+-- Assert: reconcile_pending_refunds is NOT executable by authenticated
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'authenticated',
+    'public.reconcile_pending_refunds(integer, integer)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: authenticated role can execute reconcile_pending_refunds';
+  END IF;
+END;
+$$;
+
+-- Assert: reconcile_pending_refunds is NOT executable by anon
+DO $$
+BEGIN
+  IF has_function_privilege(
+    'anon',
+    'public.reconcile_pending_refunds(integer, integer)',
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'ASSERTION FAILED: anon role can execute reconcile_pending_refunds';
   END IF;
 END;
 $$;

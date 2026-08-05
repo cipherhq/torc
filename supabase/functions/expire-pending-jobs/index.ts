@@ -185,20 +185,16 @@ Deno.serve(async (req) => {
 
     const jobs: ClaimedJob[] = claimedJobs || [];
 
-    if (jobs.length === 0) {
-      console.log('[expire-pending-jobs] No eligible jobs found.');
-      return new Response(
-        JSON.stringify({ processed: 0, succeeded: 0, pending: 0, failed: 0, manual_review: 0 }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log(`[expire-pending-jobs] Claimed ${jobs.length} job(s) for expiry processing.`);
-
     let succeeded = 0;
     let pending = 0;
     let failed = 0;
     let manualReview = 0;
+
+    if (jobs.length === 0) {
+      console.log('[expire-pending-jobs] No eligible jobs found.');
+    } else {
+      console.log(`[expire-pending-jobs] Claimed ${jobs.length} job(s) for expiry processing.`);
+    }
 
     // Step 2: Process each claimed job
     for (const job of jobs) {
@@ -415,12 +411,51 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Phase 2: Reconcile pending refunds (webhook missed)
+    const { data: pendingOps, error: pendingErr } = await adminClient.rpc(
+      'reconcile_pending_refunds',
+      { p_batch_size: 10, p_stale_minutes: 30 }
+    );
+
+    if (pendingErr) {
+      console.error('[expire-pending-jobs] Reconciliation RPC error:', pendingErr.message);
+    } else if (pendingOps?.length > 0) {
+      console.log(`[expire-pending-jobs] Reconciling ${pendingOps.length} pending refund(s).`);
+
+      for (const op of pendingOps) {
+        try {
+          // Must retrieve, never create — refund ID is already known
+          const refund = await stripeGet(`/v1/refunds/${op.stripe_refund_id}`, stripeSecretKey);
+
+          const { data: result, error: finalizeErr } = await adminClient.rpc('finalize_expiry_refund', {
+            p_operation_id: op.operation_id,
+            p_claim_token: op.claim_token,
+            p_stripe_refund_id: refund.id,
+            p_stripe_refund_status: refund.status,
+            p_error_message: refund.status === 'failed' ? 'Refund failed (reconciliation check)' : null,
+          });
+
+          if (finalizeErr || result?.success === false) {
+            console.error(`[expire-pending-jobs] Reconciliation finalize failed for op ${op.operation_id}:`,
+              finalizeErr?.message || result?.error);
+          } else {
+            console.log(`[expire-pending-jobs] Reconciled op ${op.operation_id}: ${refund.status}`);
+            if (refund.status === 'succeeded') succeeded++;
+            else if (refund.status === 'pending') pending++;
+          }
+        } catch (err: any) {
+          console.error(`[expire-pending-jobs] Reconciliation error for op ${op.operation_id}:`, err?.message);
+        }
+      }
+    }
+
     const summary = {
       processed: jobs.length,
       succeeded,
       pending,
       failed,
       manual_review: manualReview,
+      reconciled: (pendingOps?.length || 0),
     };
 
     console.log('[expire-pending-jobs] Summary:', JSON.stringify(summary));

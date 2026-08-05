@@ -179,8 +179,8 @@ Deno.serve(async (req) => {
 
           if (lookupError) {
             console.error(
-              `[stripe-webhook] Error looking up expiry operation for refund ${refundId}:`,
-              lookupError.message
+              `[stripe-webhook] CRITICAL: Lookup error for expiry operation refund ${refundId}: ${lookupError.message}. ` +
+              `Scheduled reconciliation will retry.`
             );
             continue;
           }
@@ -189,11 +189,19 @@ Deno.serve(async (req) => {
 
           // Verify payment_intent matches if present
           if (refundObj.payment_intent && expiryOp.job_id) {
-            const { data: jobRecord } = await adminClient
+            const { data: jobRecord, error: jobLookupError } = await adminClient
               .from('jobs')
               .select('payment_intent_id')
               .eq('id', expiryOp.job_id)
               .single();
+
+            if (jobLookupError) {
+              console.error(
+                `[stripe-webhook] CRITICAL: Failed to look up job ${expiryOp.job_id} for PI verification: ${jobLookupError.message}. ` +
+                `Scheduled reconciliation will retry.`
+              );
+              continue;
+            }
 
             if (jobRecord?.payment_intent_id && refundObj.payment_intent !== jobRecord.payment_intent_id) {
               console.error(
@@ -222,12 +230,19 @@ Deno.serve(async (req) => {
 
           // Check both RPC error and result.success
           if (finalizeError) {
+            // CRITICAL: Finalization failed but event already claimed by process_stripe_webhook.
+            // Do NOT throw — the scheduled reconciliation in expire-pending-jobs is the safety net.
             console.error(
-              `[stripe-webhook] Failed to finalize expiry refund: op=${expiryOp.id}, error=${finalizeError.message}`
+              `[stripe-webhook] CRITICAL: Failed to finalize expiry refund op=${expiryOp.id}, ` +
+              `refund=${refundId}, error=${finalizeError.message}. ` +
+              `Event already processed — scheduled reconciliation will handle this.`
             );
           } else if (result?.success === false) {
+            // Finalize RPC returned an application-level error (e.g. claim_token mismatch, already finalized)
             console.error(
-              `[stripe-webhook] Finalize returned failure: op=${expiryOp.id}, error=${result.error}`
+              `[stripe-webhook] CRITICAL: Finalize returned failure for op=${expiryOp.id}, ` +
+              `refund=${refundId}, error=${result.error}. ` +
+              `Event already processed — scheduled reconciliation will handle this.`
             );
           } else {
             console.log(
@@ -235,10 +250,12 @@ Deno.serve(async (req) => {
             );
           }
         } catch (refundErr: any) {
-          // If finalization fails, log but don't crash (webhook must return 200)
+          // CRITICAL: Exception during refund correlation. Event already claimed by
+          // process_stripe_webhook so we can't return 500 to get Stripe to retry.
+          // The scheduled reconciliation in expire-pending-jobs is the safety net.
           console.error(
-            `[stripe-webhook] Exception processing refund correlation:`,
-            refundErr?.message
+            `[stripe-webhook] CRITICAL: Exception processing refund correlation: ${refundErr?.message}. ` +
+            `Event already processed — scheduled reconciliation will handle this.`
           );
         }
       }
