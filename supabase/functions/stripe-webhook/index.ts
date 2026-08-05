@@ -8,6 +8,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  * - Timestamp replay protection (300s window)
  * - Idempotent processing (processed_webhook_events table)
  * - Updates checkout and job records on payment success/failure/refund
+ * - Correlates charge.refunded / refund.updated events with pending
+ *   job_expiry_refund_operations for async refund finalization
  */
 
 function hexEncode(bytes: Uint8Array): string {
@@ -122,6 +124,88 @@ Deno.serve(async (req) => {
       }
     } else {
       console.log(`[stripe-webhook] Unhandled event type: ${event.type}`);
+    }
+
+    // ================================================================
+    // BLOCKER 3: Check for pending expiry refund operations
+    // Correlate charge.refunded and refund.updated events with
+    // job_expiry_refund_operations in refund_pending state.
+    //
+    // Safety: Only correlates with existing refund_pending operations
+    // by matching the exact stripe_refund_id. An unrelated manual
+    // refund will NOT match any operation and is harmless.
+    // Duplicate webhook delivery is safe because finalize_expiry_refund
+    // is idempotent (claim_token check + status guard).
+    // ================================================================
+    if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
+      // For charge.refunded: eventObject is the charge, refunds are in eventObject.refunds.data[]
+      // For refund.updated: eventObject is the refund itself
+      const refundObjects: Array<{ id: string; status: string; payment_intent?: string }> = [];
+
+      if (event.type === 'refund.updated') {
+        // eventObject IS the refund
+        if (eventObject?.id) {
+          refundObjects.push({
+            id: eventObject.id,
+            status: eventObject.status,
+            payment_intent: eventObject.payment_intent,
+          });
+        }
+      } else if (event.type === 'charge.refunded') {
+        // eventObject is the charge; refunds are nested
+        const refunds = eventObject?.refunds?.data || [];
+        for (const r of refunds) {
+          if (r?.id) {
+            refundObjects.push({
+              id: r.id,
+              status: r.status,
+              payment_intent: eventObject?.payment_intent,
+            });
+          }
+        }
+        // Fallback: if no nested refunds but there's a refund ID at top level
+        if (refundObjects.length === 0 && eventObject?.id) {
+          refundObjects.push({
+            id: eventObject.id,
+            status: eventObject.status || 'succeeded',
+            payment_intent: eventObject.payment_intent,
+          });
+        }
+      }
+
+      for (const refundObj of refundObjects) {
+        const refundId = refundObj.id;
+
+        // Look up pending expiry operation by stripe_refund_id
+        const { data: expiryOp } = await adminClient
+          .from('job_expiry_refund_operations')
+          .select('id, claim_token, status')
+          .eq('stripe_refund_id', refundId)
+          .eq('status', 'refund_pending')
+          .maybeSingle();
+
+        if (expiryOp) {
+          // Determine refund outcome
+          const refundStatus = refundObj.status; // 'succeeded' or 'failed'
+
+          const { error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
+            p_operation_id: expiryOp.id,
+            p_claim_token: expiryOp.claim_token,
+            p_stripe_refund_id: refundId,
+            p_stripe_refund_status: refundStatus || 'succeeded',
+          });
+
+          if (finalizeError) {
+            console.error(
+              `[stripe-webhook] Failed to finalize pending expiry refund: op=${expiryOp.id}, error=${finalizeError.message}`
+            );
+          } else {
+            console.log(
+              `[stripe-webhook] Finalized pending expiry refund: op=${expiryOp.id}, status=${refundStatus}`
+            );
+          }
+        }
+      }
     }
 
     return new Response(JSON.stringify({ received: true }), {
