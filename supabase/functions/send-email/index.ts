@@ -336,18 +336,25 @@ function escapeHtml(str: string): string {
 // ─── Durable notification delivery (claim/mark pattern) ─────────────
 
 /** Claim delivery — returns UUID token on success, null if already sent/in-progress */
-async function claimDelivery(adminClient: any, eventKey: string, template: string): Promise<string | null> {
+type DeliveryClaim =
+  | { status: 'claimed'; token: string }
+  | { status: 'unavailable' }
+  | { status: 'error'; error: string };
+
+async function claimDelivery(adminClient: any, eventKey: string, template: string): Promise<DeliveryClaim> {
   const { data, error } = await adminClient.rpc('claim_notification_delivery', {
     p_event_key: eventKey,
     p_channel: 'email',
     p_template: template,
   });
   if (error) {
-    console.error('[send-email] Delivery claim failed, blocking:', error.message);
-    return null;
+    console.error('[send-email] Delivery claim RPC failed:', error.message);
+    return { status: 'error', error: error.message };
   }
-  // RPC returns UUID or null
-  return data || null;
+  if (data) {
+    return { status: 'claimed', token: data };
+  }
+  return { status: 'unavailable' };
 }
 
 /** Mark delivery — requires the claim token for ownership. Returns true if this token owns the claim. */
@@ -574,10 +581,14 @@ Deno.serve(async (req) => {
 
       // Claim AFTER validation — exactly once per user, permanent
       deliveryEventKey = `welcome:${user.id}`;
-      deliveryClaimToken = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
-      if (!deliveryClaimToken) {
+      const welcomeClaim = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
+      if (welcomeClaim.status === 'error') {
+        return jsonResp({ error: 'Notification service unavailable' }, 500);
+      }
+      if (welcomeClaim.status === 'unavailable') {
         return jsonResp({ success: true, message: 'Welcome email already sent' }, 200);
       }
+      deliveryClaimToken = welcomeClaim.token;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -618,10 +629,14 @@ Deno.serve(async (req) => {
       const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalPairs));
       const cycleHash = [...new Uint8Array(hashBuffer)].map(b => b.toString(16).padStart(2, '0')).join('');
       deliveryEventKey = `documents_pending:${user.id}:${cycleHash}`;
-      deliveryClaimToken = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
-      if (!deliveryClaimToken) {
+      const docsClaim = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
+      if (docsClaim.status === 'error') {
+        return jsonResp({ error: 'Notification service unavailable' }, 500);
+      }
+      if (docsClaim.status === 'unavailable') {
         return jsonResp({ success: true, message: 'Documents pending email already sent for this submission' }, 200);
       }
+      deliveryClaimToken = docsClaim.token;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -715,10 +730,14 @@ Deno.serve(async (req) => {
 
       // Claim AFTER all validation and content derivation — just before send
       deliveryEventKey = `${template}:${jobId}`;
-      deliveryClaimToken = await claimDelivery(adminClient, deliveryEventKey, template);
-      if (!deliveryClaimToken) {
+      const jobClaim = await claimDelivery(adminClient, deliveryEventKey, template);
+      if (jobClaim.status === 'error') {
+        return jsonResp({ error: 'Notification service unavailable' }, 500);
+      }
+      if (jobClaim.status === 'unavailable') {
         return jsonResp({ success: true, message: 'This email has already been sent' }, 200);
       }
+      deliveryClaimToken = jobClaim.token;
     } else {
       return jsonResp({ error: `Unhandled template: ${template}` }, 400);
     }

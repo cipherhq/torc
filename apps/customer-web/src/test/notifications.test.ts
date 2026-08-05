@@ -241,6 +241,53 @@ describe('Claim-Token Ownership (production DB RPC contract)', () => {
   });
 });
 
+describe('Claim RPC Error vs Unavailable distinction', () => {
+  // Models the production DeliveryClaim discriminated union:
+  // { status: 'claimed', token } | { status: 'unavailable' } | { status: 'error', error }
+
+  type DeliveryClaim =
+    | { status: 'claimed'; token: string }
+    | { status: 'unavailable' }
+    | { status: 'error'; error: string };
+
+  function simulateClaim(rpcError: string | null, rpcData: string | null): DeliveryClaim {
+    if (rpcError) return { status: 'error', error: rpcError };
+    if (rpcData) return { status: 'claimed', token: rpcData };
+    return { status: 'unavailable' };
+  }
+
+  it('RPC error returns { status: error }, NOT success/already-sent', () => {
+    const result = simulateClaim('connection refused', null);
+    expect(result.status).toBe('error');
+    expect(result.status).not.toBe('unavailable');
+    // Caller must return HTTP 500, not 200
+  });
+
+  it('NULL claim with no RPC error returns { status: unavailable }', () => {
+    const result = simulateClaim(null, null);
+    expect(result.status).toBe('unavailable');
+    // Caller returns HTTP 200 already-sent/in-progress
+  });
+
+  it('UUID claim returns { status: claimed } with token', () => {
+    const result = simulateClaim(null, 'uuid-token-123');
+    expect(result.status).toBe('claimed');
+    if (result.status === 'claimed') {
+      expect(result.token).toBe('uuid-token-123');
+    }
+  });
+
+  it('failed-send retry still works after error-then-success claim', () => {
+    // First attempt: RPC error → caller returns 500
+    const attempt1 = simulateClaim('timeout', null);
+    expect(attempt1.status).toBe('error');
+
+    // Retry: RPC succeeds with token → caller proceeds to send
+    const attempt2 = simulateClaim(null, 'new-token');
+    expect(attempt2.status).toBe('claimed');
+  });
+});
+
 describe('documents_pending Submission Cycle', () => {
   let log: TokenOwnershipLog;
   beforeEach(() => { log = new TokenOwnershipLog(); });
