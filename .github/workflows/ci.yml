@@ -489,7 +489,8 @@ jobs:
             ct := (v->0->>'claim_token')::uuid;
             PERFORM begin_expiry_refund_request(op_id, ct);
             SELECT finalize_expiry_refund(op_id, ct, NULL, 'permanent_failure', 'Permanent Stripe error') INTO result;
-            ASSERT (result::jsonb)->>'success' = 'true', 'Test 12 FAILED: permanent_failure finalize must succeed';
+            -- permanent_failure returns success=false (it IS a failure) but sets manual_review
+            ASSERT (result::jsonb)->>'status' = 'manual_review', 'Test 12 FAILED: permanent_failure must return manual_review status';
             SELECT status INTO op_status FROM job_expiry_refund_operations WHERE id = op_id;
             ASSERT op_status = 'manual_review', 'Test 12 FAILED: permanent_failure must go to manual_review';
             -- Verify job is NOT reclaimable
