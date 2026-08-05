@@ -1,0 +1,9 @@
+project_id = "torc"
+
+# Stripe verifies its own webhook signature.
+[functions.stripe-webhook]
+verify_jwt = false
+
+# expire-pending-jobs authenticates the scheduler using x-torc-cron-secret.
+[functions.expire-pending-jobs]
+verify_jwt = false
