@@ -1,0 +1,36 @@
+# Supabase project configuration
+# https://supabase.com/docs/guides/local-development/cli/config
+project_id = "torc"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.migrations]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://127.0.0.1:3000"]
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+
+# stripe-webhook uses its own HMAC signature verification (not Supabase JWT).
+[functions.stripe-webhook]
+verify_jwt = false
+
+# expire-pending-jobs uses a custom x-torc-cron-secret header (not Supabase JWT).
+# The function handles its own authentication internally.
+[functions.expire-pending-jobs]
+verify_jwt = false

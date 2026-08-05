@@ -22,7 +22,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  *   - Unpaid jobs use finalize_expiry_no_refund RPC
  *   - begin_expiry_refund_request RPC is called before any Stripe call
  *
- * Authentication: service-role key or shared CRON_SECRET via Authorization header.
+ * Authentication: CRON_SECRET via custom x-torc-cron-secret header.
+ * The Supabase gateway JWT check is disabled (verify_jwt = false in config.toml);
+ * this function performs its own authentication.
+ *
+ * GET  → authenticated health check (no side effects)
+ * POST → claim/refund processing
  */
 
 const STRIPE_TIMEOUT_MS = 15_000;
@@ -139,10 +144,34 @@ interface ClaimedJob {
 }
 
 Deno.serve(async (req) => {
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+
+  // Authenticate via custom header — never via Authorization bearer
+  const cronSecret = Deno.env.get('CRON_SECRET');
+  if (!cronSecret) {
+    console.error('[expire-pending-jobs] CRON_SECRET not configured');
+    return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
+      status: 500, headers: jsonHeaders,
+    });
+  }
+
+  const suppliedSecret = req.headers.get('x-torc-cron-secret');
+  if (!suppliedSecret || suppliedSecret !== cronSecret) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: jsonHeaders,
+    });
+  }
+
+  // GET = health check (no side effects)
+  if (req.method === 'GET') {
+    return new Response(JSON.stringify({ ok: true, service: 'expire-pending-jobs' }), {
+      status: 200, headers: jsonHeaders,
+    });
+  }
+
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
+      status: 405, headers: jsonHeaders,
     });
   }
 
@@ -151,23 +180,9 @@ Deno.serve(async (req) => {
     const supabaseServiceRoleKey =
       Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
-    const cronSecret = Deno.env.get('CRON_SECRET');
 
     if (!supabaseUrl || !supabaseServiceRoleKey || !stripeSecretKey) {
       throw new Error('Missing required configuration.');
-    }
-
-    // Authenticate: accept service-role key or shared CRON_SECRET
-    const authHeader = req.headers.get('Authorization') || '';
-    const token = authHeader.replace(/^Bearer\s+/i, '');
-    const isServiceRole = token === supabaseServiceRoleKey;
-    const isCronAuth = cronSecret && token === cronSecret;
-
-    if (!isServiceRole && !isCronAuth) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);

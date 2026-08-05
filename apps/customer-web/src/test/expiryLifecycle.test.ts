@@ -863,3 +863,103 @@ describe('Client-Side Expiry Removal', () => {
     expect(workerSource).not.toContain('setTimeout(expireStaleJobs');
   });
 });
+
+// =============================================================================
+// expire-pending-jobs auth hardening tests
+// =============================================================================
+
+describe('expire-pending-jobs auth hardening', () => {
+  const fnPath = path.resolve(REPO_ROOT, 'supabase/functions/expire-pending-jobs/index.ts');
+  const configPath = path.resolve(REPO_ROOT, 'supabase/config.toml');
+  let fnSource: string;
+  let configSource: string;
+
+  beforeAll(() => {
+    fnSource = fs.readFileSync(fnPath, 'utf-8');
+    configSource = fs.readFileSync(configPath, 'utf-8');
+  });
+
+  it('supabase/config.toml sets verify_jwt = false for expire-pending-jobs', () => {
+    expect(configSource).toContain('[functions.expire-pending-jobs]');
+    // Extract the section and verify verify_jwt = false
+    const section = configSource.split('[functions.expire-pending-jobs]')[1]?.split('[')[0] || '';
+    expect(section).toContain('verify_jwt = false');
+  });
+
+  it('supabase/config.toml sets verify_jwt = false for stripe-webhook', () => {
+    expect(configSource).toContain('[functions.stripe-webhook]');
+    const section = configSource.split('[functions.stripe-webhook]')[1]?.split('[')[0] || '';
+    expect(section).toContain('verify_jwt = false');
+  });
+
+  it('authenticates via x-torc-cron-secret header, not Authorization bearer', () => {
+    expect(fnSource).toContain("req.headers.get('x-torc-cron-secret')");
+    // Auth check must occur before the actual RPC call (not just a comment mention)
+    const authIdx = fnSource.indexOf("req.headers.get('x-torc-cron-secret')");
+    const claimIdx = fnSource.indexOf("'claim_expiry_eligible_jobs'");
+    expect(authIdx).toBeLessThan(claimIdx);
+  });
+
+  it('does NOT accept Authorization bearer token for function auth', () => {
+    // The function should not compare Authorization header against cronSecret
+    expect(fnSource).not.toMatch(/authHeader.*cronSecret/);
+    expect(fnSource).not.toMatch(/token\s*===\s*cronSecret/);
+    expect(fnSource).not.toContain('isCronAuth');
+    expect(fnSource).not.toContain('isServiceRole');
+  });
+
+  it('returns 401 when x-torc-cron-secret is missing', () => {
+    // The guard must return 401 when suppliedSecret is falsy
+    expect(fnSource).toContain('!suppliedSecret');
+    expect(fnSource).toContain("{ error: 'Unauthorized' }");
+    expect(fnSource).toContain('status: 401');
+  });
+
+  it('returns 401 when x-torc-cron-secret is wrong', () => {
+    // The comparison must check suppliedSecret !== cronSecret
+    expect(fnSource).toContain('suppliedSecret !== cronSecret');
+  });
+
+  it('GET with valid cron secret returns health check', () => {
+    expect(fnSource).toContain("req.method === 'GET'");
+    expect(fnSource).toContain("{ ok: true, service: 'expire-pending-jobs' }");
+  });
+
+  it('GET health check performs zero RPC calls', () => {
+    // The GET handler must return before any RPC/Supabase client usage
+    const getIdx = fnSource.indexOf("req.method === 'GET'");
+    const getReturn = fnSource.indexOf('return new Response', getIdx);
+    const getBlock = fnSource.substring(getIdx, getReturn + 50);
+    expect(getBlock).not.toContain('claim_expiry_eligible_jobs');
+    expect(getBlock).not.toContain('adminClient');
+    expect(getBlock).not.toContain('createClient');
+  });
+
+  it('GET health check performs zero Stripe calls', () => {
+    const getIdx = fnSource.indexOf("req.method === 'GET'");
+    const getReturn = fnSource.indexOf('return new Response', getIdx);
+    const getBlock = fnSource.substring(getIdx, getReturn + 50);
+    expect(getBlock).not.toContain('stripePost');
+    expect(getBlock).not.toContain('stripeGet');
+    expect(getBlock).not.toContain('api.stripe.com');
+  });
+
+  it('POST without valid cron header cannot reach claim RPC', () => {
+    // Auth rejection must be before the actual RPC call string (not comment mentions)
+    const authReject = fnSource.indexOf('suppliedSecret !== cronSecret');
+    const claimRpc = fnSource.indexOf("'claim_expiry_eligible_jobs'");
+    expect(authReject).toBeLessThan(claimRpc);
+  });
+
+  it('never logs the cron secret value', () => {
+    // Should not log suppliedSecret or cronSecret values
+    expect(fnSource).not.toMatch(/console\.(log|error|warn).*suppliedSecret/);
+    expect(fnSource).not.toMatch(/console\.(log|error|warn).*cronSecret/);
+  });
+
+  it('requires CRON_SECRET env var to be configured', () => {
+    expect(fnSource).toContain("Deno.env.get('CRON_SECRET')");
+    expect(fnSource).toContain('!cronSecret');
+    expect(fnSource).toContain('Server misconfigured');
+  });
+});
