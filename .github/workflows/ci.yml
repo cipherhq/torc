@@ -152,17 +152,39 @@ jobs:
             payment_intent_id TEXT,
             paid_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT now(),
+            updated_at TIMESTAMPTZ DEFAULT now(),
             accepted_at TIMESTAMPTZ,
             started_at TIMESTAMPTZ,
             completed_at TIMESTAMPTZ,
-            cancelled_at TIMESTAMPTZ
+            cancelled_at TIMESTAMPTZ,
+            scheduled_for TIMESTAMPTZ,
+            checkout_id UUID
           );
           ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+          CREATE TABLE IF NOT EXISTS public.job_events (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            job_id UUID NOT NULL,
+            event_type TEXT NOT NULL,
+            actor_id UUID,
+            actor_type TEXT,
+            metadata JSONB,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS public.notifications (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID,
+            job_id UUID,
+            type TEXT,
+            title TEXT,
+            message TEXT,
+            action_url TEXT,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
           SQL
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -211,6 +233,566 @@ jobs:
           END $$;
 
           DO $$ BEGIN RAISE NOTICE 'All RLS and privilege assertions passed.'; END $$;
+          SQL
+      - name: Test expiry lifecycle RPCs
+        run: |
+          DB="postgresql://postgres:postgres@localhost:5432/torc_test"
+          psql "$DB" -v ON_ERROR_STOP=1 <<'SQL'
+          -- ============================================================
+          -- Setup: Create test data used across all expiry lifecycle tests
+          -- ============================================================
+          INSERT INTO auth.users (id) VALUES
+            ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid),
+            ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid)
+          ON CONFLICT DO NOTHING;
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc-expiry', 'Test Expiry', 50)
+          ON CONFLICT DO NOTHING;
+
+          -- ============================================================
+          -- Test 1: Future scheduled job NOT claimed
+          -- ============================================================
+          DO $$ DECLARE v JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, scheduled_for)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000001'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours', now() + interval '24 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 0, 'Test 1 FAILED: Future job must not be claimed';
+            RAISE NOTICE 'Test 1 PASSED: Future scheduled job NOT claimed';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000001'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000001'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 2: Eligible on-demand job IS claimed
+          -- ============================================================
+          DO $$ DECLARE v JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000002'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 1, 'Test 2 FAILED: Eligible on-demand job must be claimed';
+            RAISE NOTICE 'Test 2 PASSED: Eligible on-demand job IS claimed';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000002'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000002'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 3: Second claim same job returns no new operation
+          -- ============================================================
+          DO $$ DECLARE v1 JSONB; v2 JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000003'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v1;
+            ASSERT jsonb_array_length(v1) = 1, 'Test 3 FAILED: First claim must succeed';
+            -- Second claim with active lease should return 0
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v2;
+            ASSERT jsonb_array_length(v2) = 0, 'Test 3 FAILED: Second claim must return 0 (active lease)';
+            RAISE NOTICE 'Test 3 PASSED: Second claim same job returns no new operation';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000003'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000003'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 4: Assigned job is NOT claimed
+          -- ============================================================
+          DO $$ DECLARE v JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, provider_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000004'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours',
+                    'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 0, 'Test 4 FAILED: Assigned job must not be claimed';
+            RAISE NOTICE 'Test 4 PASSED: Assigned job is NOT claimed';
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000004'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 5: Accepted job is NOT claimed
+          -- ============================================================
+          DO $$ DECLARE v JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, provider_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000005'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'accepted', 'paid', now() - interval '3 hours',
+                    'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 0, 'Test 5 FAILED: Accepted job must not be claimed';
+            RAISE NOTICE 'Test 5 PASSED: Accepted job is NOT claimed';
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000005'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 6: Finalize with correct claim_token succeeds
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000006'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 1, 'Test 6 setup: must claim 1 job';
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'Test 6 FAILED: finalize must succeed';
+            RAISE NOTICE 'Test 6 PASSED: Finalize with correct claim_token succeeds';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000006'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000006'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 7: Finalize with wrong claim_token is rejected
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; result JSON;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000007'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            -- Use a random UUID as wrong token
+            SELECT finalize_expiry_no_refund(op_id, gen_random_uuid()) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'false', 'Test 7 FAILED: wrong token must be rejected';
+            RAISE NOTICE 'Test 7 PASSED: Finalize with wrong claim_token is rejected';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000007'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000007'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 8: Duplicate finalization is idempotent
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; r1 JSON; r2 JSON;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000008'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO r1;
+            ASSERT (r1::jsonb)->>'success' = 'true', 'Test 8 setup: first finalize must succeed';
+            -- Second finalize with same token
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO r2;
+            -- Should succeed (idempotent) or indicate already_finalized
+            ASSERT (r2::jsonb)->>'success' = 'true', 'Test 8 FAILED: duplicate finalize must be idempotent';
+            RAISE NOTICE 'Test 8 PASSED: Duplicate finalization is idempotent';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000008'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000008'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 9: Expired lease allows reclaim
+          -- ============================================================
+          DO $$
+          DECLARE v1 JSONB; v2 JSONB;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000009'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v1;
+            ASSERT jsonb_array_length(v1) = 1, 'Test 9 setup: first claim must succeed';
+            -- Expire the lease
+            UPDATE job_expiry_refund_operations
+              SET lease_expires_at = now() - interval '1 minute'
+              WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000009'::uuid;
+            -- Reclaim should succeed
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v2;
+            ASSERT jsonb_array_length(v2) = 1, 'Test 9 FAILED: expired lease must allow reclaim';
+            RAISE NOTICE 'Test 9 PASSED: Expired lease allows reclaim';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000009'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000009'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 10: begin_expiry_refund_request transitions to refund_requesting
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; op_status TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, payment_intent_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000010'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'paid', now() - interval '3 hours', 'pi_test_010');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT begin_expiry_refund_request(op_id, ct) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'Test 10 FAILED: begin must succeed';
+            SELECT status INTO op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT op_status = 'refund_requesting', 'Test 10 FAILED: status must be refund_requesting';
+            RAISE NOTICE 'Test 10 PASSED: begin_expiry_refund_request transitions to refund_requesting';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000010'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000010'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 11: finalize_expiry_refund with succeeded status finalizes correctly
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; op_status TEXT; j_status TEXT; j_pay TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, payment_intent_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000011'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'paid', now() - interval '3 hours', 'pi_test_011');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            PERFORM begin_expiry_refund_request(op_id, ct);
+            SELECT finalize_expiry_refund(op_id, ct, 're_test_011', 'succeeded', NULL) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'Test 11 FAILED: finalize must succeed';
+            SELECT status INTO op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT op_status = 'finalized', 'Test 11 FAILED: op must be finalized';
+            SELECT status, payment_status INTO j_status, j_pay FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000011'::uuid;
+            ASSERT j_status = 'expired', 'Test 11 FAILED: job must be expired';
+            ASSERT j_pay = 'refunded', 'Test 11 FAILED: job must be refunded';
+            RAISE NOTICE 'Test 11 PASSED: finalize_expiry_refund with succeeded finalizes correctly';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000011'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000011'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 12: permanent_failure enters manual_review, not reclaimable
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; op_status TEXT; v2 JSONB;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, payment_intent_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000012'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'paid', now() - interval '3 hours', 'pi_test_012');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            PERFORM begin_expiry_refund_request(op_id, ct);
+            SELECT finalize_expiry_refund(op_id, ct, NULL, 'permanent_failure', 'Permanent Stripe error') INTO result;
+            -- permanent_failure returns success=false (it IS a failure) but sets manual_review
+            ASSERT (result::jsonb)->>'status' = 'manual_review', 'Test 12 FAILED: permanent_failure must return manual_review status';
+            SELECT status INTO op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT op_status = 'manual_review', 'Test 12 FAILED: permanent_failure must go to manual_review';
+            -- Verify job is NOT reclaimable
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v2;
+            ASSERT jsonb_array_length(v2) = 0, 'Test 12 FAILED: manual_review job must not be reclaimable';
+            RAISE NOTICE 'Test 12 PASSED: permanent_failure enters manual_review, not reclaimable';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000012'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000012'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 13: Scheduled job becomes eligible after scheduled_for + 2 hours
+          -- ============================================================
+          DO $$ DECLARE v JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, scheduled_for)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000013'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '5 hours', now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 1, 'Test 13 FAILED: scheduled job past 2h must be claimed';
+            RAISE NOTICE 'Test 13 PASSED: Scheduled job eligible after scheduled_for + 2 hours';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000013'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000013'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 14: Scheduled job NOT eligible if only 1 hour past scheduled_for
+          -- ============================================================
+          DO $$ DECLARE v JSONB; BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, scheduled_for)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000014'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '5 hours', now() - interval '1 hour');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 0, 'Test 14 FAILED: job only 1h past scheduled_for must NOT be claimed';
+            RAISE NOTICE 'Test 14 PASSED: Scheduled job NOT eligible if only 1 hour past';
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000014'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 15: Finalized operation preserves state on conflicting finalization
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; r1 JSON; r2 JSON; op_status TEXT; refund_id TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, payment_intent_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000015'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'paid', now() - interval '3 hours', 'pi_test_015');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            PERFORM begin_expiry_refund_request(op_id, ct);
+            -- First finalize as succeeded
+            SELECT finalize_expiry_refund(op_id, ct, 're_test_015', 'succeeded', NULL) INTO r1;
+            ASSERT (r1::jsonb)->>'success' = 'true', 'Test 15 setup: first finalize must succeed';
+            -- Second finalize with different status should NOT change state
+            SELECT finalize_expiry_refund(op_id, ct, 're_test_015', 'failed', 'late failure') INTO r2;
+            -- Must still be finalized with original refund_id
+            SELECT status, stripe_refund_id INTO op_status, refund_id FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT op_status = 'finalized', 'Test 15 FAILED: status must remain finalized';
+            ASSERT refund_id = 're_test_015', 'Test 15 FAILED: refund_id must be preserved';
+            RAISE NOTICE 'Test 15 PASSED: Finalized state preserved on conflicting finalization';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000015'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000015'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 16: Terminal Stripe refund failed → manual_review
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; op_status TEXT; refund_id TEXT; job_status TEXT; pay_status TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, payment_intent_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000016'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'paid', now() - interval '3 hours', 'pi_test_016');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            PERFORM begin_expiry_refund_request(op_id, ct);
+            -- Stripe returned a refund object with status='failed'
+            SELECT finalize_expiry_refund(op_id, ct, 're_failed_016', 'failed', 'Card declined') INTO result;
+            SELECT status INTO op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT op_status = 'manual_review', 'Test 16 FAILED: terminal failed must be manual_review, got ' || op_status;
+            -- Refund ID must be preserved
+            SELECT stripe_refund_id INTO refund_id FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT refund_id = 're_failed_016', 'Test 16 FAILED: refund_id must be preserved';
+            -- Job must remain pending+paid
+            SELECT status, payment_status INTO job_status, pay_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000016'::uuid;
+            ASSERT job_status = 'pending', 'Test 16 FAILED: job must stay pending, got ' || job_status;
+            ASSERT pay_status = 'paid', 'Test 16 FAILED: payment must stay paid, got ' || pay_status;
+            -- Must NOT be reclaimable
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 0, 'Test 16 FAILED: manual_review must not be reclaimable';
+            RAISE NOTICE 'Test 16 PASSED: Terminal failed refund → manual_review, evidence preserved';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000016'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000016'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 17: NULL job payment_status → manual_review (fail-closed)
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; op_status TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000017'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', NULL, now() - interval '3 hours');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'PAYMENT_REVIEW_NEEDED', 'Test 17 FAILED: NULL payment must need review';
+            SELECT status INTO op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT op_status = 'manual_review', 'Test 17 FAILED: must be manual_review';
+            RAISE NOTICE 'Test 17 PASSED: NULL payment_status → manual_review';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000017'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000017'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 18: Checkout with paid_at → no-refund rejected
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; op_status TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, checkout_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000018'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours',
+                    'aaaaaaaa-0000-0000-0000-cccc00000018'::uuid);
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, paid_at)
+            VALUES ('aaaaaaaa-0000-0000-0000-cccc00000018'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 50, 54, 'USD', 'pending', now());
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'false', 'Test 18 FAILED: checkout with paid_at must be rejected. Got: ' || result::text;
+            RAISE NOTICE 'Test 18 PASSED: Checkout with paid_at → rejected';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
+            DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000018'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 19: Checkout with payment_intent_id → no-refund rejected
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, checkout_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000019'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours',
+                    'aaaaaaaa-0000-0000-0000-cccc00000019'::uuid);
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, payment_intent_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-cccc00000019'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 50, 54, 'USD', 'pending', 'pi_test_019');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'CHECKOUT_HAS_PAYMENT_INTENT', 'Test 19 FAILED: checkout with PI must be rejected';
+            RAISE NOTICE 'Test 19 PASSED: Checkout with payment_intent_id → manual_review';
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000019'::uuid;
+            DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000019'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000019'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 20: Safe unpaid job + clean checkout → no_refund_required
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON; job_status TEXT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, checkout_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000020'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours',
+                    'aaaaaaaa-0000-0000-0000-cccc00000020'::uuid);
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status)
+            VALUES ('aaaaaaaa-0000-0000-0000-cccc00000020'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 50, 54, 'USD', 'pending');
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'Test 20 FAILED: safe unpaid must succeed';
+            SELECT status INTO job_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
+            ASSERT job_status = 'expired', 'Test 20 FAILED: job must be expired';
+            RAISE NOTICE 'Test 20 PASSED: Safe unpaid job → no_refund_required';
+            DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+            DELETE FROM job_status_audit WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
+            DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
+            DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000020'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
+          END $$;
+
+          -- ============================================================
+          -- Test 21: Missing referenced checkout → fail closed to manual_review
+          -- ============================================================
+          DO $$
+          DECLARE v JSONB; op_id UUID; ct UUID; result JSON;
+            v_job_status TEXT; v_payment_status TEXT; v_op_status TEXT;
+            v_audit_count INT; v_event_count INT; v_notif_count INT;
+            v_reclaim JSONB; v_reconcile JSONB;
+          BEGIN
+            -- Create unpaid job referencing a nonexistent checkout
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, checkout_id)
+            VALUES ('aaaaaaaa-0000-0000-0000-eeee00000021'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+                    'test-svc-expiry', 'pending', 'unpaid', now() - interval '3 hours',
+                    'aaaaaaaa-0000-0000-0000-cccc00000021'::uuid);
+            -- NOTE: no INSERT into checkouts — the checkout_id is dangling
+
+            SET LOCAL "request.jwt.claim.role" = 'service_role';
+            SET LOCAL role TO 'postgres';
+
+            -- Claim the job
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v;
+            ASSERT jsonb_array_length(v) = 1, 'Test 21 FAILED: must claim exactly 1 job';
+            op_id := (v->0->>'operation_id')::uuid;
+            ct := (v->0->>'claim_token')::uuid;
+
+            -- Attempt finalize_expiry_no_refund — should fail closed
+            SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
+
+            -- 1. finalization returns success=false
+            ASSERT (result::jsonb)->>'success' = 'false', 'Test 21 FAILED (1): must return success=false';
+
+            -- 2. error is CHECKOUT_NOT_FOUND
+            ASSERT (result::jsonb)->>'error' = 'CHECKOUT_NOT_FOUND', 'Test 21 FAILED (2): error must be CHECKOUT_NOT_FOUND';
+
+            -- 3. operation status becomes manual_review
+            SELECT status INTO v_op_status FROM job_expiry_refund_operations WHERE id = op_id;
+            ASSERT v_op_status = 'manual_review', 'Test 21 FAILED (3): operation must be manual_review';
+
+            -- 4. job remains pending
+            SELECT status INTO v_job_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+            ASSERT v_job_status = 'pending', 'Test 21 FAILED (4): job must remain pending';
+
+            -- 5. job payment_status remains unchanged
+            SELECT payment_status INTO v_payment_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+            ASSERT v_payment_status = 'unpaid', 'Test 21 FAILED (5): payment_status must remain unpaid';
+
+            -- 6. no job_status_audit expired record
+            SELECT count(*) INTO v_audit_count FROM job_status_audit
+            WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid AND new_status = 'expired';
+            ASSERT v_audit_count = 0, 'Test 21 FAILED (6): no expired audit record must exist';
+
+            -- 7. no job_expired_no_provider event
+            SELECT count(*) INTO v_event_count FROM job_events
+            WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid AND event_type = 'job_expired_no_provider';
+            ASSERT v_event_count = 0, 'Test 21 FAILED (7): no job_expired_no_provider event must exist';
+
+            -- 8. no 'not charged' notification
+            SELECT count(*) INTO v_notif_count FROM notifications
+            WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid
+              AND message ILIKE '%not charged%';
+            ASSERT v_notif_count = 0, 'Test 21 FAILED (8): no expiry notification must exist';
+
+            -- 9. claim_expiry_eligible_jobs does not reclaim it
+            SELECT claim_expiry_eligible_jobs(10)::jsonb INTO v_reclaim;
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM jsonb_array_elements(v_reclaim) e
+              WHERE e->>'job_id' = 'aaaaaaaa-0000-0000-0000-eeee00000021'
+            ), 'Test 21 FAILED (9): manual_review op must not be reclaimed';
+
+            -- 10. reconcile_pending_refunds does not reclaim it
+            SELECT reconcile_pending_refunds(10, 0)::jsonb INTO v_reconcile;
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM jsonb_array_elements(COALESCE(v_reconcile, '[]'::jsonb)) e
+              WHERE e->>'operation_id' = op_id::text
+            ), 'Test 21 FAILED (10): manual_review op must not be reconciled';
+
+            RAISE NOTICE 'Test 21 PASSED: Missing referenced checkout → manual_review (fail closed)';
+
+            -- Cleanup
+            DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+            DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000021'::uuid;
+          END $$;
+
+          -- Cleanup test data
+          DELETE FROM services WHERE id = 'test-svc-expiry';
+          DELETE FROM auth.users WHERE id IN (
+            'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid,
+            'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid
+          );
+
+          DO $$ BEGIN RAISE NOTICE 'All 21 expiry lifecycle tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
@@ -333,3 +915,5 @@ jobs:
         run: deno check supabase/functions/create-payment-intent/index.ts
       - name: Check stripe-webhook compiles
         run: deno check supabase/functions/stripe-webhook/index.ts
+      - name: Check expire-pending-jobs compiles
+        run: deno check supabase/functions/expire-pending-jobs/index.ts

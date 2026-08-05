@@ -8,6 +8,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  * - Timestamp replay protection (300s window)
  * - Idempotent processing (processed_webhook_events table)
  * - Updates checkout and job records on payment success/failure/refund
+ * - Correlates charge.refunded / refund.updated events with pending
+ *   job_expiry_refund_operations for async refund finalization
  */
 
 function hexEncode(bytes: Uint8Array): string {
@@ -122,6 +124,141 @@ Deno.serve(async (req) => {
       }
     } else {
       console.log(`[stripe-webhook] Unhandled event type: ${event.type}`);
+    }
+
+    // ================================================================
+    // BLOCKER 3: Check for pending expiry refund operations
+    // Correlate charge.refunded and refund.updated events with
+    // job_expiry_refund_operations in refund_pending state.
+    //
+    // Safety: Only correlates with existing refund_pending operations
+    // by matching the exact stripe_refund_id. An unrelated manual
+    // refund will NOT match any operation and is harmless.
+    // Duplicate webhook delivery is safe because finalize_expiry_refund
+    // is idempotent (claim_token check + status guard).
+    // ================================================================
+    if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
+      // For charge.refunded: eventObject is the charge, refunds are in eventObject.refunds.data[]
+      // For refund.updated: eventObject is the refund itself
+      const refundObjects: Array<{ id: string; status: string; payment_intent?: string }> = [];
+
+      if (event.type === 'refund.updated') {
+        // eventObject IS the refund
+        if (eventObject?.id) {
+          refundObjects.push({
+            id: eventObject.id,
+            status: eventObject.status,
+            payment_intent: eventObject.payment_intent,
+          });
+        }
+      } else if (event.type === 'charge.refunded') {
+        // eventObject is the charge; refunds are nested
+        const refunds = eventObject?.refunds?.data || [];
+        for (const r of refunds) {
+          if (r?.id) {
+            refundObjects.push({
+              id: r.id,
+              status: r.status,
+              payment_intent: eventObject?.payment_intent,
+            });
+          }
+        }
+      }
+
+      for (const refundObj of refundObjects) {
+        try {
+          const refundId = refundObj.id;
+
+          // BLOCKER 11: Correlate by exact stripe_refund_id only
+          const { data: expiryOp, error: lookupError } = await adminClient
+            .from('job_expiry_refund_operations')
+            .select('id, claim_token, status, job_id')
+            .eq('stripe_refund_id', refundId)
+            .eq('status', 'refund_pending')
+            .maybeSingle();
+
+          if (lookupError) {
+            console.error(
+              `[stripe-webhook] CRITICAL: Lookup error for expiry operation refund ${refundId}: ${lookupError.message}. ` +
+              `Scheduled reconciliation will retry.`
+            );
+            continue;
+          }
+
+          if (!expiryOp) continue;
+
+          // Verify payment_intent matches if present
+          if (refundObj.payment_intent && expiryOp.job_id) {
+            const { data: jobRecord, error: jobLookupError } = await adminClient
+              .from('jobs')
+              .select('payment_intent_id')
+              .eq('id', expiryOp.job_id)
+              .single();
+
+            if (jobLookupError) {
+              console.error(
+                `[stripe-webhook] CRITICAL: Failed to look up job ${expiryOp.job_id} for PI verification: ${jobLookupError.message}. ` +
+                `Scheduled reconciliation will retry.`
+              );
+              continue;
+            }
+
+            if (jobRecord?.payment_intent_id && refundObj.payment_intent !== jobRecord.payment_intent_id) {
+              console.error(
+                `[stripe-webhook] Payment intent mismatch for refund ${refundId}: ` +
+                `expected ${jobRecord.payment_intent_id}, got ${refundObj.payment_intent}`
+              );
+              continue;
+            }
+          }
+
+          // Only finalize when Stripe explicitly says succeeded or failed
+          const refundStatus = refundObj.status;
+          if (!refundStatus || (refundStatus !== 'succeeded' && refundStatus !== 'failed')) {
+            console.log(
+              `[stripe-webhook] Refund ${refundId} status is '${refundStatus}', not finalizing yet`
+            );
+            continue;
+          }
+
+          const { data: result, error: finalizeError } = await adminClient.rpc('finalize_expiry_refund', {
+            p_operation_id: expiryOp.id,
+            p_claim_token: expiryOp.claim_token,
+            p_stripe_refund_id: refundId,
+            p_stripe_refund_status: refundStatus,
+          });
+
+          // Check both RPC error and result.success
+          if (finalizeError) {
+            // CRITICAL: Finalization failed but event already claimed by process_stripe_webhook.
+            // Do NOT throw — the scheduled reconciliation in expire-pending-jobs is the safety net.
+            console.error(
+              `[stripe-webhook] CRITICAL: Failed to finalize expiry refund op=${expiryOp.id}, ` +
+              `refund=${refundId}, error=${finalizeError.message}. ` +
+              `Event already processed — scheduled reconciliation will handle this.`
+            );
+          } else if (result?.success === false) {
+            // Finalize RPC returned an application-level error (e.g. claim_token mismatch, already finalized)
+            console.error(
+              `[stripe-webhook] CRITICAL: Finalize returned failure for op=${expiryOp.id}, ` +
+              `refund=${refundId}, error=${result.error}. ` +
+              `Event already processed — scheduled reconciliation will handle this.`
+            );
+          } else {
+            console.log(
+              `[stripe-webhook] Finalized expiry refund: op=${expiryOp.id}, status=${refundStatus}`
+            );
+          }
+        } catch (refundErr: any) {
+          // CRITICAL: Exception during refund correlation. Event already claimed by
+          // process_stripe_webhook so we can't return 500 to get Stripe to retry.
+          // The scheduled reconciliation in expire-pending-jobs is the safety net.
+          console.error(
+            `[stripe-webhook] CRITICAL: Exception processing refund correlation: ${refundErr?.message}. ` +
+            `Event already processed — scheduled reconciliation will handle this.`
+          );
+        }
+      }
     }
 
     return new Response(JSON.stringify({ received: true }), {
