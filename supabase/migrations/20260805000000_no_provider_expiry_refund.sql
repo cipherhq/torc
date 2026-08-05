@@ -489,7 +489,24 @@ BEGIN
       'job_id', v_op.job_id, 'error', COALESCE(p_error_message, 'permanent_failure'));
 
   -- ================================================================
-  -- Refund FAILED (retryable)
+  -- Stripe refund terminal FAILED (refund exists but cannot complete)
+  -- This is NOT retryable — the refund ID is known and Stripe says failed.
+  -- ================================================================
+  ELSIF p_stripe_refund_status = 'failed' THEN
+
+    UPDATE public.job_expiry_refund_operations
+    SET status = 'manual_review',
+        stripe_refund_id = COALESCE(p_stripe_refund_id, v_op.stripe_refund_id),
+        stripe_refund_status = 'failed',
+        last_error = COALESCE(p_error_message, 'Stripe refund terminal status: failed')
+    WHERE id = p_operation_id;
+
+    -- Do NOT change job status, do NOT notify customer
+    RETURN json_build_object('success', false, 'status', 'manual_review',
+      'job_id', v_op.job_id, 'error', 'Stripe refund failed terminally');
+
+  -- ================================================================
+  -- Refund FAILED (retryable — request-level error, no terminal Stripe status)
   -- ================================================================
   ELSE
 
@@ -558,22 +575,43 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'JOB_CHANGED');
   END IF;
 
-  -- Verify payment state: only safe unpaid/failed states
-  IF v_job.payment_status NOT IN ('unpaid', 'failed') THEN
+  -- FAIL-CLOSED: only EXPLICITLY proven non-captured payment states may expire without refund.
+  -- NULL, unknown, paid, refunded, requires_action, and any other value → manual_review.
+  IF v_job.payment_status IS NULL OR v_job.payment_status NOT IN ('unpaid', 'failed') THEN
     UPDATE job_expiry_refund_operations SET status = 'manual_review',
-      last_error = 'Payment status ' || v_job.payment_status || ' requires review'
+      last_error = 'Payment status ' || COALESCE(v_job.payment_status, 'NULL') || ' requires review'
     WHERE id = p_operation_id;
     RETURN json_build_object('success', false, 'error', 'PAYMENT_REVIEW_NEEDED');
   END IF;
 
-  -- Check checkout too
+  -- FAIL-CLOSED checkout verification.
+  -- The only safe checkout states for no-refund expiry are: NULL/missing, 'pending', 'failed', 'expired'.
+  -- Any evidence of captured payment (paid, refunded, payment_processing, paid_at, payment_intent_id) → manual_review.
   IF v_op.checkout_id IS NOT NULL THEN
     SELECT * INTO v_checkout FROM checkouts WHERE id = v_op.checkout_id;
-    IF v_checkout IS NOT NULL AND v_checkout.status IN ('paid', 'refunded') THEN
-      UPDATE job_expiry_refund_operations SET status = 'manual_review',
-        last_error = 'Checkout status ' || v_checkout.status || ' contradicts unpaid job'
-      WHERE id = p_operation_id;
-      RETURN json_build_object('success', false, 'error', 'CHECKOUT_INCONSISTENCY');
+    IF v_checkout IS NOT NULL THEN
+      -- Reject any checkout status that implies captured or processed payment
+      IF v_checkout.status IS NULL
+         OR v_checkout.status NOT IN ('pending', 'failed', 'expired')
+      THEN
+        UPDATE job_expiry_refund_operations SET status = 'manual_review',
+          last_error = 'Checkout status ' || COALESCE(v_checkout.status, 'NULL') || ' not proven safe for no-refund expiry'
+        WHERE id = p_operation_id;
+        RETURN json_build_object('success', false, 'error', 'CHECKOUT_INCONSISTENCY');
+      END IF;
+      -- Reject if checkout has evidence of payment capture
+      IF v_checkout.paid_at IS NOT NULL THEN
+        UPDATE job_expiry_refund_operations SET status = 'manual_review',
+          last_error = 'Checkout has paid_at set — payment may have been captured'
+        WHERE id = p_operation_id;
+        RETURN json_build_object('success', false, 'error', 'CHECKOUT_PAID_AT_SET');
+      END IF;
+      IF v_checkout.payment_intent_id IS NOT NULL THEN
+        UPDATE job_expiry_refund_operations SET status = 'manual_review',
+          last_error = 'Checkout has payment_intent_id — payment may have been initiated'
+        WHERE id = p_operation_id;
+        RETURN json_build_object('success', false, 'error', 'CHECKOUT_HAS_PAYMENT_INTENT');
+      END IF;
     END IF;
   END IF;
 
