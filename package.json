@@ -3,7 +3,10 @@
       "version": "1.0.0",
       "private": true,
       "workspaces": [
-            "apps/*",
+            "apps/customer-web",
+            "apps/provider-web",
+            "apps/admin-web",
+            "apps/website",
             "packages/*"
       ],
       "dependencies": {

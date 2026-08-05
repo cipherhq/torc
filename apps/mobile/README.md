@@ -1,8 +1,14 @@
-# 📱 TORC Mobile App
+# TORC Mobile App (DEPRECATED)
 
-**Your Roadside Companion - iOS & Android**
+> **This Expo prototype is deprecated and is NOT the production TORC mobile application.**
+> Production mobile apps are built from `apps/customer-web` and `apps/provider-web` using Capacitor.
+> See [DEPRECATED.md](./DEPRECATED.md) for details.
 
-## 🎉 Status: Foundation Complete!
+---
+
+*Historical documentation preserved below:*
+
+## Original Status: Foundation Complete (Archived)
 
 The mobile app foundation is fully built and ready for development. All core systems are in place:
 
