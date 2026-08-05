@@ -8,7 +8,10 @@ set -euo pipefail
 # pointing to node_modules/ (e.g., @capacitor/camera, @capacitor/geolocation).
 # These don't exist until npm dependencies are installed.
 #
-# This script runs npm ci at the monorepo root so the SPM packages resolve.
+# This script:
+# 1. Runs npm ci at the monorepo root so SPM packages resolve.
+# 2. Builds the customer web app (vite build).
+# 3. Runs cap sync ios to copy built assets and generate Cordova compat files.
 
 echo "=== TORC Customer iOS: ci_post_clone ==="
 echo "CI_PRIMARY_REPOSITORY_PATH: ${CI_PRIMARY_REPOSITORY_PATH:-not set}"
@@ -45,4 +48,15 @@ echo "npm: $(npm --version)"
 echo "Running npm ci..."
 npm ci
 
-echo "=== Dependencies installed. SPM packages should resolve. ==="
+echo "=== Dependencies installed. ==="
+
+# Build the customer web app so dist/ is produced
+echo "Building TORC Customer web app..."
+npm run build:customer
+
+# Sync Capacitor iOS project (copies dist/ to native assets, generates Cordova compat files)
+echo "Syncing TORC Customer Capacitor iOS project..."
+cd "$REPO_ROOT/apps/customer-web"
+npx cap sync ios
+
+echo "=== Customer iOS build preparation complete. ==="
