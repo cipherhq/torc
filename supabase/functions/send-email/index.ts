@@ -554,21 +554,20 @@ Deno.serve(async (req) => {
     // SELF-SERVICE: welcome
     // ─────────────────────────────────────────────────────────────────
     else if (template === 'welcome') {
-      // Durable idempotency: exactly once per user, forever
+      // Validate FIRST — before claiming
+      recipient = callerProfile?.email || user.email || '';
+      if (!recipient) {
+        return jsonResp({ error: 'No email address found for your account' }, 400);
+      }
+      const name = escapeHtml(callerProfile?.first_name || user.user_metadata?.first_name || 'there');
+      emailContent = welcomeEmail(name);
+
+      // Claim AFTER validation — exactly once per user, permanent
       deliveryEventKey = `welcome:${user.id}`;
       const claimed = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
       if (!claimed) {
         return jsonResp({ success: true, message: 'Welcome email already sent' }, 200);
       }
-
-      // Recipient is the caller themselves — derive from profile/auth
-      recipient = callerProfile?.email || user.email || '';
-      if (!recipient) {
-        return jsonResp({ error: 'No email address found for your account' }, 400);
-      }
-
-      const name = escapeHtml(callerProfile?.first_name || user.user_metadata?.first_name || 'there');
-      emailContent = welcomeEmail(name);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -580,33 +579,36 @@ Deno.serve(async (req) => {
         return jsonResp({ error: 'Only providers can trigger document notifications' }, 403);
       }
 
-      // Verify actual document state: at least one document pending/under review
+      // Verify actual document state and get submission cycle identifier
       const { data: pendingDocs, error: docErr } = await adminClient
         .from('documents')
-        .select('id')
+        .select('id, updated_at')
         .eq('provider_id', user.id)
         .eq('status', 'pending')
-        .limit(1);
+        .order('updated_at', { ascending: false })
+        .limit(5);
 
       if (docErr || !pendingDocs || pendingDocs.length === 0) {
         return jsonResp({ error: 'No pending documents found for your account' }, 400);
       }
 
-      // Durable idempotency: once per user (re-claimable after document resubmission via failed state)
-      deliveryEventKey = `documents_pending:${user.id}`;
-      const claimed = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
-      if (!claimed) {
-        return jsonResp({ success: true, message: 'Documents pending email already sent' }, 200);
-      }
-
-      // Recipient is the caller themselves
+      // Validate recipient BEFORE claiming
       recipient = callerProfile?.email || user.email || '';
       if (!recipient) {
         return jsonResp({ error: 'No email address found for your account' }, 400);
       }
-
       const name = escapeHtml(callerProfile?.first_name || 'there');
       emailContent = documentsPendingEmail(name);
+
+      // Key by submission cycle: sorted pending doc IDs create a deterministic version.
+      // A new submission (different IDs or updated_at) creates a new cycle key.
+      const cycleIds = pendingDocs.map((d: any) => d.id).sort().join(',');
+      const cycleHash = cycleIds.slice(0, 32); // truncate for key length
+      deliveryEventKey = `documents_pending:${user.id}:${cycleHash}`;
+      const claimed = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
+      if (!claimed) {
+        return jsonResp({ success: true, message: 'Documents pending email already sent for this submission' }, 200);
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -617,10 +619,10 @@ Deno.serve(async (req) => {
         return jsonResp({ error: 'jobId is required for this template' }, 400);
       }
 
-      // Load full job record
+      // Load full job record (provider_payout does not exist in schema — omitted)
       const { data: job } = await adminClient
         .from('jobs')
-        .select('id, customer_id, provider_id, service_id, status, pickup_address, total_amount, provider_payout, completed_at, started_at, cancellation_reason')
+        .select('id, customer_id, provider_id, service_id, status, pickup_address, total_amount, completed_at, started_at')
         .eq('id', jobId)
         .maybeSingle();
 
@@ -638,14 +640,7 @@ Deno.serve(async (req) => {
         return jsonResp({ error: 'Not authorized for this job' }, 403);
       }
 
-      // Durable idempotency: exactly once per job per template, forever
-      deliveryEventKey = `${template}:${jobId}`;
-      const claimed = await claimDelivery(adminClient, deliveryEventKey, template);
-      if (!claimed) {
-        return jsonResp({ success: true, message: 'This email has already been sent' }, 200);
-      }
-
-      // Load profiles and service name in parallel
+      // Load profiles and service name in parallel (BEFORE claiming)
       const [customerProfile, providerProfile, serviceRecord] = await Promise.all([
         job.customer_id
           ? adminClient.from('profiles').select('first_name, last_name, email').eq('id', job.customer_id).maybeSingle().then((r: any) => r.data)
@@ -693,22 +688,24 @@ Deno.serve(async (req) => {
         }
         recipient = providerProfile.email;
 
-        // Provider payout: use provider_payout if it exists, otherwise omit amount
-        // Do NOT show customer gross (total_amount) as provider earnings
-        const providerPayout = job.provider_payout
-          ? `$${Number(job.provider_payout).toFixed(2)}`
-          : undefined;
-
+        // No trusted provider_payout column exists — never show customer gross as earnings
         emailContent = providerCompletionEmail({
           providerName,
           customerName,
           serviceName,
           date,
-          payout: providerPayout || 'See your earnings dashboard',
+          payout: 'See your earnings dashboard',
           address,
           jobId: job.id,
           duration,
         });
+      }
+
+      // Claim AFTER all validation and content derivation — just before send
+      deliveryEventKey = `${template}:${jobId}`;
+      const claimed = await claimDelivery(adminClient, deliveryEventKey, template);
+      if (!claimed) {
+        return jsonResp({ success: true, message: 'This email has already been sent' }, 200);
       }
     } else {
       return jsonResp({ error: `Unhandled template: ${template}` }, 400);
