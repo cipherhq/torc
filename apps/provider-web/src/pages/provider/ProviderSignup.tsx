@@ -87,10 +87,9 @@ export function ProviderSignup() {
         }, { onConflict: 'id' });
       }
 
-      // Send welcome email (fire-and-forget)
-      import('../../services/email.service').then(({ sendWelcomeEmail }) => {
-        sendWelcomeEmail(email, String(formData.firstName).trim() || 'there');
-      });
+      // Welcome email is triggered on first authenticated session (after email verification),
+      // not here, because signUp may not yet have a valid session.
+      // See AuthContext — welcome is sent on first SIGNED_IN event, idempotent.
 
       localStorage.setItem('pendingVerificationEmail', email);
       navigate('/verify-email');

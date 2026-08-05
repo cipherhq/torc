@@ -55,7 +55,7 @@ function baseLayout(content: string): string {
 
 function welcomeEmail(name: string): { subject: string; html: string } {
   return {
-    subject: 'Welcome to TORC! 🎉',
+    subject: 'Welcome to TORC!',
     html: baseLayout(`
       <div class="header">
         <h1>Welcome to TORC</h1>
@@ -67,20 +67,20 @@ function welcomeEmail(name: string): { subject: string; html: string } {
         <p>Here's what you can do:</p>
         <div class="card">
           <div class="card-row">
-            <span class="card-label">🚗</span>
-            <span class="card-value">Request help in seconds</span>
+            <span class="card-label">Request help in seconds</span>
+            <span class="card-value">Fast</span>
           </div>
           <div class="card-row">
-            <span class="card-label">📍</span>
-            <span class="card-value">Track your provider in real-time</span>
+            <span class="card-label">Track your provider in real-time</span>
+            <span class="card-value">Live GPS</span>
           </div>
           <div class="card-row">
-            <span class="card-label">💬</span>
-            <span class="card-value">Chat directly with your provider</span>
+            <span class="card-label">Chat directly with your provider</span>
+            <span class="card-value">In-app</span>
           </div>
           <div class="card-row">
-            <span class="card-label">💳</span>
-            <span class="card-value">Secure, cashless payments</span>
+            <span class="card-label">Secure, cashless payments</span>
+            <span class="card-value">Safe</span>
           </div>
         </div>
         <p>Ready to get started? Open the app and request your first service!</p>
@@ -105,7 +105,7 @@ function documentsPendingEmail(name: string): { subject: string; html: string } 
         <p>We've received your documents and they are currently under review. This process typically takes 1-2 business days.</p>
         <div class="card">
           <div style="text-align:center; padding: 12px 0;">
-            <span class="badge badge-pending">⏳ Under Review</span>
+            <span class="badge badge-pending">Under Review</span>
           </div>
           <div class="divider"></div>
           <p style="font-size: 13px; color: #6B7280; margin: 8px 0 0; text-align: center;">
@@ -144,7 +144,7 @@ function documentRequestEmail(name: string, reason: string): { subject: string; 
 
 function providerApprovedEmail(name: string): { subject: string; html: string } {
   return {
-    subject: 'Your TORC Account is Approved! ✅',
+    subject: 'Your TORC Account is Approved!',
     html: baseLayout(`
       <div class="header">
         <h1>You're Approved!</h1>
@@ -155,7 +155,7 @@ function providerApprovedEmail(name: string): { subject: string; html: string } 
         <p>Your provider application has been reviewed and approved. You can now start accepting service requests and earning money on the TORC platform.</p>
         <div class="card">
           <div style="text-align:center; padding: 12px 0;">
-            <span class="badge badge-success">✓ Verified Provider</span>
+            <span class="badge badge-success">Verified Provider</span>
           </div>
           <div class="divider"></div>
           <div class="card-row">
@@ -225,7 +225,7 @@ function customerInvoiceEmail(data: {
           <div style="text-align:center; margin-bottom: 16px;">
             <p class="amount-label">Total Charged</p>
             <p class="amount">${data.amount}</p>
-            <span class="badge badge-success">✓ Paid</span>
+            <span class="badge badge-success">Paid</span>
           </div>
           <div class="divider"></div>
           <div class="card-row">
@@ -268,13 +268,12 @@ function providerCompletionEmail(data: {
   customerName: string;
   serviceName: string;
   date: string;
-  payout: string;
   address: string;
   jobId: string;
   duration?: string;
 }): { subject: string; html: string } {
   return {
-    subject: `Job Complete — Earned ${data.payout}`,
+    subject: `Job Complete — TORC`,
     html: baseLayout(`
       <div class="header">
         <h1>Job Complete!</h1>
@@ -282,13 +281,11 @@ function providerCompletionEmail(data: {
       </div>
       <div class="body">
         <h2>Nice job, ${data.providerName}!</h2>
-        <p>You've successfully completed a service. Here's your earnings summary:</p>
+        <p>Your job has been completed successfully.</p>
 
         <div class="card">
           <div style="text-align:center; margin-bottom: 16px;">
-            <p class="amount-label">You Earned</p>
-            <p class="amount" style="color: #22C55E;">${data.payout}</p>
-            <span class="badge badge-success">✓ Completed</span>
+            <span class="badge badge-success">Completed</span>
           </div>
           <div class="divider"></div>
           <div class="card-row">
@@ -317,9 +314,9 @@ function providerCompletionEmail(data: {
           </div>
         </div>
 
-        <p>Your earnings will be deposited to your linked bank account. Keep up the great work!</p>
+        <p>View your earnings dashboard for payout details. Keep up the great work!</p>
         <p style="text-align:center; margin-top: 24px;">
-          <a href="https://torcapp.com" class="btn">View Earnings</a>
+          <a href="https://torcapp.com" class="btn">View Dashboard</a>
         </p>
       </div>
     `),
@@ -336,7 +333,112 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
-// ─── Template Router ────────────────────────────────────────────────
+// ─── Durable notification delivery (claim/mark pattern) ─────────────
+
+/** Claim delivery — returns UUID token on success, null if already sent/in-progress */
+type DeliveryClaim =
+  | { status: 'claimed'; token: string }
+  | { status: 'unavailable' }
+  | { status: 'error'; error: string };
+
+async function claimDelivery(adminClient: any, eventKey: string, template: string): Promise<DeliveryClaim> {
+  const { data, error } = await adminClient.rpc('claim_notification_delivery', {
+    p_event_key: eventKey,
+    p_channel: 'email',
+    p_template: template,
+  });
+  if (error) {
+    console.error('[send-email] Delivery claim RPC failed:', error.message);
+    return { status: 'error', error: error.message };
+  }
+  if (data) {
+    return { status: 'claimed', token: data };
+  }
+  return { status: 'unavailable' };
+}
+
+/** Mark delivery — requires the claim token for ownership. Returns true if this token owns the claim. */
+async function markDelivery(
+  adminClient: any, eventKey: string, claimToken: string, status: 'sent' | 'failed',
+  externalId?: string, errorMessage?: string, recipient?: string
+): Promise<boolean> {
+  const { data, error } = await adminClient.rpc('mark_notification_delivery', {
+    p_event_key: eventKey,
+    p_claim_token: claimToken,
+    p_status: status,
+    p_external_id: externalId || null,
+    p_error_message: errorMessage || null,
+    p_recipient: recipient || null,
+  });
+  if (error) {
+    console.warn('[send-email] Mark delivery failed:', error.message);
+    return false;
+  }
+  return data === true;
+}
+
+// ─── Rate limiting (still used for abuse protection, not idempotency) ─
+
+async function claimRateLimitSlot(adminClient: any, key: string, max: number, window: number): Promise<boolean> {
+  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
+    p_key: key, p_max_count: max, p_window_seconds: window,
+  });
+  if (error) { console.error('[send-email] Rate limit failed, blocking:', error.message); return false; }
+  return data === true;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+function jsonResp(body: Record<string, any>, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+// Load profile name in "FirstName L." format
+async function loadProfileName(adminClient: any, userId: string): Promise<string> {
+  const { data } = await adminClient
+    .from('profiles')
+    .select('first_name, last_name')
+    .eq('id', userId)
+    .maybeSingle();
+  if (!data) return 'there';
+  const first = data.first_name || '';
+  const last = data.last_name ? `${data.last_name.charAt(0)}.` : '';
+  return `${first} ${last}`.trim() || 'there';
+}
+
+// Format date for display
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return 'N/A';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      year: 'numeric', month: 'long', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  } catch {
+    return 'N/A';
+  }
+}
+
+// Calculate duration between two timestamps
+function calcDuration(startedAt: string | null, completedAt: string | null): string | undefined {
+  if (!startedAt || !completedAt) return undefined;
+  try {
+    const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    if (ms <= 0) return undefined;
+    const mins = Math.round(ms / 60000);
+    if (mins < 60) return `${mins} min`;
+    const hrs = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+  } catch {
+    return undefined;
+  }
+}
+
+// ─── Template categories ────────────────────────────────────────────
 
 const ALLOWED_TEMPLATES = [
   'welcome', 'documents_pending', 'document_request',
@@ -344,67 +446,16 @@ const ALLOWED_TEMPLATES = [
   'customer_invoice', 'provider_completion',
 ];
 
-// Templates that only admin/system should send — never ordinary customers/providers
+// Admin-only: only admin can trigger these
 const ADMIN_ONLY_TEMPLATES = new Set([
-  'welcome', 'documents_pending', 'document_request',
-  'provider_approved', 'provider_suspended',
+  'document_request', 'provider_approved', 'provider_suspended',
 ]);
 
-// Templates tied to a specific job (require job ownership verification)
+// Job-based templates: require jobId, status=completed, derive all content
 const JOB_TEMPLATES = new Set(['customer_invoice', 'provider_completion']);
 
-function getEmailContent(
-  template: string,
-  data: Record<string, any>
-): { subject: string; html: string } {
-  // Escape all string values to prevent XSS in email templates
-  const safeData: Record<string, any> = {};
-  for (const [key, value] of Object.entries(data)) {
-    safeData[key] = typeof value === 'string' ? escapeHtml(value) : value;
-  }
-
-  switch (template) {
-    case 'welcome':
-      return welcomeEmail(safeData.name || 'there');
-    case 'documents_pending':
-      return documentsPendingEmail(safeData.name || 'there');
-    case 'document_request':
-      return documentRequestEmail(safeData.name || 'there', safeData.reason || '');
-    case 'provider_approved':
-      return providerApprovedEmail(safeData.name || 'there');
-    case 'provider_suspended':
-      return providerSuspendedEmail(safeData.name || 'there', safeData.reason || '');
-    case 'customer_invoice':
-      return customerInvoiceEmail(safeData);
-    case 'provider_completion':
-      return providerCompletionEmail(safeData);
-    default:
-      throw new Error(`Unknown email template: ${template}`);
-  }
-}
-
-// ─── Atomic rate limiting (database RPC, fail-closed) ───────────────
-
-async function claimRateLimitSlot(
-  adminClient: any,
-  key: string,
-  maxCount: number,
-  windowSeconds: number
-): Promise<boolean> {
-  const { data, error } = await adminClient.rpc('claim_rate_limit_slot', {
-    p_key: key,
-    p_max_count: maxCount,
-    p_window_seconds: windowSeconds,
-  });
-
-  if (error) {
-    // Fail closed — if we can't verify the rate limit, block the request
-    console.error('[send-email] Rate limit RPC failed, blocking:', error.message);
-    return false;
-  }
-
-  return data === true;
-}
+// Self-service templates: authenticated user triggers for themselves only
+const SELF_SERVICE_TEMPLATES = new Set(['welcome', 'documents_pending']);
 
 // ─── Main Handler ───────────────────────────────────────────────────
 
@@ -412,6 +463,11 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+
+  // Declare cleanup state BEFORE try so catch can access them
+  let adminClient: any = null;
+  let deliveryEventKey: string | null = null;
+  let deliveryClaimToken: string | null = null;
 
   try {
     if (!RESEND_API_KEY) throw new Error('Email service not configured.');
@@ -422,9 +478,7 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Unauthorized' }, 401);
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -432,155 +486,305 @@ Deno.serve(async (req) => {
     });
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Unauthorized' }, 401);
     }
 
     const { template, data, jobId } = await req.json();
 
     if (!template) {
-      return new Response(JSON.stringify({ error: 'Missing required field: template' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Missing required field: template' }, 400);
     }
     if (!ALLOWED_TEMPLATES.includes(template)) {
-      return new Response(JSON.stringify({ error: `Unknown template: ${template}` }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: `Unknown template: ${template}` }, 400);
     }
 
     if (!serviceRoleKey) throw new Error('Missing service configuration.');
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    // ── Look up caller's role from profile ──────────────────────────
+    // ── Load caller profile ─────────────────────────────────────────
     const { data: callerProfile } = await adminClient
       .from('profiles')
-      .select('role')
+      .select('role, first_name, last_name, email, phone')
       .eq('id', user.id)
       .maybeSingle();
 
-    // Do NOT default to 'customer' — null role = no special permissions
     const callerRole = callerProfile?.role || null;
 
-    // ── Template authorization ──────────────────────────────────────
-    if (ADMIN_ONLY_TEMPLATES.has(template) && callerRole !== 'admin') {
-      console.warn(`[send-email] Unauthorized: ${user.id} (${callerRole}) attempted admin template ${template}`);
-      return new Response(JSON.stringify({ error: 'Not authorized to send this email type' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // ── Durable rate limiting ───────────────────────────────────────
+    // ── Durable rate limiting (per-user) ────────────────────────────
     const allowed = await claimRateLimitSlot(adminClient, `email:${user.id}`, 20, 3600);
     if (!allowed) {
-      return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again later.' }), {
-        status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResp({ error: 'Rate limit exceeded. Try again later.' }, 429);
     }
 
-    // ── Derive recipient from trusted records ───────────────────────
+    // ── Route by template category ──────────────────────────────────
+
     let recipient: string;
+    let emailContent: { subject: string; html: string };
 
-    if (JOB_TEMPLATES.has(template)) {
-      // Job-related templates: require jobId, verify caller is participant, derive recipient from job
-      if (!jobId) {
-        return new Response(JSON.stringify({ error: 'jobId is required for this template' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    // ─────────────────────────────────────────────────────────────────
+    // ADMIN-ONLY TEMPLATES
+    // ─────────────────────────────────────────────────────────────────
+    if (ADMIN_ONLY_TEMPLATES.has(template)) {
+      if (callerRole !== 'admin') {
+        console.warn(`[send-email] Unauthorized: ${user.id} (${callerRole}) attempted admin template ${template}`);
+        return jsonResp({ error: 'Not authorized to send this email type' }, 403);
       }
 
-      const { data: job } = await adminClient
-        .from('jobs')
-        .select('customer_id, provider_id')
-        .eq('id', jobId)
-        .maybeSingle();
-
-      if (!job) {
-        return new Response(JSON.stringify({ error: 'Job not found' }), {
-          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      // Verify caller is part of this job (or admin)
-      if (callerRole !== 'admin' && job.customer_id !== user.id && job.provider_id !== user.id) {
-        return new Response(JSON.stringify({ error: 'Not authorized for this job' }), {
-          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      // Derive recipient: invoice → customer, completion → provider
-      const targetId = template === 'customer_invoice' ? job.customer_id : job.provider_id;
-      if (!targetId) {
-        return new Response(JSON.stringify({ error: 'No target user for this job' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const { data: targetProfile } = await adminClient
-        .from('profiles')
-        .select('email')
-        .eq('id', targetId)
-        .maybeSingle();
-
-      if (!targetProfile?.email) {
-        return new Response(JSON.stringify({ error: 'Target user email not found' }), {
-          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      recipient = targetProfile.email;
-    } else {
-      // Admin-only templates: admin provides targetUserId, recipient derived from DB
       const targetUserId = data?.targetUserId;
       if (!targetUserId) {
-        return new Response(JSON.stringify({ error: 'targetUserId is required' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResp({ error: 'targetUserId is required' }, 400);
       }
 
       const { data: targetProfile } = await adminClient
         .from('profiles')
-        .select('email')
+        .select('email, first_name, last_name')
         .eq('id', targetUserId)
         .maybeSingle();
 
       if (!targetProfile?.email) {
-        return new Response(JSON.stringify({ error: 'Target user email not found' }), {
-          status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResp({ error: 'Target user email not found' }, 404);
       }
       recipient = targetProfile.email;
+
+      const targetName = escapeHtml(
+        targetProfile.first_name
+          ? `${targetProfile.first_name} ${targetProfile.last_name ? targetProfile.last_name.charAt(0) + '.' : ''}`.trim()
+          : 'there'
+      );
+
+      switch (template) {
+        case 'document_request':
+          emailContent = documentRequestEmail(targetName, escapeHtml(data?.reason || ''));
+          break;
+        case 'provider_approved':
+          emailContent = providerApprovedEmail(targetName);
+          break;
+        case 'provider_suspended':
+          emailContent = providerSuspendedEmail(targetName, escapeHtml(data?.reason || ''));
+          break;
+        default:
+          return jsonResp({ error: `Unhandled admin template: ${template}` }, 400);
+      }
     }
 
-    // ── Generate email content ──────────────────────────────────────
-    const { subject, html } = getEmailContent(template, data || {});
+    // ─────────────────────────────────────────────────────────────────
+    // SELF-SERVICE: welcome
+    // ─────────────────────────────────────────────────────────────────
+    else if (template === 'welcome') {
+      // Validate FIRST — before claiming
+      recipient = callerProfile?.email || user.email || '';
+      if (!recipient) {
+        return jsonResp({ error: 'No email address found for your account' }, 400);
+      }
+      const name = escapeHtml(callerProfile?.first_name || user.user_metadata?.first_name || 'there');
+      emailContent = welcomeEmail(name);
 
-    // ── Send via Resend ─────────────────────────────────────────────
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ from: FROM_EMAIL, to: [recipient], subject, html }),
-    });
+      // Claim AFTER validation — exactly once per user, permanent
+      deliveryEventKey = `welcome:${user.id}`;
+      const welcomeClaim = await claimDelivery(adminClient, deliveryEventKey, 'welcome');
+      if (welcomeClaim.status === 'error') {
+        return jsonResp({ error: 'Notification service unavailable' }, 500);
+      }
+      if (welcomeClaim.status === 'unavailable') {
+        return jsonResp({ success: true, message: 'Welcome email already sent' }, 200);
+      }
+      deliveryClaimToken = welcomeClaim.token;
+    }
 
-    const result = await res.json();
-    if (!res.ok) {
-      console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
-      return new Response(JSON.stringify({ error: 'Email send failed' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // ─────────────────────────────────────────────────────────────────
+    // SELF-SERVICE: documents_pending
+    // ─────────────────────────────────────────────────────────────────
+    else if (template === 'documents_pending') {
+      // Caller must be a provider
+      if (callerRole !== 'provider') {
+        return jsonResp({ error: 'Only providers can trigger document notifications' }, 403);
+      }
+
+      // Verify actual document state and get ALL pending documents for cycle identity
+      const { data: pendingDocs, error: docErr } = await adminClient
+        .from('documents')
+        .select('id, updated_at')
+        .eq('provider_id', user.id)
+        .eq('status', 'pending')
+        .order('id', { ascending: true });
+
+      if (docErr || !pendingDocs || pendingDocs.length === 0) {
+        return jsonResp({ error: 'No pending documents found for your account' }, 400);
+      }
+
+      // Validate recipient BEFORE claiming
+      recipient = callerProfile?.email || user.email || '';
+      if (!recipient) {
+        return jsonResp({ error: 'No email address found for your account' }, 400);
+      }
+      const name = escapeHtml(callerProfile?.first_name || 'there');
+      emailContent = documentsPendingEmail(name);
+
+      // Build deterministic cycle identity from ALL pending (id, updated_at) pairs.
+      // Same exact submission → same key. Reupload/update → different key.
+      const canonicalPairs = pendingDocs
+        .map((d: any) => `${d.id}:${d.updated_at}`)
+        .join('|');
+      // SHA-256 hash for a stable, fixed-length key
+      const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalPairs));
+      const cycleHash = [...new Uint8Array(hashBuffer)].map(b => b.toString(16).padStart(2, '0')).join('');
+      deliveryEventKey = `documents_pending:${user.id}:${cycleHash}`;
+      const docsClaim = await claimDelivery(adminClient, deliveryEventKey, 'documents_pending');
+      if (docsClaim.status === 'error') {
+        return jsonResp({ error: 'Notification service unavailable' }, 500);
+      }
+      if (docsClaim.status === 'unavailable') {
+        return jsonResp({ success: true, message: 'Documents pending email already sent for this submission' }, 200);
+      }
+      deliveryClaimToken = docsClaim.token;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // JOB TEMPLATES: customer_invoice, provider_completion
+    // ─────────────────────────────────────────────────────────────────
+    else if (JOB_TEMPLATES.has(template)) {
+      if (!jobId) {
+        return jsonResp({ error: 'jobId is required for this template' }, 400);
+      }
+
+      // Load full job record (provider_payout does not exist in schema — omitted)
+      const { data: job } = await adminClient
+        .from('jobs')
+        .select('id, customer_id, provider_id, service_id, status, pickup_address, total_amount, completed_at, started_at')
+        .eq('id', jobId)
+        .maybeSingle();
+
+      if (!job) {
+        return jsonResp({ error: 'Job not found' }, 404);
+      }
+
+      // Job MUST be completed
+      if (job.status !== 'completed') {
+        return jsonResp({ error: 'Job is not completed. Cannot send completion email.' }, 400);
+      }
+
+      // Caller must be a participant
+      if (job.customer_id !== user.id && job.provider_id !== user.id) {
+        return jsonResp({ error: 'Not authorized for this job' }, 403);
+      }
+
+      // Load profiles and service name in parallel (BEFORE claiming)
+      const [customerProfile, providerProfile, serviceRecord] = await Promise.all([
+        job.customer_id
+          ? adminClient.from('profiles').select('first_name, last_name, email').eq('id', job.customer_id).maybeSingle().then((r: any) => r.data)
+          : null,
+        job.provider_id
+          ? adminClient.from('profiles').select('first_name, last_name, email').eq('id', job.provider_id).maybeSingle().then((r: any) => r.data)
+          : null,
+        job.service_id
+          ? adminClient.from('services').select('name').eq('id', job.service_id).maybeSingle().then((r: any) => r.data)
+          : null,
+      ]);
+
+      const customerName = customerProfile
+        ? escapeHtml(`${customerProfile.first_name || ''} ${customerProfile.last_name ? customerProfile.last_name.charAt(0) + '.' : ''}`.trim() || 'Customer')
+        : 'Customer';
+      const providerName = providerProfile
+        ? escapeHtml(`${providerProfile.first_name || ''} ${providerProfile.last_name ? providerProfile.last_name.charAt(0) + '.' : ''}`.trim() || 'Provider')
+        : 'Provider';
+      const serviceName = escapeHtml(serviceRecord?.name || 'Roadside Service');
+      const address = escapeHtml(job.pickup_address || 'N/A');
+      const date = formatDate(job.completed_at);
+      const duration = calcDuration(job.started_at, job.completed_at);
+      const totalAmount = job.total_amount ? `$${Number(job.total_amount).toFixed(2)}` : '$0.00';
+
+      if (template === 'customer_invoice') {
+        // Recipient: customer
+        if (!customerProfile?.email) {
+          return jsonResp({ error: 'Customer email not found' }, 404);
+        }
+        recipient = customerProfile.email;
+
+        emailContent = customerInvoiceEmail({
+          customerName,
+          serviceName,
+          providerName,
+          date,
+          amount: totalAmount,
+          address,
+          jobId: job.id,
+        });
+      } else {
+        // provider_completion — recipient: provider
+        if (!providerProfile?.email) {
+          return jsonResp({ error: 'Provider email not found' }, 404);
+        }
+        recipient = providerProfile.email;
+
+        // No trusted provider_payout column exists — neutral completion email
+        emailContent = providerCompletionEmail({
+          providerName,
+          customerName,
+          serviceName,
+          date,
+          address,
+          jobId: job.id,
+          duration,
+        });
+      }
+
+      // Claim AFTER all validation and content derivation — just before send
+      deliveryEventKey = `${template}:${jobId}`;
+      const jobClaim = await claimDelivery(adminClient, deliveryEventKey, template);
+      if (jobClaim.status === 'error') {
+        return jsonResp({ error: 'Notification service unavailable' }, 500);
+      }
+      if (jobClaim.status === 'unavailable') {
+        return jsonResp({ success: true, message: 'This email has already been sent' }, 200);
+      }
+      deliveryClaimToken = jobClaim.token;
+    } else {
+      return jsonResp({ error: `Unhandled template: ${template}` }, 400);
+    }
+
+    // ── Send via Resend (nested try/catch for post-claim safety) ────
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ from: FROM_EMAIL, to: [recipient], subject: emailContent!.subject, html: emailContent!.html }),
       });
-    }
 
-    console.log(`[send-email] Sent template=${template}, id=${result.id}`);
-    return new Response(JSON.stringify({ success: true, id: result.id }), {
-      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+      const result = await res.json();
+      if (!res.ok) {
+        console.error(`[send-email] Resend error: template=${template}, status=${res.status}`);
+        if (deliveryEventKey && deliveryClaimToken) {
+          await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, `Resend HTTP ${res.status}`, recipient);
+        }
+        return jsonResp({ error: 'Email send failed' }, 500);
+      }
+
+      // Mark sent with ownership token
+      if (deliveryEventKey && deliveryClaimToken) {
+        const finalized = await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'sent', result.id, undefined, recipient);
+        if (!finalized) {
+          console.error(`[send-email] RECONCILIATION WARNING: mark_sent returned false for ${deliveryEventKey} — ownership lost, external send may have completed`);
+        }
+      }
+
+      console.log(`[send-email] Sent template=${template}, id=${result.id}`);
+      return jsonResp({ success: true, id: result.id }, 200);
+    } catch (sendErr: any) {
+      // Network/fetch/JSON error after claim — mark failed with owned token
+      console.error(`[send-email] Send error after claim: ${sendErr?.message}`);
+      if (deliveryEventKey && deliveryClaimToken) {
+        try {
+          await markDelivery(adminClient, deliveryEventKey, deliveryClaimToken, 'failed', undefined, sendErr?.message);
+        } catch { /* best effort */ }
+      }
+      return jsonResp({ error: 'Email send failed' }, 500);
+    }
   } catch (err: any) {
+    // Pre-claim errors (auth, validation, etc.) — no delivery row to clean up
     console.error('[send-email] Error:', err?.message);
-    return new Response(JSON.stringify({ error: 'Internal error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ error: 'Internal error' }, 500);
   }
 });

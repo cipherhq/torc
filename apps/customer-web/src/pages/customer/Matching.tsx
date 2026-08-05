@@ -374,41 +374,21 @@ export function Matching() {
         photo: provPhoto,
       });
 
-      // Notify 3rd party via SMS with provider phone number
-      if (context.whoNeedsHelp === 'new' && context.personPhone && data?.provider_id) {
+      // Notify 3rd party via SMS — server derives all content from DB records.
+      // Client sends only template name and jobId — no identity, address, or phone.
+      if (context.whoNeedsHelp === 'new' && createdJobId && data?.provider_id) {
         (async () => {
           try {
-            // Format phone to E.164 (+1XXXXXXXXXX)
-            let phone = context.personPhone!.replace(/\D/g, '');
-            if (phone.length === 10) phone = '1' + phone;
-            if (!phone.startsWith('+')) phone = '+' + phone;
+            const { error: smsError } = await supabase.functions.invoke('send-sms', {
+              body: {
+                messageTemplate: 'third_party_enroute',
+                jobId: createdJobId,
+              },
+            });
 
-            const { data: provProfile } = await supabase.from('profiles').select('phone').eq('id', data.provider_id).single();
-            const customerName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Someone';
-            const providerPhone = provProfile?.phone ? ` You can reach them at ${provProfile.phone}.` : '';
-            const smsMessage = `Hi ${context.personName || 'there'}! ${customerName} has requested TORC roadside assistance for you. ${provName} is on the way to ${context.location?.address || 'your location'}.${providerPhone} — TORC`;
-
-            // Get fresh token for the SMS function call
-            const { data: refreshData } = await supabase.auth.refreshSession();
-            let token = refreshData?.session?.access_token;
-            if (!token) {
-              const { data: { session } } = await supabase.auth.getSession();
-              token = session?.access_token;
+            if (smsError) {
+              console.warn('3rd party SMS notification failed:', smsError.message);
             }
-
-            // Direct fetch to guarantee fresh token is used
-            await fetch(
-              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-sms`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                  apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-                },
-                body: JSON.stringify({ to: phone, message: smsMessage }),
-              }
-            );
           } catch (err) {
             console.warn('3rd party SMS failed (non-blocking):', err);
           }

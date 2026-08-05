@@ -89,6 +89,11 @@ export function AuthProvider({ children }) {
         setLoading(true);
       }
       fetchProfile(sessionUser.id);
+
+      // Trigger welcome email on first authenticated session (idempotent)
+      import('../services/email.service').then(({ sendWelcomeEmail }) => {
+        sendWelcomeEmail();
+      }).catch(() => {});
     });
 
     return () => subscription.unsubscribe();

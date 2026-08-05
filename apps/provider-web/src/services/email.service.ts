@@ -1,29 +1,41 @@
 import { supabase } from '../lib/supabase';
 
-async function sendEmail(to: string, template: string, data: Record<string, any> = {}) {
+/**
+ * Trigger welcome email for the currently authenticated provider.
+ * Server derives recipient and name. Idempotent.
+ */
+export async function sendWelcomeEmail(): Promise<boolean> {
   try {
     const { data: result, error } = await supabase.functions.invoke('send-email', {
-      body: { to, template, data },
+      body: { template: 'welcome' },
     });
-
     if (error) {
-      console.warn(`Email (${template}) failed:`, error.message);
+      console.warn('Welcome email failed:', error.message);
       return false;
     }
-
     return result?.success ?? false;
-  } catch (err) {
-    console.warn(`Email (${template}) error:`, err);
+  } catch (err: any) {
+    console.warn('Welcome email error:', err?.message || err);
     return false;
   }
 }
 
-/** Welcome email sent after provider signs up */
-export async function sendWelcomeEmail(email: string, name: string) {
-  return sendEmail(email, 'welcome', { name });
-}
-
-/** Notify provider their documents are under review */
-export async function sendDocumentsPendingEmail(email: string, name: string) {
-  return sendEmail(email, 'documents_pending', { name });
+/**
+ * Trigger documents-pending email for the currently authenticated provider.
+ * Server verifies document state and derives recipient/name. Idempotent.
+ */
+export async function sendDocumentsPendingEmail(): Promise<boolean> {
+  try {
+    const { data: result, error } = await supabase.functions.invoke('send-email', {
+      body: { template: 'documents_pending' },
+    });
+    if (error) {
+      console.warn('Documents pending email failed:', error.message);
+      return false;
+    }
+    return result?.success ?? false;
+  } catch (err: any) {
+    console.warn('Documents pending email error:', err?.message || err);
+    return false;
+  }
 }

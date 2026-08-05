@@ -438,14 +438,10 @@ export function ProviderDocuments() {
     if (missingDocs.length > 0) { setPageError(`Please upload: ${missingDocs.map(d => d.name).join(', ')}`); return; }
     if (!consentChecked) { setPageError('Please consent to background check'); return; }
 
-    // Send documents_pending email (fire-and-forget)
-    try {
-      const authUser = await getActiveProviderUser();
-      import('../../services/email.service').then(({ sendDocumentsPendingEmail }) => {
-        const name = user?.user_metadata?.first_name || user?.user_metadata?.full_name || 'there';
-        sendDocumentsPendingEmail(authUser.email, name);
-      });
-    } catch { /* non-blocking */ }
+    // Trigger documents-pending email (server verifies state, derives recipient/name, idempotent)
+    import('../../services/email.service').then(({ sendDocumentsPendingEmail }) => {
+      sendDocumentsPendingEmail();
+    }).catch(() => { /* non-blocking */ });
 
     navigate('/verification-pending');
   };
