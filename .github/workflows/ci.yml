@@ -152,10 +152,13 @@ jobs:
             payment_intent_id TEXT,
             paid_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT now(),
+            updated_at TIMESTAMPTZ DEFAULT now(),
             accepted_at TIMESTAMPTZ,
             started_at TIMESTAMPTZ,
             completed_at TIMESTAMPTZ,
-            cancelled_at TIMESTAMPTZ
+            cancelled_at TIMESTAMPTZ,
+            scheduled_for TIMESTAMPTZ,
+            checkout_id UUID
           );
           ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
           CREATE TABLE IF NOT EXISTS public.job_events (
