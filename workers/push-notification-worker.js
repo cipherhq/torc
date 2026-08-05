@@ -626,11 +626,6 @@ async function main() {
     // Periodically check ticket receipts (every 15 minutes)
     setInterval(checkTicketReceipts, 15 * 60 * 1000);
 
-    // Periodically expire stale pending jobs (every 5 minutes)
-    setInterval(expireStaleJobs, 5 * 60 * 1000);
-    // Run once on startup after a short delay
-    setTimeout(expireStaleJobs, 10 * 1000);
-
     // Keep alive - log heartbeat every 5 minutes
     setInterval(() => {
       console.log(`💓 Worker alive - ${new Date().toISOString()}`);
@@ -1274,78 +1269,6 @@ async function sendPushToUser(userId, notification) {
     }
   } catch (error) {
     console.error(`❌ Error in sendPushToUser for ${userId}:`, error);
-  }
-}
-
-/**
- * Expire pending jobs older than 2 hours that no provider accepted.
- * Cancels the job and sends a push notification to the customer.
- */
-async function expireStaleJobs() {
-  try {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-
-    // Find pending jobs older than 2 hours with no provider assigned
-    const { data: staleJobs, error } = await supabase
-      .from('jobs')
-      .select('id, customer_id')
-      .eq('status', 'pending')
-      .is('provider_id', null)
-      .lt('created_at', twoHoursAgo)
-      .limit(50);
-
-    if (error) {
-      console.error('❌ Error querying stale jobs:', error.message);
-      return;
-    }
-
-    if (!staleJobs || staleJobs.length === 0) return;
-
-    console.log(`⏰ Expiring ${staleJobs.length} stale pending job(s)...`);
-
-    for (const job of staleJobs) {
-      // Cancel the job
-      const { error: updateErr } = await supabase
-        .from('jobs')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          cancellation_reason: 'request_expired',
-        })
-        .eq('id', job.id)
-        .eq('status', 'pending'); // guard against race
-
-      if (updateErr) {
-        console.error(`❌ Failed to expire job ${job.id}:`, updateErr.message);
-        continue;
-      }
-
-      // Notify the customer
-      await sendPushToUser(job.customer_id, {
-        notificationType: 'request_expired',
-        title: 'Request Expired',
-        body: 'No providers were available for your request. Please try again.',
-        data: {
-          screen: 'Home',
-          jobId: job.id,
-          notificationType: 'request_expired',
-        },
-        sound: 'default',
-      });
-
-      // Insert in-app notification
-      await supabase.from('notifications').insert({
-        user_id: job.customer_id,
-        type: 'service',
-        title: 'Request Expired',
-        message: 'No providers were available for your request. You were not charged. Please try again when you\'re ready.',
-        action_url: '/customer/home',
-      });
-
-      console.log(`⏰ Expired job ${job.id} and notified customer ${job.customer_id}`);
-    }
-  } catch (error) {
-    console.error('❌ Error in expireStaleJobs:', error);
   }
 }
 

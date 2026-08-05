@@ -74,14 +74,13 @@ function useGlobalMessageNotifications(userId: string | undefined) {
     let cancelled = false;
 
     async function setup() {
-      // Find provider's active jobs (only recent — stale jobs are ignored)
-      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+      // Find provider's active jobs
       const { data } = await supabase
         .from('jobs')
         .select('id')
         .eq('provider_id', userId!)
         .in('status', ['accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
-        .gte('created_at', twelveHoursAgo)
+        .order('created_at', { ascending: false })
         .limit(5);
 
       if (cancelled || !data || data.length === 0) return;
@@ -146,12 +145,10 @@ const ACTIVE_JOB_STATUSES = ['accepted', 'en_route', 'enroute', 'arrived', 'in_p
 /**
  * Track active job globally so a "Return to Job" banner appears on every page.
  * Also auto-redirects to the active job on first detection (crash recovery).
- * Only considers jobs from the last 12 hours — older stuck jobs are auto-cancelled.
  */
 function useActiveJobTracker(userId: string | undefined) {
   const [activeJob, setActiveJob] = useState<{ id: string; status: string; service_name?: string; customer_name?: string } | null>(null);
   const hasAutoRedirected = useRef(false);
-  const hasCleaned = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -161,26 +158,12 @@ function useActiveJobTracker(userId: string | undefined) {
 
     async function check() {
       try {
-        const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-
-        // One-time cleanup: auto-cancel stale jobs stuck in active statuses for 12+ hours
-        if (!hasCleaned.current) {
-          hasCleaned.current = true;
-          supabase
-            .from('jobs')
-            .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
-            .eq('provider_id', userId!)
-            .in('status', ACTIVE_JOB_STATUSES)
-            .lt('created_at', twelveHoursAgo)
-            .then(() => {});
-        }
-
         const { data } = await supabase
           .from('jobs')
           .select('id, status, provider_id, service_id, created_at, services(name), customers:customer_id(first_name)')
           .eq('provider_id', userId!)
           .in('status', ACTIVE_JOB_STATUSES)
-          .gte('created_at', twelveHoursAgo)
+          .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
         if (cancelled) return;
