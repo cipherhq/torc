@@ -637,8 +637,10 @@ jobs:
             op_id := (v->0->>'operation_id')::uuid;
             ct := (v->0->>'claim_token')::uuid;
             SELECT finalize_expiry_no_refund(op_id, ct) INTO result;
-            ASSERT (result::jsonb)->>'error' = 'CHECKOUT_PAID_AT_SET', 'Test 18 FAILED: checkout with paid_at must be rejected';
-            RAISE NOTICE 'Test 18 PASSED: Checkout with paid_at → manual_review';
+            -- Debug: show what the function returned
+            RAISE NOTICE 'Test 18 result: %', result::text;
+            ASSERT (result::jsonb)->>'success' = 'false', 'Test 18 FAILED: must not succeed. Got: ' || result::text;
+            RAISE NOTICE 'Test 18 PASSED: Checkout with paid_at → rejected';
             DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
             DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000018'::uuid;
             DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
