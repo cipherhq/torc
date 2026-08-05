@@ -94,7 +94,6 @@ DECLARE
   v_attempt       INTEGER;
   v_op_id         UUID;
   v_results       JSON[];
-  v_checkout      RECORD;
   v_lease_until   TIMESTAMPTZ;
   v_existing_op   RECORD;
 BEGIN
@@ -132,14 +131,16 @@ BEGIN
     v_claim_token := gen_random_uuid();
 
     -- Look up checkout for payment_intent_id if not on job
-    v_checkout := NULL;
-    IF v_job.checkout_id IS NOT NULL THEN
-      SELECT id, payment_intent_id INTO v_checkout
-      FROM public.checkouts
-      WHERE id = v_job.checkout_id;
-    END IF;
-
+    DECLARE
+      v_checkout_id UUID := NULL;
+      v_checkout_pi TEXT := NULL;
     BEGIN
+      IF v_job.checkout_id IS NOT NULL THEN
+        SELECT id, payment_intent_id INTO v_checkout_id, v_checkout_pi
+        FROM public.checkouts
+        WHERE id = v_job.checkout_id;
+      END IF;
+
       -- Generate operation ID first so we can build the immutable idempotency key
       v_op_id := gen_random_uuid();
       v_idempotency := 'torc:no-provider-expiry:' || v_op_id::text;
@@ -150,8 +151,8 @@ BEGIN
       ) VALUES (
         v_op_id,
         v_job.job_id,
-        COALESCE(v_job.checkout_id, v_checkout.id),
-        COALESCE(v_job.payment_intent_id, v_checkout.payment_intent_id),
+        COALESCE(v_job.checkout_id, v_checkout_id),
+        COALESCE(v_job.payment_intent_id, v_checkout_pi),
         'no_provider', 'claimed',
         v_idempotency, v_claim_token, v_lease_until, 1
       );
@@ -193,17 +194,22 @@ BEGIN
     END;
 
     -- Re-read the operation to get final checkout/PI values
-    SELECT checkout_id, payment_intent_id INTO v_checkout
-    FROM public.job_expiry_refund_operations WHERE id = v_op_id;
+    DECLARE
+      v_final_checkout_id UUID;
+      v_final_pi TEXT;
+    BEGIN
+      SELECT checkout_id, payment_intent_id INTO v_final_checkout_id, v_final_pi
+      FROM public.job_expiry_refund_operations WHERE id = v_op_id;
 
-    v_results := v_results || json_build_object(
-      'job_id', v_job.job_id,
-      'payment_intent_id', v_checkout.payment_intent_id,
-      'checkout_id', v_checkout.checkout_id,
-      'idempotency_key', v_idempotency,
-      'claim_token', v_claim_token,
-      'operation_id', v_op_id
-    )::json;
+      v_results := v_results || json_build_object(
+        'job_id', v_job.job_id,
+        'payment_intent_id', v_final_pi,
+        'checkout_id', v_final_checkout_id,
+        'idempotency_key', v_idempotency,
+        'claim_token', v_claim_token,
+        'operation_id', v_op_id
+      )::json;
+    END;
   END LOOP;
 
   RETURN array_to_json(v_results);
