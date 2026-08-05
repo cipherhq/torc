@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # Xcode Cloud post-clone script for TORC Provider iOS (com.torc.provider).
+# Xcode project location: apps/provider-web/ios/App/
 #
 # Capacitor iOS uses Swift Package Manager with local package references
 # pointing to node_modules/ (e.g., @capacitor/camera, @capacitor/geolocation).
@@ -10,14 +11,14 @@ set -euo pipefail
 # This script runs npm ci at the monorepo root so the SPM packages resolve.
 
 echo "=== TORC Provider iOS: ci_post_clone ==="
-echo "CI_WORKSPACE: ${CI_WORKSPACE:-not set}"
+echo "CI_PRIMARY_REPOSITORY_PATH: ${CI_PRIMARY_REPOSITORY_PATH:-not set}"
 echo "PWD: $(pwd)"
 
 # Navigate to the monorepo root.
-# Xcode Cloud clones the repo to $CI_WORKSPACE or the current directory.
-# The Xcode project is at apps/customer-web/ios/App/ so the root is 4 levels up.
-if [ -n "${CI_WORKSPACE:-}" ]; then
-  REPO_ROOT="$CI_WORKSPACE"
+# Xcode Cloud sets CI_PRIMARY_REPOSITORY_PATH to the cloned repo.
+# Fallback: the Xcode project is at apps/provider-web/ios/App/ so root is 4 levels up.
+if [ -n "${CI_PRIMARY_REPOSITORY_PATH:-}" ]; then
+  REPO_ROOT="$CI_PRIMARY_REPOSITORY_PATH"
 else
   REPO_ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
 fi
