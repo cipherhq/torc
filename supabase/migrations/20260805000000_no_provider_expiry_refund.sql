@@ -541,6 +541,12 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'STALE_CLAIM');
   END IF;
 
+  -- Idempotent: if already finalized as no_refund_required, return success
+  IF v_op.status = 'no_refund_required' THEN
+    RETURN json_build_object('success', true, 'status', 'already_finalized',
+      'already_finalized', true, 'job_id', v_op.job_id);
+  END IF;
+
   SELECT * INTO v_job FROM jobs WHERE id = v_op.job_id FOR UPDATE;
   IF NOT FOUND THEN
     UPDATE job_expiry_refund_operations SET status = 'manual_review', last_error = 'Job not found' WHERE id = p_operation_id;
