@@ -1165,9 +1165,8 @@ jobs:
               VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{"lat":0}', 'location_update', true);
               RAISE EXCEPTION 'RT-11 FAILED: unrelated user must not INSERT';
             EXCEPTION WHEN insufficient_privilege THEN
-              RAISE NOTICE 'RT-11 PASSED: unrelated user denied INSERT (insufficient_privilege)';
-            WHEN new_row_for_relation_violates_row_level_security_policy THEN
-              RAISE NOTICE 'RT-11 PASSED: unrelated user denied INSERT (RLS violation)';
+              -- SQLSTATE 42501: RLS WITH CHECK violation
+              RAISE NOTICE 'RT-11 PASSED: unrelated user denied INSERT';
             END;
           END $$;
 
