@@ -1061,7 +1061,7 @@ describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
     expect(provSrc).not.toContain('private: false');
   });
 
-  it('realtime authorization migration exists', () => {
+  it('realtime authorization migration exists with safe UUID parsing', () => {
     const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260807000000_secure_job_tracking_realtime.sql');
     expect(fs.existsSync(migrationPath)).toBe(true);
     const src = fs.readFileSync(migrationPath, 'utf-8');
@@ -1073,5 +1073,62 @@ describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
     expect(src).toContain("'cancelled'");
     expect(src).toContain('FOR SELECT');
     expect(src).toContain('FOR INSERT');
+    // UUID validation must use regex, not length-only check
+    expect(src).toContain('[0-9a-f]');
+    expect(src).toContain('extract_job_tracking_uuid');
+  });
+
+  it('customer tracking is disabled after completed', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+    );
+    // isTrackingActive must exclude completed
+    expect(src).toContain("status !== 'completed'");
+    // useWatchPosition must use the tracking-active condition
+    expect(src).toMatch(/useWatchPosition\(isTrackingActive\)/);
+    // useRealtimeLocation must use the tracking-active condition
+    expect(src).toContain('enabled: isTrackingActive');
+  });
+
+  it('customer tracking is disabled after cancelled', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+    );
+    expect(src).toContain("status !== 'cancelled'");
+  });
+
+  it('provider tracking is disabled after customer cancellation', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    // isJobTerminal must be set on cancellation
+    expect(src).toContain('setIsJobTerminal(true)');
+    // Tracking hooks must use the terminal condition
+    expect(src).toMatch(/useWatchPosition\(isTrackingActive\)/);
+    expect(src).toContain('enabled: isTrackingActive');
+    expect(src).toContain('!isJobTerminal');
+  });
+
+  it('provider tracking is disabled after completion', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    // completion DB status triggers terminal
+    expect(src).toMatch(/dbStatus\s*===\s*'completed'[\s\S]*?setIsJobTerminal\(true\)/);
+  });
+
+  it('hook cleanup unsubscribes channel when enabled transitions to false', () => {
+    const custHook = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/hooks/useRealtimeLocation.ts'), 'utf-8'
+    );
+    const provHook = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/hooks/useRealtimeLocation.ts'), 'utf-8'
+    );
+    // Both hooks must unsubscribe in their cleanup function
+    expect(custHook).toContain('channel.unsubscribe()');
+    expect(provHook).toContain('channel.unsubscribe()');
+    // Both hooks depend on enabled in their effect deps
+    expect(custHook).toContain('enabled]');
+    expect(provHook).toContain('enabled]');
   });
 });

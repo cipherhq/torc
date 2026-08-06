@@ -62,7 +62,9 @@ export function LiveTracking() {
   const { isLoaded } = useGoogleMaps();
   const { currentLocation } = useLocationCtx();
   const { currentJob, fetchJob, updateJobStatus, cancelJob, platformSettings } = useJob();
-  const myPosition = useWatchPosition(true);
+  // Tracking is active only for non-terminal job states
+  const isTrackingActive = status !== 'completed' && status !== 'cancelled';
+  const myPosition = useWatchPosition(isTrackingActive);
 
   // Read accepted payload from Matching page navigation state
   const acceptedPayload = (location.state as any)?.acceptedPayload;
@@ -135,7 +137,7 @@ export function LiveTracking() {
   const { peerLocation: providerLocation, isConnected, broadcastLocation } = useRealtimeLocation({
     jobId,
     role: 'customer',
-    enabled: true,
+    enabled: isTrackingActive,
   });
 
   // Keep screen awake during live tracking
