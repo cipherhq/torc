@@ -1107,20 +1107,32 @@ describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
     expect(src).toContain("status !== 'cancelled'");
   });
 
-  it('provider initial fetch sets terminal state for completed jobs', () => {
+  it('provider initial fetch derives terminal state both ways (true AND false)', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
     );
-    // The initial fetchJob handler must check for completed/cancelled and set terminal
-    expect(src).toMatch(/jobStatus\s*===\s*'completed'\s*\|\|\s*jobStatus\s*===\s*'cancelled'/);
-    expect(src).toContain('setIsJobTerminal(true)');
+    // Must compute terminal as a boolean and call setIsJobTerminal(terminal),
+    // not only setIsJobTerminal(true) conditionally.
+    // This ensures navigating from a terminal job to an active job resets the state.
+    expect(src).toMatch(/const terminal\s*=\s*jobStatus\s*===\s*'completed'/);
+    expect(src).toContain("jobStatus === 'cancelled'");
+    expect(src).toContain("jobStatus === 'expired'");
+    expect(src).toContain('setIsJobTerminal(terminal)');
   });
 
-  it('provider initial fetch also handles expired jobs as terminal', () => {
+  it('provider terminal state resets when navigating to active job', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
     );
-    expect(src).toContain("jobStatus === 'expired'");
+    // setIsJobTerminal(terminal) where terminal derives from jobStatus means:
+    // - completed/cancelled/expired → terminal=true → tracking disabled
+    // - accepted/enroute/arrived/inprogress → terminal=false → tracking enabled
+    // The same call handles both directions, preventing stale state across job changes.
+    expect(src).toContain('setIsJobTerminal(terminal)');
+    // The effect depends on jobId, so changing jobId triggers a new fetch
+    const fetchEffect = src.match(/useEffect\(\(\)\s*=>\s*\{[\s\S]*?fetchJob\(jobId\)[\s\S]*?\},\s*\[([^\]]*)\]\)/);
+    expect(fetchEffect).not.toBeNull();
+    expect(fetchEffect![1]).toContain('jobId');
   });
 
   it('provider tracking is disabled after customer cancellation', () => {

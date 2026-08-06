@@ -177,9 +177,8 @@ export function JobActiveRealtime() {
       .then((job: any) => {
         const jobStatus = job?.status;
         setStatus(mapJobStatusToUi(jobStatus));
-        if (jobStatus === 'completed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
-          setIsJobTerminal(true);
-        }
+        const terminal = jobStatus === 'completed' || jobStatus === 'cancelled' || jobStatus === 'expired';
+        setIsJobTerminal(terminal);
         if (jobStatus === 'cancelled') {
           setCancelledReason(job?.cancellation_reason || 'Job was cancelled');
           setShowCustomerCancelled(true);
