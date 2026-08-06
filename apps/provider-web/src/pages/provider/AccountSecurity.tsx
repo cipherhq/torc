@@ -167,8 +167,15 @@ export function AccountSecurity() {
       });
       if (error) throw error;
 
-      // Mark profile as pending deletion
-      await supabase.from('profiles').update({ status: 'pending_deletion' }).eq('id', user.id);
+      // Mark profile as pending deletion — verify exactly one row was updated
+      const { data: updatedProfile, error: statusError } = await supabase
+        .from('profiles')
+        .update({ status: 'pending_deletion' })
+        .eq('id', user.id)
+        .select('id')
+        .maybeSingle();
+      if (statusError) throw statusError;
+      if (!updatedProfile) throw new Error('Could not mark account for deletion.');
 
       setDeleteReason('');
       setDeleteMessage('Your account has been scheduled for deletion. You will be signed out now.');
