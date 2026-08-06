@@ -2061,7 +2061,7 @@ jobs:
           set -euo pipefail
           DB="postgresql://postgres:postgres@localhost:5432/torc_test"
 
-          # Setup: create users, jobs for concurrent test
+          # Setup: create users, jobs, and set auth.uid() for provider ONCE (avoids concurrent function replacement)
           psql "$DB" -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO auth.users (id, email) VALUES
             ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'conc-customer@test.com'),
@@ -2075,27 +2075,26 @@ jobs:
           INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at) VALUES
             ('eeeeeeee-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'test-svc-conc', 'pending', 'paid', now()),
             ('eeeeeeee-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'test-svc-conc', 'pending', 'paid', now());
+          -- Set auth.uid to the provider before concurrent test (both sessions use same provider)
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid; $fn$;
           SQL
 
           # MATCH-DB-13: Same provider, two jobs, concurrent sessions
-          # Session 1: acquire advisory lock, accept job A, hold transaction open
+          # Session 1: accept job A with transaction held open
           psql "$DB" -v ON_ERROR_STOP=1 <<'SQL' &
           BEGIN;
-          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid; $fn$;
           SET LOCAL role TO 'authenticated';
           SELECT accept_job('eeeeeeee-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
-          -- Hold the transaction open for a moment
           SELECT pg_sleep(2);
           COMMIT;
           SQL
           PID1=$!
 
-          # Wait for session 1 to acquire the lock
+          # Wait for session 1 to acquire advisory lock
           sleep 1
 
-          # Session 2: same provider, different job — should get PROVIDER_BUSY after session 1 commits
-          RESULT=$(psql "$DB" -t -A -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid; $fn$;
+          # Session 2: same provider, different job — blocked by advisory lock, then PROVIDER_BUSY
+          RESULT=$(psql "$DB" -t -A <<'SQL'
           SET LOCAL role TO 'authenticated';
           SELECT accept_job('eeeeeeee-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
           SQL
@@ -2105,7 +2104,6 @@ jobs:
 
           echo "Session 2 result: $RESULT"
 
-          # Verify session 2 got PROVIDER_BUSY
           if echo "$RESULT" | grep -q "PROVIDER_BUSY"; then
             echo "MATCH-DB-13 PASSED: concurrent same-provider acceptance blocked"
           else
@@ -2113,7 +2111,6 @@ jobs:
             exit 1
           fi
 
-          # Verify only job A is accepted (not job B)
           ACCEPTED=$(psql "$DB" -t -A -c "SELECT count(*) FROM jobs WHERE customer_id = 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid AND status = 'accepted';")
           if [ "$ACCEPTED" = "1" ]; then
             echo "MATCH-DB-13 VERIFIED: exactly 1 job accepted"
