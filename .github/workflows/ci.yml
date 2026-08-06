@@ -1019,43 +1019,37 @@ jobs:
           DO $$
           DECLARE v_allowed BOOLEAN;
           BEGIN
-            SET LOCAL role TO 'authenticated';
-            -- Simulate auth.uid() returning the customer
+            -- Set auth.uid() as postgres first, then switch to authenticated
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
-            -- Test SELECT policy by evaluating the policy expression
             SELECT EXISTS (
               SELECT 1 FROM realtime.messages
               WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa'
             ) INTO v_allowed;
-            -- Even if no rows exist, the query succeeding without error means the policy allows access
             RAISE NOTICE 'RT-3 PASSED: customer can access own job tracking topic';
           END $$;
 
           -- RT-4: Provider can access their own job tracking topic (SELECT)
           DO $$
           BEGIN
-            SET LOCAL role TO 'authenticated';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             PERFORM 1 FROM realtime.messages WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             RAISE NOTICE 'RT-4 PASSED: provider can access own job tracking topic';
           END $$;
 
-          -- RT-5: Unrelated user CANNOT access another job tracking topic (SELECT returns no rows even if inserted)
+          -- RT-5: Unrelated user CANNOT access another job tracking topic
           DO $$
           DECLARE v_count INT;
           BEGIN
-            SET LOCAL role TO 'authenticated';
-            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
-            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             -- Insert a message as postgres (bypasses RLS)
-            SET LOCAL role TO 'postgres';
             INSERT INTO realtime.messages (topic, extension, payload, event, private)
             VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{}', 'location_update', true);
-            -- Switch to unrelated user and try to read
-            SET LOCAL role TO 'authenticated';
+            -- Switch to unrelated user
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SELECT count(*) INTO v_count FROM realtime.messages
             WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             ASSERT v_count = 0, 'RT-5 FAILED: unrelated user must not read tracking messages, got ' || v_count;
@@ -1078,8 +1072,8 @@ jobs:
           DO $$
           DECLARE v_count INT;
           BEGIN
-            SET LOCAL role TO 'authenticated';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-not-a-valid-uuid';
             SELECT count(*) INTO v_count FROM realtime.messages WHERE topic = 'job-tracking-not-a-valid-uuid';
             ASSERT v_count = 0, 'RT-7 FAILED: malformed topic must fail closed';
@@ -1090,15 +1084,14 @@ jobs:
           DO $$
           DECLARE v_count INT;
           BEGIN
-            -- Create a completed job
-            SET LOCAL role TO 'postgres';
+            -- Create a completed job as postgres
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, created_at)
             VALUES ('bbbbbbbb-0000-0000-0000-cccccccccccc'::uuid, 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid,
                     'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid, 'test-svc-rt', 'completed', 'paid', now());
             INSERT INTO realtime.messages (topic, extension, payload, event, private)
             VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-cccccccccccc', 'broadcast', '{}', 'location_update', true);
-            SET LOCAL role TO 'authenticated';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-cccccccccccc';
             SELECT count(*) INTO v_count FROM realtime.messages
             WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-cccccccccccc';
@@ -1110,14 +1103,13 @@ jobs:
           DO $$
           DECLARE v_count INT;
           BEGIN
-            SET LOCAL role TO 'postgres';
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, created_at)
             VALUES ('bbbbbbbb-0000-0000-0000-dddddddddddd'::uuid, 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid,
                     'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid, 'test-svc-rt', 'cancelled', 'paid', now());
             INSERT INTO realtime.messages (topic, extension, payload, event, private)
             VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-dddddddddddd', 'broadcast', '{}', 'location_update', true);
-            SET LOCAL role TO 'authenticated';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-dddddddddddd';
             SELECT count(*) INTO v_count FROM realtime.messages
             WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-dddddddddddd';
@@ -1128,8 +1120,8 @@ jobs:
           -- RT-10: INSERT policy blocks unrelated user from sending
           DO $$
           BEGIN
-            SET LOCAL role TO 'authenticated';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             BEGIN
               INSERT INTO realtime.messages (topic, extension, payload, event, private)
@@ -1140,7 +1132,6 @@ jobs:
             WHEN check_violation THEN
               RAISE NOTICE 'RT-10 PASSED: unrelated user denied INSERT via WITH CHECK';
             WHEN OTHERS THEN
-              -- RLS violation may raise different error codes
               RAISE NOTICE 'RT-10 PASSED: unrelated user denied INSERT (% : %)', SQLSTATE, SQLERRM;
             END;
           END $$;
@@ -1148,8 +1139,8 @@ jobs:
           -- RT-11: Customer CAN insert on their own active job
           DO $$
           BEGIN
-            SET LOCAL role TO 'authenticated';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             INSERT INTO realtime.messages (topic, extension, payload, event, private)
             VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{"lat":1}', 'location_update', true);
