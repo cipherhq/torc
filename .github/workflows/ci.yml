@@ -1654,17 +1654,148 @@ jobs:
             RAISE NOTICE 'DB-30 PASSED: job_events recorded for RPC transitions (% events)', v_count;
           END $$;
 
+          -- ============================================================
+          -- INSERT authority tests (DB-31 through DB-39)
+          -- ============================================================
+
+          -- DB-31: Customer can INSERT a legitimate pending job
+          DO $$
+          DECLARE v_id UUID;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status)
+            VALUES ('cccccccc-0000-0000-0000-dddddddddddd'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid,
+                    'test-svc-cross', 'pending', 'unpaid')
+            RETURNING id INTO v_id;
+            ASSERT v_id IS NOT NULL, 'DB-31 FAILED';
+            RAISE NOTICE 'DB-31 PASSED: customer can INSERT pending job';
+          END $$;
+
+          -- DB-32: Customer cannot INSERT with status='accepted'
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'accepted', 'unpaid');
+              RAISE EXCEPTION 'DB-32 FAILED: must block accepted INSERT';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-32 PASSED: cannot INSERT with status=accepted';
+            END;
+          END $$;
+
+          -- DB-33: Customer cannot INSERT with status='completed'
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'completed', 'unpaid');
+              RAISE EXCEPTION 'DB-33 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-33 PASSED: cannot INSERT with status=completed';
+            END;
+          END $$;
+
+          -- DB-34: Customer cannot INSERT with status='cancelled'
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'cancelled', 'unpaid');
+              RAISE EXCEPTION 'DB-34 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-34 PASSED: cannot INSERT with status=cancelled';
+            END;
+          END $$;
+
+          -- DB-35: Customer cannot preload accepted_at
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status, accepted_at)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'pending', 'unpaid', now());
+              RAISE EXCEPTION 'DB-35 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-35 PASSED: cannot preload accepted_at';
+            END;
+          END $$;
+
+          -- DB-36: Customer cannot preload started_at
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status, started_at)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'pending', 'unpaid', now());
+              RAISE EXCEPTION 'DB-36 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-36 PASSED: cannot preload started_at';
+            END;
+          END $$;
+
+          -- DB-37: Customer cannot preload completed_at
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status, completed_at)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'pending', 'unpaid', now());
+              RAISE EXCEPTION 'DB-37 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-37 PASSED: cannot preload completed_at';
+            END;
+          END $$;
+
+          -- DB-38: Customer cannot preload cancelled_at
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status, cancelled_at)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'pending', 'unpaid', now());
+              RAISE EXCEPTION 'DB-38 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-38 PASSED: cannot preload cancelled_at';
+            END;
+          END $$;
+
+          -- DB-39: Customer cannot preload customer_completed_at
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status, customer_completed_at)
+              VALUES (gen_random_uuid(), 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'test-svc-cross', 'pending', 'unpaid', now());
+              RAISE EXCEPTION 'DB-39 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-39 PASSED: cannot preload customer_completed_at';
+            END;
+          END $$;
+
           -- Cleanup
-          DELETE FROM job_events WHERE job_id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
+          DELETE FROM job_events WHERE job_id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-0000-0000-0000-dddddddddddd'::uuid);
           DELETE FROM job_status_audit WHERE job_id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
           DELETE FROM notifications WHERE user_id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid);
+          DELETE FROM jobs WHERE customer_id = 'cccccccc-1111-1111-1111-cccccccccccc'::uuid;
           DELETE FROM jobs WHERE id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
           DELETE FROM profiles WHERE id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'cccccccc-3333-3333-3333-cccccccccccc'::uuid);
           DELETE FROM services WHERE id = 'test-svc-cross';
           DELETE FROM auth.users WHERE id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'cccccccc-3333-3333-3333-cccccccccccc'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 30 server-authoritative transition tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 39 server-authoritative transition tests passed (30 UPDATE + 9 INSERT).'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |

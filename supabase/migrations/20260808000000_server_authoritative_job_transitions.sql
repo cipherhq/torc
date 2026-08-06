@@ -21,12 +21,43 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   -- Trusted callers: postgres (SECURITY DEFINER functions), supabase_admin, service_role
-  -- These can modify any field. Client UPDATEs via PostgREST run as 'authenticated'.
+  -- These can modify any field. Client UPDATEs/INSERTs via PostgREST run as 'authenticated'.
   IF current_user IN ('postgres', 'supabase_admin') THEN
     RETURN NEW;
   END IF;
 
-  -- For non-trusted callers, block changes to protected lifecycle fields
+  -- === INSERT guard ===
+  -- Authenticated client-created jobs must start as 'pending' with no lifecycle timestamps.
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status IS DISTINCT FROM 'pending' THEN
+      RAISE EXCEPTION 'New jobs must have status pending. Use the appropriate RPC for other states.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.accepted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set accepted_at on job creation.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.started_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set started_at on job creation.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.completed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set completed_at on job creation.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.cancelled_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set cancelled_at on job creation.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.customer_completed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set customer_completed_at on job creation.'
+        USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- === UPDATE guard ===
+  -- Block changes to protected lifecycle fields from non-trusted callers.
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     RAISE EXCEPTION 'Direct job status mutation is not allowed. Use the appropriate RPC.'
       USING ERRCODE = '42501';
@@ -62,10 +93,10 @@ BEGIN
 END;
 $$;
 
--- Fire BEFORE the existing apply_job_status_timestamps trigger
+-- Fire BEFORE INSERT OR UPDATE, before the existing apply_job_status_timestamps trigger
 DROP TRIGGER IF EXISTS trg_guard_job_lifecycle ON public.jobs;
 CREATE TRIGGER trg_guard_job_lifecycle
-  BEFORE UPDATE ON public.jobs
+  BEFORE INSERT OR UPDATE ON public.jobs
   FOR EACH ROW
   EXECUTE FUNCTION public.guard_job_lifecycle_fields();
 
