@@ -1310,3 +1310,45 @@ describe('Provider acceptance serialization (MATCH-001)', () => {
     expect(provCtx).toContain("supabase.rpc('transition_job_status_by_participant'");
   });
 });
+
+// =============================================================================
+// PROV-001: Provider verification protection tests
+// =============================================================================
+
+describe('Provider verification protection (PROV-001)', () => {
+  it('verification guard migration exists', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260810000000_protect_provider_verification.sql'), 'utf-8'
+    );
+    expect(src).toContain('guard_provider_verification');
+    expect(src).toContain('is_verified');
+    expect(src).toContain('is_admin');
+    expect(src).toContain('BEFORE INSERT OR UPDATE');
+    expect(src).toContain("current_user IN ('postgres'");
+  });
+
+  it('ProviderSignup does not set is_verified', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/ProviderSignup.tsx'), 'utf-8'
+    );
+    expect(src).not.toContain('is_verified');
+  });
+
+  it('ProviderHome is_online toggle does not touch is_verified', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/ProviderHome.tsx'), 'utf-8'
+    );
+    // Search for upsert/update calls to provider_profiles — none should include is_verified
+    const ppUpdates = src.match(/\.from\(['"]provider_profiles['"]\)[\s\S]*?\.(update|upsert)\(/g) || [];
+    for (const update of ppUpdates) {
+      expect(update).not.toContain('is_verified');
+    }
+  });
+
+  it('admin approval pages set is_verified for providers', () => {
+    const approvalSrc = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/admin-web/src/pages/admin/ProviderApproval.tsx'), 'utf-8'
+    );
+    expect(approvalSrc).toContain('is_verified');
+  });
+});
