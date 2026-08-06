@@ -561,7 +561,7 @@ export function LiveTracking() {
   // The client observes the terminal state and navigates home.
   useEffect(() => {
     if (status === 'expired') {
-      showToast('error', 'Request Expired', 'No providers were available. Your payment will be refunded.');
+      showToast('error', 'Request Expired', 'No providers were available. Please try again.');
       navigate('/customer/home');
     }
   }, [status, navigate]);

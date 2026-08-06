@@ -1499,12 +1499,15 @@ describe('Server-owned no-provider expiry (CANCEL-RACE-001)', () => {
     expect(src).toContain('isTrackingActive');
   });
 
-  it('server-expired state navigates customer home', () => {
+  it('server-expired state navigates customer home with neutral message', () => {
     const src = fs.readFileSync(liveTrackingPath, 'utf-8');
-    // When status becomes expired, navigate home
     expect(src).toContain("status === 'expired'");
     expect(src).toContain("navigate('/customer/home')");
     expect(src).toContain('Request Expired');
+    // Must NOT infer payment/refund outcome — server notification is authoritative
+    expect(src).not.toContain('will be refunded');
+    expect(src).not.toContain('has been refunded');
+    expect(src).not.toContain('payment');
   });
 
   it('existing customer explicit cancellation still uses cancelJob', () => {
