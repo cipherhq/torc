@@ -1614,6 +1614,8 @@ jobs:
           DO $$
           DECLARE result JSONB;
           BEGIN
+            -- Ensure provider has no active jobs (previous tests may have left one)
+            UPDATE jobs SET status = 'completed' WHERE provider_id = 'cccccccc-2222-2222-2222-cccccccccccc'::uuid AND status NOT IN ('completed', 'cancelled', 'expired');
             INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
             VALUES ('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid,
                     'test-svc-cross', 'pending', 'paid', now());
