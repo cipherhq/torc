@@ -168,7 +168,9 @@ jobs:
             last_name TEXT,
             phone TEXT,
             status TEXT DEFAULT 'active',
-            suspended_at TIMESTAMPTZ
+            suspended_at TIMESTAMPTZ,
+            deleted_at TIMESTAMPTZ,
+            CONSTRAINT profiles_status_check CHECK (status IN ('active', 'suspended', 'pending', 'deleted'))
           );
           CREATE TABLE IF NOT EXISTS public.services (
             id TEXT PRIMARY KEY,
@@ -330,7 +332,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -2599,6 +2601,124 @@ jobs:
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
           DO $$ BEGIN RAISE NOTICE 'All 14 SUSP-001 suspension enforcement tests passed.'; END $$;
+          SQL
+      - name: Test account deletion lifecycle (DEL-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- DEL-DB-1 through DEL-DB-5: Constraint accepts valid states
+          DO $$
+          BEGIN
+            -- Test each allowed state via direct postgres UPDATE
+            UPDATE profiles SET status = 'active' WHERE id = (SELECT id FROM auth.users LIMIT 1);
+            RAISE NOTICE 'DEL-DB-1 PASSED: active accepted';
+          EXCEPTION WHEN check_violation THEN
+            RAISE EXCEPTION 'DEL-DB-1 FAILED: active rejected by constraint';
+          END $$;
+
+          DO $$
+          DECLARE v_id UUID;
+          BEGIN
+            SELECT id INTO v_id FROM auth.users LIMIT 1;
+            IF v_id IS NULL THEN
+              INSERT INTO auth.users (id, email) VALUES ('22222222-aaaa-aaaa-aaaa-222222222222'::uuid, 'del-test@test.com');
+              INSERT INTO profiles (id, role, status) VALUES ('22222222-aaaa-aaaa-aaaa-222222222222'::uuid, 'customer', 'active');
+              v_id := '22222222-aaaa-aaaa-aaaa-222222222222'::uuid;
+            END IF;
+            UPDATE profiles SET status = 'suspended' WHERE id = v_id;
+            RAISE NOTICE 'DEL-DB-2 PASSED: suspended accepted';
+            UPDATE profiles SET status = 'pending' WHERE id = v_id;
+            RAISE NOTICE 'DEL-DB-3 PASSED: pending accepted';
+            UPDATE profiles SET status = 'pending_deletion' WHERE id = v_id;
+            RAISE NOTICE 'DEL-DB-4 PASSED: pending_deletion accepted';
+            UPDATE profiles SET status = 'deleted' WHERE id = v_id;
+            RAISE NOTICE 'DEL-DB-5 PASSED: deleted accepted';
+            -- Reset
+            UPDATE profiles SET status = 'active' WHERE id = v_id;
+          END $$;
+
+          -- DEL-DB-6: Rejects invalid state
+          DO $$
+          DECLARE v_id UUID;
+          BEGIN
+            SELECT id INTO v_id FROM profiles LIMIT 1;
+            BEGIN
+              UPDATE profiles SET status = 'hacked' WHERE id = v_id;
+              RAISE EXCEPTION 'DEL-DB-6 FAILED: invalid state accepted';
+            EXCEPTION WHEN check_violation THEN
+              RAISE NOTICE 'DEL-DB-6 PASSED: invalid state rejected';
+            END;
+          END $$;
+
+          -- DEL-DB-7: Active customer can request deletion
+          DO $$
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES ('22222222-bbbb-bbbb-bbbb-222222222222'::uuid, 'del-cust@test.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, status) VALUES ('22222222-bbbb-bbbb-bbbb-222222222222'::uuid, 'customer', 'active') ON CONFLICT DO NOTHING;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '22222222-bbbb-bbbb-bbbb-222222222222'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE profiles SET status = 'pending_deletion' WHERE id = '22222222-bbbb-bbbb-bbbb-222222222222'::uuid;
+            RAISE NOTICE 'DEL-DB-7 PASSED: active customer can request deletion';
+          END $$;
+
+          -- DEL-DB-8: Active provider can request deletion
+          DO $$
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES ('22222222-cccc-cccc-cccc-222222222222'::uuid, 'del-prov@test.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, status) VALUES ('22222222-cccc-cccc-cccc-222222222222'::uuid, 'provider', 'active') ON CONFLICT DO NOTHING;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '22222222-cccc-cccc-cccc-222222222222'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE profiles SET status = 'pending_deletion' WHERE id = '22222222-cccc-cccc-cccc-222222222222'::uuid;
+            RAISE NOTICE 'DEL-DB-8 PASSED: active provider can request deletion';
+          END $$;
+
+          -- DEL-DB-9: Suspended provider cannot transition to pending_deletion
+          DO $$
+          BEGIN
+            UPDATE profiles SET status = 'suspended', suspended_at = now() WHERE id = '22222222-cccc-cccc-cccc-222222222222'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '22222222-cccc-cccc-cccc-222222222222'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE profiles SET status = 'pending_deletion' WHERE id = '22222222-cccc-cccc-cccc-222222222222'::uuid;
+              RAISE EXCEPTION 'DEL-DB-9 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DEL-DB-9 PASSED: suspended cannot request deletion';
+            END;
+          END $$;
+
+          -- DEL-DB-11: pending_deletion user cannot self-reactivate
+          DO $$
+          BEGIN
+            UPDATE profiles SET status = 'active', suspended_at = NULL WHERE id = '22222222-bbbb-bbbb-bbbb-222222222222'::uuid;
+            UPDATE profiles SET status = 'pending_deletion' WHERE id = '22222222-bbbb-bbbb-bbbb-222222222222'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '22222222-bbbb-bbbb-bbbb-222222222222'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE profiles SET status = 'active' WHERE id = '22222222-bbbb-bbbb-bbbb-222222222222'::uuid;
+              RAISE EXCEPTION 'DEL-DB-11 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DEL-DB-11 PASSED: pending_deletion cannot self-reactivate';
+            END;
+          END $$;
+
+          -- DEL-DB-12: Admin can still suspend/unsuspend
+          DO $$
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES ('22222222-dddd-dddd-dddd-222222222222'::uuid, 'del-admin@test.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, status) VALUES ('22222222-dddd-dddd-dddd-222222222222'::uuid, 'admin', 'active') ON CONFLICT DO NOTHING;
+            UPDATE profiles SET status = 'active', suspended_at = NULL WHERE id = '22222222-cccc-cccc-cccc-222222222222'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '22222222-dddd-dddd-dddd-222222222222'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE profiles SET status = 'suspended', suspended_at = now() WHERE id = '22222222-cccc-cccc-cccc-222222222222'::uuid;
+            UPDATE profiles SET status = 'active', suspended_at = NULL WHERE id = '22222222-cccc-cccc-cccc-222222222222'::uuid;
+            RAISE NOTICE 'DEL-DB-12 PASSED: admin suspend/unsuspend works';
+          END $$;
+
+          -- Cleanup
+          DELETE FROM profiles WHERE id IN ('22222222-aaaa-aaaa-aaaa-222222222222'::uuid, '22222222-bbbb-bbbb-bbbb-222222222222'::uuid, '22222222-cccc-cccc-cccc-222222222222'::uuid, '22222222-dddd-dddd-dddd-222222222222'::uuid);
+          DELETE FROM auth.users WHERE id IN ('22222222-aaaa-aaaa-aaaa-222222222222'::uuid, '22222222-bbbb-bbbb-bbbb-222222222222'::uuid, '22222222-cccc-cccc-cccc-222222222222'::uuid, '22222222-dddd-dddd-dddd-222222222222'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 10 DEL-001 account deletion lifecycle tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |

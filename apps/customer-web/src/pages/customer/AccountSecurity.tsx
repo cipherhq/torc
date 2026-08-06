@@ -177,7 +177,8 @@ export function AccountSecurity() {
       if (error) throw error;
 
       // Mark profile as pending deletion
-      await supabase.from('profiles').update({ status: 'pending_deletion' }).eq('id', user.id);
+      const { error: statusError } = await supabase.from('profiles').update({ status: 'pending_deletion' }).eq('id', user.id);
+      if (statusError) throw statusError;
 
       setDeleteReason('');
       setDeleteMessage('Your account has been scheduled for deletion. You will be signed out now.');

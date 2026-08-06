@@ -1394,3 +1394,52 @@ describe('Provider suspension enforcement (SUSP-001)', () => {
     )).toBe(true);
   });
 });
+
+// =============================================================================
+// DEL-001: Account deletion lifecycle tests
+// =============================================================================
+
+describe('Account deletion lifecycle (DEL-001)', () => {
+  it('constraint migration adds pending_deletion', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260812000000_allow_pending_deletion_status.sql'), 'utf-8'
+    );
+    expect(src).toContain('pending_deletion');
+    expect(src).toContain('profiles_status_check');
+  });
+
+  it('customer deletion checks profile update error', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
+    );
+    expect(src).toContain('statusError');
+    expect(src).toContain('if (statusError) throw statusError');
+  });
+
+  it('provider deletion checks profile update error', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
+    );
+    expect(src).toContain('statusError');
+    expect(src).toContain('if (statusError) throw statusError');
+  });
+
+  it('customer deletion does not show success on failed profile update', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
+    );
+    // The success message and signOut are AFTER the error check
+    const errorCheck = src.indexOf('if (statusError) throw statusError');
+    const successMsg = src.indexOf('scheduled for deletion');
+    expect(errorCheck).toBeLessThan(successMsg);
+  });
+
+  it('provider deletion does not show success on failed profile update', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
+    );
+    const errorCheck = src.indexOf('if (statusError) throw statusError');
+    const successMsg = src.indexOf('scheduled for deletion');
+    expect(errorCheck).toBeLessThan(successMsg);
+  });
+});
