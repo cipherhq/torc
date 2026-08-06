@@ -1246,3 +1246,67 @@ describe('Server-authoritative job transitions (CROSS-001)', () => {
     expect(src).toContain('enabled: isTrackingActive');
   });
 });
+
+// =============================================================================
+// MATCH-001: Provider acceptance serialization tests
+// =============================================================================
+
+describe('Provider acceptance serialization (MATCH-001)', () => {
+  it('JobRequest still calls accept_job RPC', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobRequest.tsx'), 'utf-8'
+    );
+    expect(src).toContain("supabase.rpc('accept_job'");
+    expect(src).toContain('p_job_id');
+    expect(src).toContain('p_provider_id');
+  });
+
+  it('accept_job p_provider_id comes from authenticated user', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobRequest.tsx'), 'utf-8'
+    );
+    expect(src).toContain('p_provider_id: user.id');
+  });
+
+  it('failed acceptance navigates home', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobRequest.tsx'), 'utf-8'
+    );
+    // On !data.success, navigates home
+    expect(src).toContain("navigate('/home')");
+  });
+
+  it('ProviderHome suppresses new requests when provider has active job', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/ProviderHome.tsx'), 'utf-8'
+    );
+    // ProviderHome checks for active jobs
+    expect(src).toContain("'accepted'");
+    expect(src).toContain("'in_progress'");
+  });
+
+  it('accept_job migration includes provider advisory lock serialization', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260809000000_serialize_provider_acceptance.sql'), 'utf-8'
+    );
+    expect(src).toContain('pg_advisory_xact_lock');
+    expect(src).toContain('PROVIDER_BUSY');
+    expect(src).toContain("status IN ('accepted'");
+    expect(src).toContain('SECURITY DEFINER');
+    expect(src).toContain('auth.uid()');
+  });
+
+  it('cancellation still uses cancel_job RPC (no regression)', () => {
+    const custCtx = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/context/JobContext.jsx'), 'utf-8'
+    );
+    expect(custCtx).toContain("supabase.rpc('cancel_job'");
+  });
+
+  it('CROSS-001 updateJobStatus still uses transition RPC (no regression)', () => {
+    const provCtx = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/context/JobContext.jsx'), 'utf-8'
+    );
+    expect(provCtx).toContain("supabase.rpc('transition_job_status_by_participant'");
+  });
+});
