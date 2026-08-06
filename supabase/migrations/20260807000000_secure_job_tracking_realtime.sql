@@ -37,18 +37,20 @@ CREATE POLICY "Job participants can receive tracking messages"
 
 -- ============================================================
 -- INSERT policy: controls who can SEND Broadcast/Presence
+-- Uses the row's topic column (not realtime.topic()) since
+-- INSERT WITH CHECK evaluates against the row being inserted.
 -- ============================================================
 CREATE POLICY "Job participants can send tracking messages"
   ON realtime.messages
   FOR INSERT
   WITH CHECK (
-    realtime.topic() LIKE 'job-tracking-%'
+    topic LIKE 'job-tracking-%'
     AND EXISTS (
       SELECT 1 FROM public.jobs
       WHERE id = (
         CASE
-          WHEN length(realtime.topic()) = 49
-            THEN NULLIF(substring(realtime.topic() FROM 14), '')::uuid
+          WHEN length(topic) = 49
+            THEN NULLIF(substring(topic FROM 14), '')::uuid
           ELSE NULL
         END
       )

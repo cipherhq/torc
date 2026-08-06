@@ -1122,7 +1122,6 @@ jobs:
           BEGIN
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
-            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             BEGIN
               INSERT INTO realtime.messages (topic, extension, payload, event, private)
               VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{"lat":0}', 'location_update', true);
@@ -1141,7 +1140,6 @@ jobs:
           BEGIN
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
-            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
             INSERT INTO realtime.messages (topic, extension, payload, event, private)
             VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{"lat":1}', 'location_update', true);
             RAISE NOTICE 'RT-11 PASSED: customer can INSERT on own active job tracking';
