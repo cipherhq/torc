@@ -1352,3 +1352,45 @@ describe('Provider verification protection (PROV-001)', () => {
     expect(approvalSrc).toContain('is_verified');
   });
 });
+
+// =============================================================================
+// SUSP-001: Provider suspension enforcement tests
+// =============================================================================
+
+describe('Provider suspension enforcement (SUSP-001)', () => {
+  it('suspension enforcement migration exists', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260811000000_enforce_provider_suspension.sql'), 'utf-8'
+    );
+    expect(src).toContain('guard_profiles_suspension');
+    expect(src).toContain('PROVIDER_SUSPENDED');
+    expect(src).toContain("p.status = 'suspended'");
+    expect(src).toContain('get_nearby_providers');
+    expect(src).toContain('accept_job');
+  });
+
+  it('accept_job checks suspension before advisory lock', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260811000000_enforce_provider_suspension.sql'), 'utf-8'
+    );
+    const suspIdx = src.indexOf('PROVIDER_SUSPENDED');
+    const lockIdx = src.indexOf('pg_advisory_xact_lock');
+    expect(suspIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(suspIdx).toBeLessThan(lockIdx);
+  });
+
+  it('admin Providers page still manages suspension', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/admin-web/src/pages/admin/Providers.tsx'), 'utf-8'
+    );
+    expect(src).toContain('suspended');
+    expect(src).toContain('suspended_at');
+  });
+
+  it('PROV-001 verification protection unchanged', () => {
+    expect(fs.existsSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260810000000_protect_provider_verification.sql')
+    )).toBe(true);
+  });
+});
