@@ -210,7 +210,6 @@ jobs:
           );
           -- Ensure authenticated/service_role can access tables created above
           GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-          GRANT ALL ON ALL TABLES IN SCHEMA realtime TO authenticated, service_role;
           SQL
       - name: Execute all new migrations in order
         run: |
@@ -220,6 +219,14 @@ jobs:
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
           done
+      - name: Grant post-migration table access
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
+          -- Ensure roles can access tables created by migrations (e.g. realtime.messages partitions)
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA realtime TO authenticated, service_role;
+          GRANT USAGE ON SCHEMA realtime TO authenticated, service_role;
+          SQL
       - name: Assert RLS and privilege restrictions
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
