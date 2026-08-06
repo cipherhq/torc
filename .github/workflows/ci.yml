@@ -793,6 +793,164 @@ jobs:
           );
 
           DO $$ BEGIN RAISE NOTICE 'All 21 expiry lifecycle tests passed.'; END $$;
+
+          -- ============================================================
+          -- Authorization privilege tests for 5 service-only expiry RPCs
+          -- ============================================================
+
+          -- Test 22: Privilege assertions (PUBLIC/anon/authenticated REVOKED, service_role GRANTED)
+          DO $$
+          DECLARE
+            v_fn TEXT;
+            v_has_public BOOLEAN;
+            v_has_anon BOOLEAN;
+            v_has_authed BOOLEAN;
+            v_has_service BOOLEAN;
+          BEGIN
+            FOREACH v_fn IN ARRAY ARRAY[
+              'claim_expiry_eligible_jobs',
+              'begin_expiry_refund_request',
+              'finalize_expiry_refund',
+              'finalize_expiry_no_refund',
+              'reconcile_pending_refunds'
+            ] LOOP
+              SELECT EXISTS(SELECT 1 FROM information_schema.routine_privileges WHERE routine_name = v_fn AND routine_schema = 'public' AND grantee = 'PUBLIC') INTO v_has_public;
+              SELECT EXISTS(SELECT 1 FROM information_schema.routine_privileges WHERE routine_name = v_fn AND routine_schema = 'public' AND grantee = 'anon') INTO v_has_anon;
+              SELECT EXISTS(SELECT 1 FROM information_schema.routine_privileges WHERE routine_name = v_fn AND routine_schema = 'public' AND grantee = 'authenticated') INTO v_has_authed;
+              SELECT EXISTS(SELECT 1 FROM information_schema.routine_privileges WHERE routine_name = v_fn AND routine_schema = 'public' AND grantee = 'service_role') INTO v_has_service;
+
+              ASSERT v_has_public = false, 'Test 22 FAILED: ' || v_fn || ' must not be executable by PUBLIC';
+              ASSERT v_has_anon = false, 'Test 22 FAILED: ' || v_fn || ' must not be executable by anon';
+              ASSERT v_has_authed = false, 'Test 22 FAILED: ' || v_fn || ' must not be executable by authenticated';
+              ASSERT v_has_service = true, 'Test 22 FAILED: ' || v_fn || ' must be executable by service_role';
+            END LOOP;
+            RAISE NOTICE 'Test 22 PASSED: All 5 expiry RPCs have correct privilege boundary';
+          END $$;
+
+          -- Test 23: anon cannot execute claim_expiry_eligible_jobs
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM claim_expiry_eligible_jobs(0);
+              RAISE EXCEPTION 'Test 23 FAILED: anon must not execute claim_expiry_eligible_jobs';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'Test 23 PASSED: anon rejected from claim_expiry_eligible_jobs';
+            END;
+          END $$;
+
+          -- Test 24: authenticated cannot execute claim_expiry_eligible_jobs
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              PERFORM claim_expiry_eligible_jobs(0);
+              RAISE EXCEPTION 'Test 24 FAILED: authenticated must not execute claim_expiry_eligible_jobs';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'Test 24 PASSED: authenticated rejected from claim_expiry_eligible_jobs';
+            END;
+          END $$;
+
+          -- Test 25: service_role can execute claim_expiry_eligible_jobs(0) without JWT-GUC
+          DO $$
+          DECLARE v JSONB;
+          BEGIN
+            SET LOCAL role TO 'service_role';
+            -- Do NOT set request.jwt.claim.role — that is the whole point
+            SELECT claim_expiry_eligible_jobs(0)::jsonb INTO v;
+            ASSERT v = '[]'::jsonb, 'Test 25 FAILED: batch_size=0 must return empty array, got: ' || v::text;
+            RAISE NOTICE 'Test 25 PASSED: service_role executes claim_expiry_eligible_jobs(0) = [] without JWT-GUC';
+          END $$;
+
+          -- Test 26: anon cannot execute begin_expiry_refund_request
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM begin_expiry_refund_request(gen_random_uuid(), gen_random_uuid());
+              RAISE EXCEPTION 'Test 26 FAILED: anon must not execute begin_expiry_refund_request';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'Test 26 PASSED: anon rejected from begin_expiry_refund_request';
+            END;
+          END $$;
+
+          -- Test 27: service_role can execute begin_expiry_refund_request (NOT_FOUND is success)
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            SET LOCAL role TO 'service_role';
+            SELECT begin_expiry_refund_request(gen_random_uuid(), gen_random_uuid()) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'NOT_FOUND', 'Test 27 FAILED: expected NOT_FOUND, got: ' || result::text;
+            RAISE NOTICE 'Test 27 PASSED: service_role executes begin_expiry_refund_request without JWT-GUC';
+          END $$;
+
+          -- Test 28: anon cannot execute finalize_expiry_refund
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM finalize_expiry_refund(gen_random_uuid(), gen_random_uuid());
+              RAISE EXCEPTION 'Test 28 FAILED: anon must not execute finalize_expiry_refund';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'Test 28 PASSED: anon rejected from finalize_expiry_refund';
+            END;
+          END $$;
+
+          -- Test 29: service_role can execute finalize_expiry_refund (OPERATION_NOT_FOUND is success)
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            SET LOCAL role TO 'service_role';
+            SELECT finalize_expiry_refund(gen_random_uuid(), gen_random_uuid()) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'OPERATION_NOT_FOUND', 'Test 29 FAILED: expected OPERATION_NOT_FOUND';
+            RAISE NOTICE 'Test 29 PASSED: service_role executes finalize_expiry_refund without JWT-GUC';
+          END $$;
+
+          -- Test 30: anon cannot execute finalize_expiry_no_refund
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM finalize_expiry_no_refund(gen_random_uuid(), gen_random_uuid());
+              RAISE EXCEPTION 'Test 30 FAILED: anon must not execute finalize_expiry_no_refund';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'Test 30 PASSED: anon rejected from finalize_expiry_no_refund';
+            END;
+          END $$;
+
+          -- Test 31: service_role can execute finalize_expiry_no_refund (NOT_FOUND is success)
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            SET LOCAL role TO 'service_role';
+            SELECT finalize_expiry_no_refund(gen_random_uuid(), gen_random_uuid()) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'NOT_FOUND', 'Test 31 FAILED: expected NOT_FOUND';
+            RAISE NOTICE 'Test 31 PASSED: service_role executes finalize_expiry_no_refund without JWT-GUC';
+          END $$;
+
+          -- Test 32: anon cannot execute reconcile_pending_refunds
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM reconcile_pending_refunds(0, 0);
+              RAISE EXCEPTION 'Test 32 FAILED: anon must not execute reconcile_pending_refunds';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'Test 32 PASSED: anon rejected from reconcile_pending_refunds';
+            END;
+          END $$;
+
+          -- Test 33: service_role can execute reconcile_pending_refunds without JWT-GUC
+          DO $$
+          DECLARE v JSONB;
+          BEGIN
+            SET LOCAL role TO 'service_role';
+            SELECT reconcile_pending_refunds(0, 0)::jsonb INTO v;
+            ASSERT v = '[]'::jsonb, 'Test 33 FAILED: expected empty array';
+            RAISE NOTICE 'Test 33 PASSED: service_role executes reconcile_pending_refunds without JWT-GUC';
+          END $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 33 expiry tests passed (21 lifecycle + 12 authorization).'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
