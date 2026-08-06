@@ -134,7 +134,7 @@ jobs:
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
           CREATE SCHEMA IF NOT EXISTS realtime;
           CREATE TABLE IF NOT EXISTS realtime.messages (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            id UUID DEFAULT gen_random_uuid(),
             topic TEXT NOT NULL,
             extension TEXT NOT NULL DEFAULT 'broadcast',
             payload JSONB,
@@ -142,7 +142,8 @@ jobs:
             private BOOLEAN DEFAULT false,
             updated_at TIMESTAMP DEFAULT now(),
             inserted_at TIMESTAMP DEFAULT now(),
-            binary_payload BYTEA
+            binary_payload BYTEA,
+            PRIMARY KEY (id, inserted_at)
           ) PARTITION BY RANGE (inserted_at);
           -- Create a default partition for testing
           CREATE TABLE IF NOT EXISTS realtime.messages_default PARTITION OF realtime.messages DEFAULT;
