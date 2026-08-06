@@ -18,7 +18,7 @@ import { decryptMessage } from '../../lib/chatEncryption';
 
 const mapContainerStyle = { width: '100%', height: '100%' };
 
-type JobStatus = 'pending' | 'matching' | 'accepted' | 'enroute' | 'arrived' | 'inprogress' | 'completed' | 'cancelled';
+type JobStatus = 'pending' | 'matching' | 'accepted' | 'enroute' | 'arrived' | 'inprogress' | 'completed' | 'cancelled' | 'expired';
 
 const JOB_STATUS_ORDER: Record<JobStatus, number> = {
   pending: 0,
@@ -29,6 +29,7 @@ const JOB_STATUS_ORDER: Record<JobStatus, number> = {
   inprogress: 5,
   completed: 6,
   cancelled: 6, // cancelled can happen at any time
+  expired: 6,   // server-authoritative terminal state
 };
 
 function normalizeJobStatus(status?: string): JobStatus {
@@ -49,6 +50,7 @@ function normalizeJobStatus(status?: string): JobStatus {
     case 'inprogress':
     case 'completed':
     case 'cancelled':
+    case 'expired':
       return status;
     default:
       return 'pending';
@@ -80,7 +82,7 @@ export function LiveTracking() {
   }, []);
 
   // Tracking is active only for non-terminal job states
-  const isTrackingActive = status !== 'completed' && status !== 'cancelled';
+  const isTrackingActive = status !== 'completed' && status !== 'cancelled' && status !== 'expired';
   const myPosition = useWatchPosition(isTrackingActive);
   const [eta, setEta] = useState<number | null>(acceptedPayload?.eta_minutes ?? null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
@@ -554,30 +556,15 @@ export function LiveTracking() {
     navigate(`/completion/${jobId}`, { replace: true });
   }, [jobId, mustCompleteCustomerRating, navigate]);
 
-  // Auto-expire requests that aren't accepted within 2 hours
-  // (Server-side push worker also handles this and notifies the customer)
+  // Handle server-authoritative expired state.
+  // The server expire-pending-jobs cron owns no-provider expiry/refund.
+  // The client observes the terminal state and navigates home.
   useEffect(() => {
-    if (!jobId || !currentJob?.created_at) return;
-    if (status !== 'pending' && status !== 'matching') return;
-
-    const EXPIRE_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-    function checkExpiry() {
-      const createdAt = new Date(currentJob!.created_at).getTime();
-      const elapsed = Date.now() - createdAt;
-
-      if (elapsed >= EXPIRE_MS) {
-        cancelJob(jobId!, 'request_expired').catch(console.warn);
-        showToast('error', 'Request Expired', 'No providers were available. Please try again.');
-        navigate('/customer/home');
-      }
+    if (status === 'expired') {
+      showToast('error', 'Request Expired', 'No providers were available. Please try again.');
+      navigate('/customer/home');
     }
-
-    checkExpiry();
-    const interval = setInterval(checkExpiry, 30000);
-
-    return () => clearInterval(interval);
-  }, [jobId, status, currentJob?.created_at, cancelJob, navigate]);
+  }, [status, navigate]);
 
   return (
     <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: '#FFFFFF' }}>

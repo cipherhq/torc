@@ -1461,3 +1461,74 @@ describe('Account deletion lifecycle (DEL-001)', () => {
     expect(throwLine).toBeLessThan(signOut);
   });
 });
+
+// =============================================================================
+// CANCEL-RACE-001: Server-owned no-provider expiry
+// =============================================================================
+
+describe('Server-owned no-provider expiry (CANCEL-RACE-001)', () => {
+  const liveTrackingPath = path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx');
+
+  it('LiveTracking does NOT invoke cancelJob with request_expired from a timer', () => {
+    const src = fs.readFileSync(liveTrackingPath, 'utf-8');
+    expect(src).not.toContain("cancelJob(jobId!, 'request_expired')");
+    expect(src).not.toContain("cancelJob(jobId, 'request_expired')");
+    expect(src).not.toContain("'request_expired'");
+  });
+
+  it('no client-side EXPIRE_MS / 2-hour timer exists', () => {
+    const src = fs.readFileSync(liveTrackingPath, 'utf-8');
+    expect(src).not.toContain('EXPIRE_MS');
+    expect(src).not.toContain('2 * 60 * 60 * 1000');
+    expect(src).not.toContain('checkExpiry');
+  });
+
+  it('expired is an explicit JobStatus (not normalized to pending)', () => {
+    const src = fs.readFileSync(liveTrackingPath, 'utf-8');
+    // JobStatus type includes expired
+    expect(src).toMatch(/type JobStatus\s*=.*'expired'/);
+    // normalizeJobStatus explicitly returns expired
+    expect(src).toMatch(/case 'expired':/);
+    // JOB_STATUS_ORDER includes expired
+    expect(src).toContain('expired: 6');
+  });
+
+  it('expired is terminal for tracking', () => {
+    const src = fs.readFileSync(liveTrackingPath, 'utf-8');
+    expect(src).toContain("status !== 'expired'");
+    expect(src).toContain('isTrackingActive');
+  });
+
+  it('server-expired state navigates customer home with neutral message', () => {
+    const src = fs.readFileSync(liveTrackingPath, 'utf-8');
+    expect(src).toContain("status === 'expired'");
+    expect(src).toContain("navigate('/customer/home')");
+    expect(src).toContain('Request Expired');
+    // Must NOT infer payment/refund outcome — server notification is authoritative
+    expect(src).not.toContain('will be refunded');
+    expect(src).not.toContain('has been refunded');
+    expect(src).not.toContain('payment');
+  });
+
+  it('existing customer explicit cancellation still uses cancelJob', () => {
+    const src = fs.readFileSync(liveTrackingPath, 'utf-8');
+    // LiveTracking still calls cancelJob for user-initiated cancellation
+    expect(src).toContain('cancelJob(jobId');
+    // The cancel_job RPC is in JobContext, not LiveTracking
+    const ctxSrc = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/context/JobContext.jsx'), 'utf-8'
+    );
+    expect(ctxSrc).toContain("supabase.rpc('cancel_job'");
+    // But no request_expired usage remains
+    expect(src).not.toContain("'request_expired'");
+  });
+
+  it('server expiry migration remains unchanged', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260805000000_no_provider_expiry_refund.sql'), 'utf-8'
+    );
+    expect(src).toContain('claim_expiry_eligible_jobs');
+    expect(src).toContain("j.status = 'pending'");
+    expect(src).toContain('j.provider_id IS NULL');
+  });
+});
