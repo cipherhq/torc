@@ -25,8 +25,14 @@ BEGIN
   -- Block self-mutation of admin-owned suspension fields
   IF TG_OP = 'UPDATE' THEN
     IF NEW.status IS DISTINCT FROM OLD.status THEN
-      RAISE EXCEPTION 'Cannot modify account status. Contact support.'
-        USING ERRCODE = '42501';
+      -- Allow self-service account deletion request (active -> pending_deletion)
+      IF OLD.status = 'active' AND NEW.status = 'pending_deletion' THEN
+        -- permitted
+        NULL;
+      ELSE
+        RAISE EXCEPTION 'Cannot modify account status. Contact support.'
+          USING ERRCODE = '42501';
+      END IF;
     END IF;
     IF NEW.suspended_at IS DISTINCT FROM OLD.suspended_at THEN
       RAISE EXCEPTION 'Cannot modify suspension timestamp. Contact support.'

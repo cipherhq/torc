@@ -2444,6 +2444,33 @@ jobs:
             RAISE NOTICE 'SUSP-DB-8 PASSED: atomic failure';
           END $$;
 
+          -- SUSP-DB-DELETION: Active user can self-set pending_deletion
+          DO $$
+          BEGIN
+            UPDATE profiles SET status = 'active' WHERE id = '11111111-aaaa-aaaa-aaaa-111111111111'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '11111111-aaaa-aaaa-aaaa-111111111111'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE profiles SET status = 'pending_deletion' WHERE id = '11111111-aaaa-aaaa-aaaa-111111111111'::uuid;
+            RAISE NOTICE 'SUSP-DB-DELETION PASSED: active user can request deletion';
+            -- Reset for next tests
+            SET LOCAL role TO 'postgres';
+            UPDATE profiles SET status = 'active' WHERE id = '11111111-aaaa-aaaa-aaaa-111111111111'::uuid;
+          END $$;
+
+          -- SUSP-DB-DELETION-BLOCK: Suspended user cannot self-set pending_deletion
+          DO $$
+          BEGIN
+            UPDATE profiles SET status = 'suspended', suspended_at = now() WHERE id = '11111111-aaaa-aaaa-aaaa-111111111111'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT '11111111-aaaa-aaaa-aaaa-111111111111'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE profiles SET status = 'pending_deletion' WHERE id = '11111111-aaaa-aaaa-aaaa-111111111111'::uuid;
+              RAISE EXCEPTION 'SUSP-DB-DELETION-BLOCK FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'SUSP-DB-DELETION-BLOCK PASSED: suspended cannot request deletion';
+            END;
+          END $$;
+
           -- SUSP-DB-9: Admin can suspend
           DO $$
           BEGIN
@@ -2571,7 +2598,7 @@ jobs:
           DELETE FROM auth.users WHERE id IN ('11111111-aaaa-aaaa-aaaa-111111111111'::uuid, '11111111-bbbb-bbbb-bbbb-111111111111'::uuid, '11111111-cccc-cccc-cccc-111111111111'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 12 SUSP-001 suspension enforcement tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 14 SUSP-001 suspension enforcement tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
