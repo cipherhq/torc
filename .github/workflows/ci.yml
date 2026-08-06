@@ -205,6 +205,35 @@ jobs:
             USING (auth.uid() = customer_id OR auth.uid() = provider_id);
           CREATE POLICY "Customers can create jobs" ON public.jobs FOR INSERT
             WITH CHECK (auth.uid() = customer_id);
+          -- Lifecycle timestamp trigger (from database/migrations/027)
+          CREATE OR REPLACE FUNCTION public.apply_job_status_timestamps()
+          RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+          BEGIN
+            IF NEW.status IS DISTINCT FROM OLD.status THEN
+              IF NEW.status = 'accepted' AND NEW.accepted_at IS NULL THEN
+                NEW.accepted_at = COALESCE(OLD.accepted_at, now());
+              END IF;
+              IF NEW.status IN ('in_progress', 'inprogress') AND NEW.started_at IS NULL THEN
+                NEW.started_at = COALESCE(OLD.started_at, now());
+              END IF;
+              IF NEW.status = 'completed' THEN
+                IF NEW.started_at IS NULL THEN
+                  NEW.started_at = COALESCE(OLD.started_at, OLD.accepted_at, now());
+                END IF;
+                IF NEW.completed_at IS NULL THEN
+                  NEW.completed_at = COALESCE(OLD.completed_at, now());
+                END IF;
+              END IF;
+            END IF;
+            RETURN NEW;
+          END;
+          $$;
+          DROP TRIGGER IF EXISTS trg_jobs_apply_status_timestamps ON public.jobs;
+          CREATE TRIGGER trg_jobs_apply_status_timestamps
+            BEFORE UPDATE OF status ON public.jobs
+            FOR EACH ROW
+            WHEN (OLD.status IS DISTINCT FROM NEW.status)
+            EXECUTE FUNCTION public.apply_job_status_timestamps();
           CREATE TABLE IF NOT EXISTS public.job_events (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             job_id UUID NOT NULL,
