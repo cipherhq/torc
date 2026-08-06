@@ -293,7 +293,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -1614,6 +1614,8 @@ jobs:
           DO $$
           DECLARE result JSONB;
           BEGIN
+            -- Ensure provider has no active jobs (previous tests may have left one)
+            UPDATE jobs SET status = 'completed' WHERE provider_id = 'cccccccc-2222-2222-2222-cccccccccccc'::uuid AND status NOT IN ('completed', 'cancelled', 'expired');
             INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
             VALUES ('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid,
                     'test-svc-cross', 'pending', 'paid', now());
@@ -1796,6 +1798,336 @@ jobs:
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
           DO $$ BEGIN RAISE NOTICE 'All 39 server-authoritative transition tests passed (30 UPDATE + 9 INSERT).'; END $$;
+          SQL
+      - name: Test provider acceptance serialization (MATCH-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Setup: test users, service, and pending jobs
+          INSERT INTO auth.users (id, email) VALUES
+            ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'match-customer@test.com'),
+            ('dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'match-providerA@test.com'),
+            ('dddddddd-3333-3333-3333-dddddddddddd'::uuid, 'match-providerB@test.com')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO profiles (id, role, first_name) VALUES
+            ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'customer', 'TestCust'),
+            ('dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'provider', 'ProvA'),
+            ('dddddddd-3333-3333-3333-dddddddddddd'::uuid, 'provider', 'ProvB')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc-match', 'Match Test', 50) ON CONFLICT DO NOTHING;
+          -- Create 3 pending jobs for testing
+          INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at) VALUES
+            ('dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now()),
+            ('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now()),
+            ('dddddddd-0000-0000-0000-cccccccccccc'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now());
+
+          -- MATCH-DB-1: Provider with no active job can accept
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'MATCH-DB-1 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-1 PASSED: provider can accept when no active job';
+          END $$;
+
+          -- MATCH-DB-2: Provider with accepted job cannot accept another
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-2 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-2 PASSED: provider with accepted job blocked';
+          END $$;
+
+          -- MATCH-DB-3: Provider with enroute job cannot accept
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET status = 'enroute' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-3 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-3 PASSED: enroute blocks acceptance';
+          END $$;
+
+          -- MATCH-DB-4: Provider with arrived job cannot accept
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET status = 'arrived' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-4 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-4 PASSED: arrived blocks acceptance';
+          END $$;
+
+          -- MATCH-DB-5: Provider with inprogress job cannot accept
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET status = 'inprogress' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-5 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-5 PASSED: inprogress blocks acceptance';
+          END $$;
+
+          -- MATCH-DB-6: en_route alias treated as active
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET status = 'en_route' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-6 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-6 PASSED: en_route alias blocks acceptance';
+          END $$;
+
+          -- MATCH-DB-7: in_progress alias treated as active
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET status = 'in_progress' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-7 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-7 PASSED: in_progress alias blocks acceptance';
+          END $$;
+
+          -- MATCH-DB-8: completed does NOT block new acceptance
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET status = 'completed' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'MATCH-DB-8 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-8 PASSED: completed does not block';
+          END $$;
+
+          -- MATCH-DB-9: cancelled does NOT block
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            -- Cancel the job from DB-8, then try accepting another
+            UPDATE jobs SET status = 'cancelled' WHERE id = 'dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid;
+            UPDATE jobs SET status = 'cancelled' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            -- Reset job C to pending for this test
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-cccccccccccc'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'MATCH-DB-9 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-9 PASSED: cancelled does not block';
+          END $$;
+
+          -- MATCH-DB-10: expired does NOT block (reset and test)
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            -- Make job C expired, then create a fresh pending job
+            UPDATE jobs SET status = 'expired' WHERE id = 'dddddddd-0000-0000-0000-cccccccccccc'::uuid;
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('dddddddd-0000-0000-0000-eeeeeeeeeeee'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now());
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-eeeeeeeeeeee'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'MATCH-DB-10 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-10 PASSED: expired does not block';
+          END $$;
+
+          -- MATCH-DB-11: Different providers can accept different jobs
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            -- ProvA already has job E accepted. ProvB should accept job A (reset to pending)
+            UPDATE jobs SET status = 'pending', provider_id = NULL WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-3333-3333-3333-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'MATCH-DB-11 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-11 PASSED: different providers can accept different jobs';
+          END $$;
+
+          -- MATCH-DB-12: Two providers racing for SAME job = one winner (sequential within one tx)
+          DO $$
+          DECLARE resultA JSONB; resultB JSONB; winners INT;
+          BEGIN
+            UPDATE jobs SET status = 'completed' WHERE id = 'dddddddd-0000-0000-0000-eeeeeeeeeeee'::uuid;
+            UPDATE jobs SET status = 'completed' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now());
+            -- ProvA tries (set uid as postgres before switching role)
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO resultA;
+            -- Switch back to postgres to change auth.uid(), then back to authenticated for ProvB
+            SET LOCAL role TO 'postgres';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-3333-3333-3333-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid) INTO resultB;
+            -- Exactly one succeeds
+            winners := 0;
+            IF resultA->>'success' = 'true' THEN winners := winners + 1; END IF;
+            IF resultB->>'success' = 'true' THEN winners := winners + 1; END IF;
+            ASSERT winners = 1, 'MATCH-DB-12 FAILED: expected 1 winner, got ' || winners;
+            RAISE NOTICE 'MATCH-DB-12 PASSED: one winner for same job';
+          END $$;
+
+          -- MATCH-DB-14: Sequential same-provider double-accept returns PROVIDER_BUSY
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            -- ProvA already has job F. Try accepting a new pending job.
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('dddddddd-0000-0000-0000-111111111111'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now());
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('dddddddd-0000-0000-0000-111111111111'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_BUSY', 'MATCH-DB-14 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-14 PASSED: sequential double-accept returns PROVIDER_BUSY';
+          END $$;
+
+          -- MATCH-DB-15: Only one job_accepted event for winning job
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM job_events
+            WHERE job_id = 'dddddddd-0000-0000-0000-ffffffffffff'::uuid AND event_type = 'job_accepted';
+            ASSERT v_count = 1, 'MATCH-DB-15 FAILED: expected 1 event, got ' || v_count;
+            RAISE NOTICE 'MATCH-DB-15 PASSED: exactly one job_accepted event';
+          END $$;
+
+          -- MATCH-DB-16: Losing acceptance does not generate customer notification
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            -- Job 111... was never accepted (PROVIDER_BUSY), so no notification for it
+            SELECT count(*) INTO v_count FROM notifications
+            WHERE action_url LIKE '%dddddddd-0000-0000-0000-111111111111%';
+            ASSERT v_count = 0, 'MATCH-DB-16 FAILED: expected 0 notifications, got ' || v_count;
+            RAISE NOTICE 'MATCH-DB-16 PASSED: no notification for failed acceptance';
+          END $$;
+
+          -- MATCH-DB-17: Provider impersonation remains blocked
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-3333-3333-3333-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            -- ProvB trying to accept as ProvA
+            SELECT accept_job('dddddddd-0000-0000-0000-111111111111'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO result;
+            ASSERT result->>'error' = 'UNAUTHORIZED', 'MATCH-DB-17 FAILED: ' || result::text;
+            RAISE NOTICE 'MATCH-DB-17 PASSED: impersonation blocked';
+          END $$;
+
+          -- MATCH-DB-18: anon/public cannot execute accept_job
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM accept_job(gen_random_uuid(), gen_random_uuid());
+              RAISE EXCEPTION 'MATCH-DB-18 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'MATCH-DB-18 PASSED: anon denied';
+            END;
+          END $$;
+
+          -- Cleanup
+          DELETE FROM job_events WHERE job_id IN (
+            'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'dddddddd-0000-0000-0000-bbbbbbbbbbbb'::uuid,
+            'dddddddd-0000-0000-0000-cccccccccccc'::uuid, 'dddddddd-0000-0000-0000-eeeeeeeeeeee'::uuid,
+            'dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-0000-0000-0000-111111111111'::uuid
+          );
+          DELETE FROM notifications WHERE user_id IN ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
+          DELETE FROM jobs WHERE customer_id = 'dddddddd-1111-1111-1111-dddddddddddd'::uuid;
+          DELETE FROM profiles WHERE id IN ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
+          DELETE FROM services WHERE id = 'test-svc-match';
+          DELETE FROM auth.users WHERE id IN ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 17 MATCH-001 sequential acceptance tests passed.'; END $$;
+          SQL
+      - name: Test MATCH-001 concurrent acceptance (two sessions)
+        run: |
+          set -euo pipefail
+          DB="postgresql://postgres:postgres@localhost:5432/torc_test"
+
+          # Setup: create users, jobs, and set auth.uid() for provider ONCE (avoids concurrent function replacement)
+          psql "$DB" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO auth.users (id, email) VALUES
+            ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'conc-customer@test.com'),
+            ('eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid, 'conc-provider@test.com')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO profiles (id, role, first_name) VALUES
+            ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'customer', 'ConcCust'),
+            ('eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid, 'provider', 'ConcProv')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc-conc', 'Conc Test', 50) ON CONFLICT DO NOTHING;
+          INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at) VALUES
+            ('eeeeeeee-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'test-svc-conc', 'pending', 'paid', now()),
+            ('eeeeeeee-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'test-svc-conc', 'pending', 'paid', now());
+          -- Set auth.uid to the provider before concurrent test (both sessions use same provider)
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid; $fn$;
+          SQL
+
+          # MATCH-DB-13: Same provider, two jobs, concurrent sessions
+          # Session 1: accept job A with transaction held open
+          psql "$DB" -v ON_ERROR_STOP=1 <<'SQL' &
+          BEGIN;
+          SET LOCAL role TO 'authenticated';
+          SELECT accept_job('eeeeeeee-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
+          SELECT pg_sleep(2);
+          COMMIT;
+          SQL
+          PID1=$!
+
+          # Wait for session 1 to acquire advisory lock
+          sleep 1
+
+          # Session 2: same provider, different job — blocked by advisory lock, then PROVIDER_BUSY
+          RESULT=$(psql "$DB" -t -A <<'SQL'
+          SET LOCAL role TO 'authenticated';
+          SELECT accept_job('eeeeeeee-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
+          SQL
+          )
+
+          wait $PID1
+
+          echo "Session 2 result: $RESULT"
+
+          if echo "$RESULT" | grep -q "PROVIDER_BUSY"; then
+            echo "MATCH-DB-13 PASSED: concurrent same-provider acceptance blocked"
+          else
+            echo "MATCH-DB-13 FAILED: expected PROVIDER_BUSY, got: $RESULT"
+            exit 1
+          fi
+
+          ACCEPTED=$(psql "$DB" -t -A -c "SELECT count(*) FROM jobs WHERE customer_id = 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid AND status = 'accepted';")
+          if [ "$ACCEPTED" = "1" ]; then
+            echo "MATCH-DB-13 VERIFIED: exactly 1 job accepted"
+          else
+            echo "MATCH-DB-13 FAILED: expected 1 accepted job, got $ACCEPTED"
+            exit 1
+          fi
+
+          # Cleanup
+          psql "$DB" <<'SQL'
+          DELETE FROM job_events WHERE job_id IN ('eeeeeeee-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'eeeeeeee-0000-0000-0000-bbbbbbbbbbbb'::uuid);
+          DELETE FROM notifications WHERE user_id IN ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
+          DELETE FROM jobs WHERE customer_id = 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid;
+          DELETE FROM profiles WHERE id IN ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
+          DELETE FROM services WHERE id = 'test-svc-conc';
+          DELETE FROM auth.users WHERE id IN ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
