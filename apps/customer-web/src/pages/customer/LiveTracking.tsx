@@ -428,12 +428,9 @@ export function LiveTracking() {
   const handleComplete = async () => {
     if (jobId) {
       try {
-        // Set customer_completed_at instead of changing status to 'completed'.
-        // The provider must still complete their flow (photos) independently.
-        await supabase
-          .from('jobs')
-          .update({ customer_completed_at: new Date().toISOString() })
-          .eq('id', jobId);
+        // Server-authoritative customer completion confirmation.
+        // Does NOT change job status — provider must still complete independently.
+        await supabase.rpc('confirm_customer_job_completion', { p_job_id: jobId });
       } catch (e) { console.warn(e); }
     }
     navigate(`/completion/${jobId}`);
