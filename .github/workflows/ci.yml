@@ -1957,21 +1957,22 @@ jobs:
             RAISE NOTICE 'MATCH-DB-11 PASSED: different providers can accept different jobs';
           END $$;
 
-          -- MATCH-DB-12: Two providers racing for SAME job = one winner
+          -- MATCH-DB-12: Two providers racing for SAME job = one winner (sequential within one tx)
           DO $$
           DECLARE resultA JSONB; resultB JSONB; winners INT;
           BEGIN
-            -- Reset: give provB the job from DB-11, make provA free, create fresh pending job
             UPDATE jobs SET status = 'completed' WHERE id = 'dddddddd-0000-0000-0000-eeeeeeeeeeee'::uuid;
             UPDATE jobs SET status = 'completed' WHERE id = 'dddddddd-0000-0000-0000-aaaaaaaaaaaa'::uuid;
             INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
             VALUES ('dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'test-svc-match', 'pending', 'paid', now());
-            -- ProvA tries
+            -- ProvA tries (set uid as postgres before switching role)
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-2222-2222-2222-dddddddddddd'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
             SELECT accept_job('dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid) INTO resultA;
-            -- ProvB tries same job
+            -- Switch back to postgres to change auth.uid(), then back to authenticated for ProvB
+            SET LOCAL role TO 'postgres';
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dddddddd-3333-3333-3333-dddddddddddd'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
             SELECT accept_job('dddddddd-0000-0000-0000-ffffffffffff'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid) INTO resultB;
             -- Exactly one succeeds
             winners := 0;
