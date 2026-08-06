@@ -1598,7 +1598,7 @@ jobs:
           BEGIN
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
-            SELECT cancel_job('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'customer', 'test') INTO result;
+            SELECT cancel_job('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'customer'::text, 'test'::text) INTO result;
             ASSERT result->>'success' = 'true', 'DB-28 FAILED: cancel_job must work: ' || result::text;
             RAISE NOTICE 'DB-28 PASSED: cancel_job still works';
           END $$;
