@@ -197,30 +197,22 @@ export function JobProvider({ children }) {
   }
 
   async function updateJobStatus(jobId, status) {
-    const updateData = { status };
-    if (status === 'accepted') updateData.accepted_at = new Date().toISOString();
-    if (status === 'in_progress' || status === 'inprogress') {
-      updateData.started_at = new Date().toISOString();
-    }
-    if (status === 'completed') {
-      updateData.completed_at = new Date().toISOString();
-    }
-
-    const { data, error } = await supabase
-      .from('jobs')
-      .update(updateData)
-      .eq('id', jobId)
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('transition_job_status_by_participant', {
+      p_job_id: jobId,
+      p_target_status: status,
+    });
 
     if (error) throw error;
+    if (!data || !data.success) {
+      throw new Error(data?.message || data?.error || 'Status transition failed');
+    }
 
     // Refetch enriched job data with all relationships
-    await fetchJob(jobId);
+    const job = await fetchJob(jobId);
 
     // Send completion emails when job is completed (fire-and-forget)
-    if (status === 'completed' && data) {
-      sendCompletionEmails(data).catch((e) => console.warn('Completion emails failed:', e));
+    if (status === 'completed' && job) {
+      sendCompletionEmails(job).catch((e) => console.warn('Completion emails failed:', e));
     }
 
     return data;

@@ -185,8 +185,15 @@ jobs:
             started_at TIMESTAMPTZ,
             completed_at TIMESTAMPTZ,
             cancelled_at TIMESTAMPTZ,
+            cancelled_by UUID,
+            cancellation_reason TEXT,
+            customer_completed_at TIMESTAMPTZ,
             scheduled_for TIMESTAMPTZ,
-            checkout_id UUID
+            checkout_id UUID,
+            rating INTEGER,
+            review TEXT,
+            tip NUMERIC(10,2),
+            provider_photo_urls TEXT[]
           );
           ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
           -- Minimal jobs RLS matching production (participants can read/update own jobs)
@@ -223,7 +230,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -1206,6 +1213,395 @@ jobs:
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
           DO $$ BEGIN RAISE NOTICE 'All 13 Realtime tracking authorization tests passed.'; END $$;
+          SQL
+      - name: Test server-authoritative job transitions (CROSS-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Setup: test users, service, and a job for transition testing
+          INSERT INTO auth.users (id, email) VALUES
+            ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cross-customer@test.com'),
+            ('cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'cross-provider@test.com'),
+            ('cccccccc-3333-3333-3333-cccccccccccc'::uuid, 'cross-unrelated@test.com')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO profiles (id, role) VALUES
+            ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'customer'),
+            ('cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'provider'),
+            ('cccccccc-3333-3333-3333-cccccccccccc'::uuid, 'customer')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc-cross', 'Cross Test', 50) ON CONFLICT DO NOTHING;
+          INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, created_at)
+          VALUES ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid,
+                  'cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'test-svc-cross', 'accepted', 'paid', now());
+
+          -- DB-1: Customer cannot raw UPDATE own job.status
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE jobs SET status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-1 FAILED: customer raw status UPDATE must be blocked';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-1 PASSED: customer raw status UPDATE blocked';
+            END;
+          END $$;
+
+          -- DB-2: Provider cannot raw UPDATE own job.status
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE jobs SET status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-2 FAILED: provider raw status UPDATE must be blocked';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-2 PASSED: provider raw status UPDATE blocked';
+            END;
+          END $$;
+
+          -- DB-3: Customer cannot forge lifecycle timestamps
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE jobs SET completed_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-3 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            BEGIN
+              UPDATE jobs SET started_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-3 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            BEGIN
+              UPDATE jobs SET customer_completed_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-3 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            RAISE NOTICE 'DB-3 PASSED: customer cannot forge lifecycle timestamps';
+          END $$;
+
+          -- DB-4: Provider cannot forge lifecycle timestamps
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE jobs SET completed_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-4 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            BEGIN
+              UPDATE jobs SET accepted_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-4 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            BEGIN
+              UPDATE jobs SET cancelled_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+              RAISE EXCEPTION 'DB-4 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            RAISE NOTICE 'DB-4 PASSED: provider cannot forge lifecycle timestamps';
+          END $$;
+
+          -- DB-5: Unrelated user cannot transition via RPC
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-3333-3333-3333-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'enroute') INTO result;
+            ASSERT (result::jsonb)->>'error' = 'UNAUTHORIZED', 'DB-5 FAILED: got ' || result::text;
+            RAISE NOTICE 'DB-5 PASSED: unrelated user rejected by RPC';
+          END $$;
+
+          -- DB-6: Anon cannot execute participant transition RPC
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM transition_job_status_by_participant(gen_random_uuid(), 'enroute');
+              RAISE EXCEPTION 'DB-6 FAILED: anon must not execute';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-6 PASSED: anon denied';
+            END;
+          END $$;
+
+          -- DB-7: Authenticated still cannot execute internal transition_job_status
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              PERFORM transition_job_status(gen_random_uuid(), 'completed');
+              RAISE EXCEPTION 'DB-7 FAILED: authenticated must not execute internal RPC';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DB-7 PASSED: internal transition_job_status still blocked for authenticated';
+            END;
+          END $$;
+
+          -- DB-8: Provider accepted -> enroute
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'enroute') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-8 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-8 PASSED: provider accepted -> enroute';
+          END $$;
+
+          -- DB-9: Provider enroute -> arrived
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'arrived') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-9 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-9 PASSED: provider enroute -> arrived';
+          END $$;
+
+          -- DB-10: Provider accepted -> arrived (reset and test direct path)
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            -- Reset to accepted for this test
+            UPDATE jobs SET status = 'accepted' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'arrived') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-10 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-10 PASSED: provider accepted -> arrived';
+          END $$;
+
+          -- DB-11: Provider arrived -> inprogress
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'inprogress') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-11 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-11 PASSED: provider arrived -> inprogress';
+          END $$;
+
+          -- DB-12: Provider inprogress -> completed
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'completed') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-12 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-12 PASSED: provider inprogress -> completed';
+          END $$;
+
+          -- DB-13: completed_at is database-generated
+          DO $$
+          DECLARE v_completed_at TIMESTAMPTZ;
+          BEGIN
+            SELECT completed_at INTO v_completed_at FROM jobs WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_completed_at IS NOT NULL, 'DB-13 FAILED: completed_at must be set by trigger';
+            RAISE NOTICE 'DB-13 PASSED: completed_at is database-generated';
+          END $$;
+
+          -- DB-14: started_at is database-generated
+          DO $$
+          DECLARE v_started_at TIMESTAMPTZ;
+          BEGIN
+            SELECT started_at INTO v_started_at FROM jobs WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_started_at IS NOT NULL, 'DB-14 FAILED: started_at must be set by trigger';
+            RAISE NOTICE 'DB-14 PASSED: started_at is database-generated';
+          END $$;
+
+          -- DB-15: Provider cannot skip accepted -> completed
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE jobs SET status = 'accepted', completed_at = NULL, started_at = NULL WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'completed') INTO result;
+            ASSERT (result::jsonb)->>'error' = 'INVALID_TRANSITION', 'DB-15 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-15 PASSED: provider cannot skip accepted -> completed';
+          END $$;
+
+          -- DB-16: Provider cannot move completed backward
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE jobs SET status = 'completed' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'arrived') INTO result;
+            ASSERT (result::jsonb)->>'error' = 'INVALID_TRANSITION', 'DB-16 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-16 PASSED: provider cannot move completed backward';
+          END $$;
+
+          -- DB-17: Customer cannot set completed
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE jobs SET status = 'inprogress' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'completed') INTO result;
+            ASSERT (result::jsonb)->>'error' = 'INVALID_TRANSITION', 'DB-17 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-17 PASSED: customer cannot set completed';
+          END $$;
+
+          -- DB-18: Customer cannot set arrived
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE jobs SET status = 'accepted' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'arrived') INTO result;
+            ASSERT (result::jsonb)->>'error' = 'INVALID_TRANSITION', 'DB-18 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-18 PASSED: customer cannot set arrived';
+          END $$;
+
+          -- DB-19: Customer cannot set enroute
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'enroute') INTO result;
+            ASSERT (result::jsonb)->>'error' = 'INVALID_TRANSITION', 'DB-19 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-19 PASSED: customer cannot set enroute';
+          END $$;
+
+          -- DB-20: Customer arrived -> inprogress succeeds
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE jobs SET status = 'arrived' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT transition_job_status_by_participant('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'inprogress') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-20 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-20 PASSED: customer arrived -> inprogress';
+          END $$;
+
+          -- DB-21: Customer can confirm completion for own valid job
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT confirm_customer_job_completion('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-21 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-21 PASSED: customer confirms completion';
+          END $$;
+
+          -- DB-22: customer_completed_at is database-generated
+          DO $$
+          DECLARE v_ts TIMESTAMPTZ;
+          BEGIN
+            SELECT customer_completed_at INTO v_ts FROM jobs WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_ts IS NOT NULL, 'DB-22 FAILED: customer_completed_at must be set';
+            RAISE NOTICE 'DB-22 PASSED: customer_completed_at is database-generated';
+          END $$;
+
+          -- DB-23: Confirmation does NOT change job.status
+          DO $$
+          DECLARE v_status TEXT;
+          BEGIN
+            SELECT status INTO v_status FROM jobs WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_status = 'inprogress', 'DB-23 FAILED: status should remain inprogress, got ' || v_status;
+            RAISE NOTICE 'DB-23 PASSED: confirmation does not change status';
+          END $$;
+
+          -- DB-24: Provider cannot set customer_completed_at through confirmation RPC
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            -- Reset customer_completed_at for this test
+            UPDATE jobs SET customer_completed_at = NULL WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT confirm_customer_job_completion('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'UNAUTHORIZED', 'DB-24 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-24 PASSED: provider cannot confirm customer completion';
+          END $$;
+
+          -- DB-25: Unrelated user cannot confirm
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-3333-3333-3333-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT confirm_customer_job_completion('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'UNAUTHORIZED', 'DB-25 FAILED: ' || result::text;
+            RAISE NOTICE 'DB-25 PASSED: unrelated user cannot confirm';
+          END $$;
+
+          -- DB-26: Repeat customer confirmation is idempotent
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            -- Set customer_completed_at
+            UPDATE jobs SET customer_completed_at = now() WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT confirm_customer_job_completion('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DB-26 FAILED';
+            ASSERT (result::jsonb)->>'already_confirmed' = 'true', 'DB-26 FAILED: should be idempotent';
+            RAISE NOTICE 'DB-26 PASSED: repeat confirmation is idempotent';
+          END $$;
+
+          -- DB-27: accept_job still works (create a fresh pending job)
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at)
+            VALUES ('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid,
+                    'test-svc-cross', 'pending', 'paid', now());
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-2222-2222-2222-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'DB-27 FAILED: accept_job must work: ' || result::text;
+            RAISE NOTICE 'DB-27 PASSED: accept_job still works';
+          END $$;
+
+          -- DB-28: cancel_job still works
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT cancel_job('cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid, 'cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'customer', 'test') INTO result;
+            ASSERT result->>'success' = 'true', 'DB-28 FAILED: cancel_job must work: ' || result::text;
+            RAISE NOTICE 'DB-28 PASSED: cancel_job still works';
+          END $$;
+
+          -- DB-29: Non-lifecycle fields still writable by participant
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'cccccccc-1111-1111-1111-cccccccccccc'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE jobs SET rating = 5, review = 'Great service' WHERE id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            RAISE NOTICE 'DB-29 PASSED: non-lifecycle fields still writable';
+          END $$;
+
+          -- DB-30: Job status history records legitimate RPC transitions
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM job_events
+            WHERE job_id = 'cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid AND event_type = 'status_changed';
+            ASSERT v_count > 0, 'DB-30 FAILED: RPC transitions must create job_events';
+            RAISE NOTICE 'DB-30 PASSED: job_events recorded for RPC transitions (% events)', v_count;
+          END $$;
+
+          -- Cleanup
+          DELETE FROM job_events WHERE job_id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
+          DELETE FROM job_status_audit WHERE job_id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
+          DELETE FROM notifications WHERE user_id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid);
+          DELETE FROM jobs WHERE id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
+          DELETE FROM profiles WHERE id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'cccccccc-3333-3333-3333-cccccccccccc'::uuid);
+          DELETE FROM services WHERE id = 'test-svc-cross';
+          DELETE FROM auth.users WHERE id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'cccccccc-3333-3333-3333-cccccccccccc'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 30 server-authoritative transition tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
