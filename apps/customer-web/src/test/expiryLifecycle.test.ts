@@ -1002,3 +1002,168 @@ describe('expire-pending-jobs auth hardening', () => {
     expect(fnSource).toContain('Server misconfigured');
   });
 });
+
+// =============================================================================
+// TRACK-001: Job tracking Realtime channel authorization tests
+// =============================================================================
+
+describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
+  const customerHookPath = path.resolve(REPO_ROOT, 'apps/customer-web/src/hooks/useRealtimeLocation.ts');
+  const providerHookPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/hooks/useRealtimeLocation.ts');
+
+  it('customer job-tracking channel is private', () => {
+    const src = fs.readFileSync(customerHookPath, 'utf-8');
+    expect(src).toContain('private: true');
+  });
+
+  it('provider job-tracking channel is private', () => {
+    const src = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(src).toContain('private: true');
+  });
+
+  it('both hooks use the same job-specific topic pattern', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(custSrc).toContain('`job-tracking-${jobId}`');
+    expect(provSrc).toContain('`job-tracking-${jobId}`');
+  });
+
+  it('broadcast functionality remains in both hooks', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(custSrc).toContain("event: 'location_update'");
+    expect(provSrc).toContain("event: 'location_update'");
+    expect(custSrc).toContain('broadcastLocation');
+    expect(provSrc).toContain('broadcastLocation');
+  });
+
+  it('presence functionality remains in both hooks', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(custSrc).toContain("event: 'join'");
+    expect(custSrc).toContain("event: 'leave'");
+    expect(provSrc).toContain("event: 'join'");
+    expect(provSrc).toContain("event: 'leave'");
+    expect(custSrc).toContain('channel.track(');
+    expect(provSrc).toContain('channel.track(');
+  });
+
+  it('no fallback public job-tracking channel exists', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    // Count occurrences of channel creation — should be exactly one per hook
+    const custChannels = (custSrc.match(/supabase\.channel\(/g) || []).length;
+    const provChannels = (provSrc.match(/supabase\.channel\(/g) || []).length;
+    expect(custChannels).toBe(1);
+    expect(provChannels).toBe(1);
+    // No public fallback — private must be the only mode
+    expect(custSrc).not.toContain('private: false');
+    expect(provSrc).not.toContain('private: false');
+  });
+
+  it('realtime authorization migration exists with safe UUID parsing', () => {
+    const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260807000000_secure_job_tracking_realtime.sql');
+    expect(fs.existsSync(migrationPath)).toBe(true);
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('realtime.messages');
+    expect(src).toContain('job-tracking-');
+    expect(src).toContain('customer_id = auth.uid()');
+    expect(src).toContain('provider_id = auth.uid()');
+    expect(src).toContain("'completed'");
+    expect(src).toContain("'cancelled'");
+    expect(src).toContain('FOR SELECT');
+    expect(src).toContain('FOR INSERT');
+    // UUID validation must use regex, not length-only check
+    expect(src).toContain('[0-9a-f]');
+    expect(src).toContain('extract_job_tracking_uuid');
+  });
+
+  it('LiveTracking status is declared before isTrackingActive (no TDZ)', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+    );
+    const lines = src.split('\n');
+    // Find the line numbers for status declaration and isTrackingActive usage
+    const statusDeclLine = lines.findIndex(l => l.includes('useState<JobStatus>'));
+    const trackingActiveLine = lines.findIndex(l => l.includes('isTrackingActive') && l.includes('status'));
+    expect(statusDeclLine).toBeGreaterThan(-1);
+    expect(trackingActiveLine).toBeGreaterThan(-1);
+    expect(statusDeclLine).toBeLessThan(trackingActiveLine);
+  });
+
+  it('customer tracking is disabled after completed', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+    );
+    expect(src).toContain("status !== 'completed'");
+    expect(src).toMatch(/useWatchPosition\(isTrackingActive\)/);
+    expect(src).toContain('enabled: isTrackingActive');
+  });
+
+  it('customer tracking is disabled after cancelled', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+    );
+    expect(src).toContain("status !== 'cancelled'");
+  });
+
+  it('provider initial fetch derives terminal state both ways (true AND false)', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    // Must compute terminal as a boolean and call setIsJobTerminal(terminal),
+    // not only setIsJobTerminal(true) conditionally.
+    // This ensures navigating from a terminal job to an active job resets the state.
+    expect(src).toMatch(/const terminal\s*=\s*jobStatus\s*===\s*'completed'/);
+    expect(src).toContain("jobStatus === 'cancelled'");
+    expect(src).toContain("jobStatus === 'expired'");
+    expect(src).toContain('setIsJobTerminal(terminal)');
+  });
+
+  it('provider terminal state resets when navigating to active job', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    // setIsJobTerminal(terminal) where terminal derives from jobStatus means:
+    // - completed/cancelled/expired → terminal=true → tracking disabled
+    // - accepted/enroute/arrived/inprogress → terminal=false → tracking enabled
+    // The same call handles both directions, preventing stale state across job changes.
+    expect(src).toContain('setIsJobTerminal(terminal)');
+    // The effect depends on jobId, so changing jobId triggers a new fetch
+    const fetchEffect = src.match(/useEffect\(\(\)\s*=>\s*\{[\s\S]*?fetchJob\(jobId\)[\s\S]*?\},\s*\[([^\]]*)\]\)/);
+    expect(fetchEffect).not.toBeNull();
+    expect(fetchEffect![1]).toContain('jobId');
+  });
+
+  it('provider tracking is disabled after customer cancellation', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    expect(src).toContain('setIsJobTerminal(true)');
+    expect(src).toMatch(/useWatchPosition\(isTrackingActive\)/);
+    expect(src).toContain('enabled: isTrackingActive');
+    expect(src).toContain('!isJobTerminal');
+  });
+
+  it('provider tracking is disabled after DB completion event', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    expect(src).toMatch(/dbStatus\s*===\s*'completed'[\s\S]*?setIsJobTerminal\(true\)/);
+  });
+
+  it('hook cleanup unsubscribes channel when enabled transitions to false', () => {
+    const custHook = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/hooks/useRealtimeLocation.ts'), 'utf-8'
+    );
+    const provHook = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/hooks/useRealtimeLocation.ts'), 'utf-8'
+    );
+    // Both hooks must unsubscribe in their cleanup function
+    expect(custHook).toContain('channel.unsubscribe()');
+    expect(provHook).toContain('channel.unsubscribe()');
+    // Both hooks depend on enabled in their effect deps
+    expect(custHook).toContain('enabled]');
+    expect(provHook).toContain('enabled]');
+  });
+});

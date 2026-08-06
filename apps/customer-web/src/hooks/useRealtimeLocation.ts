@@ -25,7 +25,7 @@ export function useRealtimeLocation({ jobId, role, enabled = true }: UseRealtime
 
     const channelName = `job-tracking-${jobId}`;
     const channel = supabase.channel(channelName, {
-      config: { broadcast: { self: false } },
+      config: { broadcast: { self: false }, private: true },
     });
 
     channel

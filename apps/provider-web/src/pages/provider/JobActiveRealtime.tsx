@@ -125,6 +125,7 @@ export function JobActiveRealtime() {
   const [lastHeading, setLastHeading] = useState(0);
   const [showCustomerCancelled, setShowCustomerCancelled] = useState(false);
   const [cancelledReason, setCancelledReason] = useState('');
+  const [isJobTerminal, setIsJobTerminal] = useState(false);
 
   // Forward-only status setter — status can NEVER go backward
   const setStatus = useCallback((next: UiStatus | ((prev: UiStatus) => UiStatus)) => {
@@ -143,8 +144,10 @@ export function JobActiveRealtime() {
   }, []);
 
   // Provider device location (source of truth for real-time movement)
-  const myPosition = useWatchPosition(true);
-  const { broadcastLocation } = useRealtimeLocation({ jobId, role: 'provider', enabled: !!jobId });
+  // Tracking stops when the job reaches a terminal state
+  const isTrackingActive = !!jobId && !isJobTerminal;
+  const myPosition = useWatchPosition(isTrackingActive);
+  const { broadcastLocation } = useRealtimeLocation({ jobId, role: 'provider', enabled: isTrackingActive });
 
   useEffect(() => {
     if (myPosition) {
@@ -172,11 +175,17 @@ export function JobActiveRealtime() {
     if (!jobId) return;
     fetchJob(jobId)
       .then((job: any) => {
-        setStatus(mapJobStatusToUi(job?.status));
+        const jobStatus = job?.status;
+        setStatus(mapJobStatusToUi(jobStatus));
+        const terminal = jobStatus === 'completed' || jobStatus === 'cancelled' || jobStatus === 'expired';
+        setIsJobTerminal(terminal);
+        if (jobStatus === 'cancelled') {
+          setCancelledReason(job?.cancellation_reason || 'Job was cancelled');
+          setShowCustomerCancelled(true);
+        }
         if (job?.customer_completed_at) setCustomerConfirmed(true);
         // Show scheduled screen only for genuine scheduled requests (not instant)
-        // A real scheduled request has scheduled_for well after created_at AND in the future
-        if (job?.scheduled_for && job?.status === 'accepted') {
+        if (job?.scheduled_for && jobStatus === 'accepted') {
           const scheduledTime = new Date(job.scheduled_for).getTime();
           const createdTime = new Date(job.created_at).getTime();
           const now = Date.now();
@@ -207,7 +216,12 @@ export function JobActiveRealtime() {
         if (dbStatus === 'cancelled') {
           setCancelledReason(payload.new?.cancellation_reason || 'Customer cancelled the request');
           setShowCustomerCancelled(true);
+          setIsJobTerminal(true);
           return;
+        }
+
+        if (dbStatus === 'completed') {
+          setIsJobTerminal(true);
         }
 
         if (dbStatus) {
@@ -236,6 +250,7 @@ export function JobActiveRealtime() {
         if (data?.job_id === jobId && data?.cancelled_by === 'customer') {
           setCancelledReason(data.reason || 'Customer cancelled the request');
           setShowCustomerCancelled(true);
+          setIsJobTerminal(true);
         }
       });
 
@@ -247,6 +262,7 @@ export function JobActiveRealtime() {
         if (data?.job_id === jobId && data?.cancelled_by === 'customer') {
           setCancelledReason(data.reason || 'Customer cancelled the request');
           setShowCustomerCancelled(true);
+          setIsJobTerminal(true);
         }
       });
 
