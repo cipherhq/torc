@@ -1408,38 +1408,56 @@ describe('Account deletion lifecycle (DEL-001)', () => {
     expect(src).toContain('profiles_status_check');
   });
 
-  it('customer deletion checks profile update error', () => {
+  it('customer deletion verifies row was updated and checks error', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
     );
-    expect(src).toContain('statusError');
+    // Must check database error
     expect(src).toContain('if (statusError) throw statusError');
+    // Must verify returned row (zero-row protection)
+    expect(src).toContain('if (!updatedProfile)');
+    // Must use .select() to get returned data
+    expect(src).toContain(".select('id')");
+    // All checks before success message
+    const zeroRowCheck = src.indexOf('if (!updatedProfile)');
+    const successMsg = src.indexOf('scheduled for deletion');
+    expect(zeroRowCheck).toBeLessThan(successMsg);
   });
 
-  it('provider deletion checks profile update error', () => {
+  it('provider deletion verifies row was updated and checks error', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
     );
-    expect(src).toContain('statusError');
     expect(src).toContain('if (statusError) throw statusError');
+    expect(src).toContain('if (!updatedProfile)');
+    expect(src).toContain(".select('id')");
+    const zeroRowCheck = src.indexOf('if (!updatedProfile)');
+    const successMsg = src.indexOf('scheduled for deletion');
+    expect(zeroRowCheck).toBeLessThan(successMsg);
   });
 
-  it('customer deletion does not show success on failed profile update', () => {
+  it('customer deletion: database error prevents success and signout', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
     );
-    // The success message and signOut are AFTER the error check
-    const errorCheck = src.indexOf('if (statusError) throw statusError');
-    const successMsg = src.indexOf('scheduled for deletion');
-    expect(errorCheck).toBeLessThan(successMsg);
+    // statusError throw is inside try block, catch sets error message
+    expect(src).toContain('throw statusError');
+    expect(src).toContain('setDeleteError');
+    // signOut is only reachable after success message
+    const throwLine = src.indexOf('throw statusError');
+    const signOut = src.indexOf('signOut');
+    const successLine = src.indexOf('scheduled for deletion');
+    expect(throwLine).toBeLessThan(successLine);
+    expect(successLine).toBeLessThan(signOut);
   });
 
-  it('provider deletion does not show success on failed profile update', () => {
+  it('provider deletion: zero-row update prevents success and signout', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
     );
-    const errorCheck = src.indexOf('if (statusError) throw statusError');
-    const successMsg = src.indexOf('scheduled for deletion');
-    expect(errorCheck).toBeLessThan(successMsg);
+    expect(src).toContain("throw new Error('Could not mark account for deletion.')");
+    const throwLine = src.indexOf('Could not mark account for deletion');
+    const signOut = src.indexOf('signOut');
+    expect(throwLine).toBeLessThan(signOut);
   });
 });
