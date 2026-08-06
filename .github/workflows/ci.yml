@@ -307,13 +307,13 @@ jobs:
             FOR UPDATE USING (auth.uid() = id);
           CREATE POLICY "Provider can insert own profile" ON public.provider_profiles
             FOR INSERT WITH CHECK (auth.uid() = id);
-          CREATE POLICY "Admin full access provider_profiles" ON public.provider_profiles
-            FOR ALL USING (is_admin(auth.uid()));
-          -- is_admin helper (if not already created by migrations)
+          -- is_admin helper (must be before Admin policy)
           CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID) RETURNS BOOLEAN
             LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
             SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = user_id AND role = 'admin');
           $$;
+          CREATE POLICY "Admin full access provider_profiles" ON public.provider_profiles
+            FOR ALL USING (is_admin(auth.uid()));
           -- Ensure authenticated/service_role can access tables created above
           GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
           SQL
