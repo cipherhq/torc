@@ -14,8 +14,6 @@
 CREATE OR REPLACE FUNCTION public.guard_provider_verification()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
 AS $$
 BEGIN
   -- Trusted callers: postgres (SECURITY DEFINER), supabase_admin
