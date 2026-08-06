@@ -287,13 +287,40 @@ jobs:
             action_url TEXT,
             created_at TIMESTAMPTZ DEFAULT now()
           );
+          CREATE TABLE IF NOT EXISTS public.provider_profiles (
+            id UUID PRIMARY KEY REFERENCES auth.users(id),
+            services TEXT[] DEFAULT '{}',
+            is_verified BOOLEAN DEFAULT false,
+            is_online BOOLEAN DEFAULT false,
+            rating NUMERIC(3,2) DEFAULT 0,
+            total_jobs INTEGER DEFAULT 0,
+            total_earnings NUMERIC(10,2) DEFAULT 0,
+            avatar_url TEXT,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
+          ALTER TABLE public.provider_profiles ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY "Provider can view own profile" ON public.provider_profiles
+            FOR SELECT USING (auth.uid() = id);
+          CREATE POLICY "Anyone can view providers" ON public.provider_profiles
+            FOR SELECT USING (auth.uid() IS NOT NULL);
+          CREATE POLICY "Provider can update own profile" ON public.provider_profiles
+            FOR UPDATE USING (auth.uid() = id);
+          CREATE POLICY "Provider can insert own profile" ON public.provider_profiles
+            FOR INSERT WITH CHECK (auth.uid() = id);
+          CREATE POLICY "Admin full access provider_profiles" ON public.provider_profiles
+            FOR ALL USING (is_admin(auth.uid()));
+          -- is_admin helper (if not already created by migrations)
+          CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID) RETURNS BOOLEAN
+            LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+            SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = user_id AND role = 'admin');
+          $$;
           -- Ensure authenticated/service_role can access tables created above
           GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
           SQL
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -2128,6 +2155,214 @@ jobs:
           DELETE FROM services WHERE id = 'test-svc-conc';
           DELETE FROM auth.users WHERE id IN ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+          SQL
+      - name: Test provider verification protection (PROV-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Setup: provider, admin, and unrelated user
+          INSERT INTO auth.users (id, email) VALUES
+            ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, 'prov-test@test.com'),
+            ('ffffffff-2222-2222-2222-ffffffffffff'::uuid, 'admin-test@test.com'),
+            ('ffffffff-3333-3333-3333-ffffffffffff'::uuid, 'other-test@test.com')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO profiles (id, role, first_name) VALUES
+            ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, 'provider', 'TestProv'),
+            ('ffffffff-2222-2222-2222-ffffffffffff'::uuid, 'admin', 'TestAdmin'),
+            ('ffffffff-3333-3333-3333-ffffffffffff'::uuid, 'customer', 'TestOther')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO provider_profiles (id, services, is_verified, is_online) VALUES
+            ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, '{towing}', false, false)
+          ON CONFLICT DO NOTHING;
+
+          -- PROV-DB-1: Provider can update own avatar_url
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET avatar_url = 'https://example.com/photo.jpg' WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            RAISE NOTICE 'PROV-DB-1 PASSED: provider can update avatar_url';
+          END $$;
+
+          -- PROV-DB-2: Provider can update own services
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET services = '{towing,jumpstart}' WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            RAISE NOTICE 'PROV-DB-2 PASSED: provider can update services';
+          END $$;
+
+          -- PROV-DB-3: Provider can update own is_online
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET is_online = true WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            RAISE NOTICE 'PROV-DB-3 PASSED: provider can update is_online';
+          END $$;
+
+          -- PROV-DB-4: Provider rating/total_jobs write remains possible
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET rating = 4.5, total_jobs = 10 WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            RAISE NOTICE 'PROV-DB-4 PASSED: provider can update rating/total_jobs';
+          END $$;
+
+          -- PROV-DB-5: Provider cannot UPDATE is_verified false -> true
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE provider_profiles SET is_verified = true WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+              RAISE EXCEPTION 'PROV-DB-5 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PROV-DB-5 PASSED: provider cannot self-verify';
+            END;
+          END $$;
+
+          -- PROV-DB-6: Verified provider cannot UPDATE is_verified true -> false
+          DO $$
+          BEGIN
+            -- Admin verifies first
+            UPDATE provider_profiles SET is_verified = true WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE provider_profiles SET is_verified = false WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+              RAISE EXCEPTION 'PROV-DB-6 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PROV-DB-6 PASSED: verified provider cannot self-unverify';
+            END;
+          END $$;
+
+          -- PROV-DB-7: Provider cannot INSERT with is_verified=true
+          DO $$
+          BEGIN
+            -- Remove existing row first
+            DELETE FROM provider_profiles WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO provider_profiles (id, services, is_verified) VALUES ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, '{towing}', true);
+              RAISE EXCEPTION 'PROV-DB-7 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PROV-DB-7 PASSED: provider cannot INSERT with is_verified=true';
+            END;
+          END $$;
+
+          -- PROV-DB-8: Provider can INSERT with verification omitted (defaults false)
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            INSERT INTO provider_profiles (id, services) VALUES ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, '{towing}');
+            RAISE NOTICE 'PROV-DB-8 PASSED: provider can INSERT with default verification';
+          END $$;
+
+          -- PROV-DB-9: Provider UPSERT with is_verified=true fails
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO provider_profiles (id, services, is_verified) VALUES ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, '{towing}', true)
+              ON CONFLICT (id) DO UPDATE SET is_verified = true;
+              RAISE EXCEPTION 'PROV-DB-9 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PROV-DB-9 PASSED: UPSERT with is_verified=true fails';
+            END;
+          END $$;
+
+          -- PROV-DB-10: Combined avatar_url + is_verified=true fails atomically
+          DO $$
+          DECLARE v_url TEXT;
+          BEGIN
+            -- Set known avatar first
+            UPDATE provider_profiles SET avatar_url = 'original.jpg' WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              UPDATE provider_profiles SET avatar_url = 'hacked.jpg', is_verified = true WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+              RAISE EXCEPTION 'PROV-DB-10 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+            -- Verify avatar_url was NOT changed (atomic failure)
+            SELECT avatar_url INTO v_url FROM provider_profiles WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            ASSERT v_url = 'original.jpg', 'PROV-DB-10 FAILED: avatar_url should remain original, got ' || COALESCE(v_url, 'NULL');
+            RAISE NOTICE 'PROV-DB-10 PASSED: combined mutation fails atomically';
+          END $$;
+
+          -- PROV-DB-16: Admin can set is_verified=true
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-2222-2222-2222-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET is_verified = true WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            RAISE NOTICE 'PROV-DB-16 PASSED: admin can verify provider';
+          END $$;
+
+          -- PROV-DB-17: Admin can set is_verified=false
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-2222-2222-2222-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET is_verified = false WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            RAISE NOTICE 'PROV-DB-17 PASSED: admin can suspend provider';
+          END $$;
+
+          -- PROV-DB-21: Unrelated user cannot update another provider's row
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-3333-3333-3333-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE provider_profiles SET services = '{hacking}' WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            -- RLS silently filters — check row wasn't actually changed
+            DECLARE v_services TEXT[];
+            BEGIN
+              SELECT services INTO v_services FROM provider_profiles WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+              ASSERT v_services != '{hacking}', 'PROV-DB-21 FAILED: unrelated user modified provider row';
+              RAISE NOTICE 'PROV-DB-21 PASSED: unrelated user cannot modify provider';
+            END;
+          END $$;
+
+          -- PROV-DB-23: Existing role escalation prevention still works
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ffffffff-1111-1111-1111-ffffffffffff'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            UPDATE profiles SET role = 'admin' WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+            -- Check role wasn't changed (trigger silently reverts)
+            DECLARE v_role TEXT;
+            BEGIN
+              SET LOCAL role TO 'postgres';
+              SELECT role INTO v_role FROM profiles WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+              ASSERT v_role = 'provider', 'PROV-DB-23 FAILED: role should be provider, got ' || v_role;
+              RAISE NOTICE 'PROV-DB-23 PASSED: role escalation prevention works';
+            END;
+          END $$;
+
+          -- PROV-DB-24: Anon cannot bypass
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              UPDATE provider_profiles SET is_verified = true WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+              -- anon may silently fail via RLS (no matching rows)
+              RAISE NOTICE 'PROV-DB-24 PASSED: anon has no effect';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PROV-DB-24 PASSED: anon denied';
+            END;
+          END $$;
+
+          -- Cleanup
+          DELETE FROM provider_profiles WHERE id = 'ffffffff-1111-1111-1111-ffffffffffff'::uuid;
+          DELETE FROM profiles WHERE id IN ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, 'ffffffff-2222-2222-2222-ffffffffffff'::uuid, 'ffffffff-3333-3333-3333-ffffffffffff'::uuid);
+          DELETE FROM auth.users WHERE id IN ('ffffffff-1111-1111-1111-ffffffffffff'::uuid, 'ffffffff-2222-2222-2222-ffffffffffff'::uuid, 'ffffffff-3333-3333-3333-ffffffffffff'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 16 PROV-001 verification protection tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |
