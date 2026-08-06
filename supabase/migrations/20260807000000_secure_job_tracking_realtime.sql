@@ -13,8 +13,8 @@
 -- casting. Malformed topics (wrong length, invalid characters) fail closed
 -- without raising a cast exception.
 
--- Enable RLS on realtime.messages (idempotent — may already be enabled)
-ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+-- RLS is already enabled on realtime.messages in hosted Supabase.
+-- Do not ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY.
 
 -- Helper: safely extract a UUID from a job-tracking-* topic string.
 -- Returns NULL (fail closed) for any topic that is not exactly
