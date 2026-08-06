@@ -103,28 +103,12 @@ export function HomeMap() {
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    const hasCleaned = { current: false };
     async function check() {
-      const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-
-      // One-time cleanup of stale jobs older than 12 hours
-      if (!hasCleaned.current) {
-        hasCleaned.current = true;
-        supabase
-          .from('jobs')
-          .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'auto_expired_stale' })
-          .eq('customer_id', user!.id)
-          .in('status', ['pending', 'matching', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
-          .lt('created_at', twelveHoursAgo)
-          .then(() => {});
-      }
-
       const { data } = await supabase
         .from('jobs')
         .select('id, status, services(name)')
         .eq('customer_id', user!.id)
         .in('status', ['pending', 'matching', 'accepted', 'en_route', 'enroute', 'arrived', 'in_progress', 'inprogress'])
-        .gte('created_at', twelveHoursAgo)
         .limit(1)
         .maybeSingle();
       if (!cancelled && data) {

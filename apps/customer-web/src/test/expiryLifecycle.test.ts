@@ -862,6 +862,45 @@ describe('Client-Side Expiry Removal', () => {
     expect(workerSource).not.toContain('setInterval(expireStaleJobs');
     expect(workerSource).not.toContain('setTimeout(expireStaleJobs');
   });
+
+  // CROSS-002: HomeMap must not perform client-side stale job cancellation
+  const homeMapPath = path.join(REPO_ROOT, 'apps/customer-web/src/pages/customer/HomeMap.tsx');
+
+  it('HomeMap does not directly update a job to cancelled as stale-job cleanup', () => {
+    const src = fs.readFileSync(homeMapPath, 'utf-8');
+    expect(src).not.toContain("cancellation_reason: 'auto_expired_stale'");
+    expect(src).not.toContain("status: 'cancelled'");
+  });
+
+  it('HomeMap does not contain a 12-hour client-side expiry mechanism', () => {
+    const src = fs.readFileSync(homeMapPath, 'utf-8');
+    expect(src).not.toContain('twelveHoursAgo');
+    expect(src).not.toContain('12 * 60 * 60 * 1000');
+    expect(src).not.toContain('hasCleaned');
+  });
+
+  it('HomeMap does not filter active jobs by created_at age', () => {
+    const src = fs.readFileSync(homeMapPath, 'utf-8');
+    // The active job query must not exclude jobs based on age
+    expect(src).not.toContain('.lt(\'created_at\'');
+    expect(src).not.toContain('.gte(\'created_at\'');
+  });
+
+  it('HomeMap crash recovery still queries active jobs', () => {
+    const src = fs.readFileSync(homeMapPath, 'utf-8');
+    expect(src).toContain('.select(');
+    expect(src).toContain("'pending'");
+    expect(src).toContain("'accepted'");
+    expect(src).toContain("'in_progress'");
+    expect(src).toContain('setActiveJob');
+  });
+
+  it('HomeMap does not perform any .update() on the jobs table', () => {
+    const src = fs.readFileSync(homeMapPath, 'utf-8');
+    // HomeMap should only read job state, never write it
+    const jobsUpdatePattern = /\.from\(['"]jobs['"]\)\s*\n?\s*\.update\(/;
+    expect(src).not.toMatch(jobsUpdatePattern);
+  });
 });
 
 // =============================================================================
