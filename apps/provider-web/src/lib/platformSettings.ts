@@ -1,5 +1,25 @@
 import { supabase } from './supabase';
 
+// DB keys (snake_case) → app keys used by consumers
+const DB_TO_APP_KEY: Record<string, string> = {
+  platform_commission_pct: 'platformFee',
+  currency: 'currency',
+  email_notifications: 'emailNotifications',
+  sms_notifications: 'smsNotifications',
+  auto_approve_providers: 'autoApproveProviders',
+  maintenance_mode: 'maintenanceMode',
+  max_job_radius: 'maxJobRadius',
+  provider_timeout: 'providerTimeout',
+  cancellation_fee_pct: 'cancellation_fee_pct',
+  document_grace_period_days: 'document_grace_period_days',
+  chat_max_message_length: 'chat_max_message_length',
+  chat_messages_per_page: 'chat_messages_per_page',
+  chat_history_retention_days: 'chat_history_retention_days',
+  chat_conversations_per_page: 'chat_conversations_per_page',
+  chat_max_image_size_mb: 'chat_max_image_size_mb',
+  chat_enable_images: 'chat_enable_images',
+};
+
 export type PlatformSettingsMap = {
   platformFee: number;
   currency: string;
@@ -9,8 +29,7 @@ export type PlatformSettingsMap = {
   maintenanceMode: boolean;
   maxJobRadius: number;
   providerTimeout: number;
-  urgentSlaHours: number;
-  standardSlaHours: number;
+  cancellation_fee_pct: number;
   document_grace_period_days: number;
   chat_max_message_length: number;
   chat_messages_per_page: number;
@@ -29,8 +48,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
   maintenanceMode: false,
   maxJobRadius: 50,
   providerTimeout: 5,
-  urgentSlaHours: 2,
-  standardSlaHours: 24,
+  cancellation_fee_pct: 25,
   document_grace_period_days: 30,
   chat_max_message_length: 1000,
   chat_messages_per_page: 30,
@@ -40,7 +58,7 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsMap = {
   chat_enable_images: true,
 };
 
-const SETTINGS_KEYS = Object.keys(DEFAULT_PLATFORM_SETTINGS);
+const DB_KEYS = Object.keys(DB_TO_APP_KEY);
 const CACHE_TTL_MS = 60_000;
 
 let cachedSettings: PlatformSettingsMap | null = null;
@@ -67,20 +85,22 @@ export async function loadPlatformSettings(force = false): Promise<PlatformSetti
     const { data, error } = await supabase
       .from('platform_settings')
       .select('key, value')
-      .in('key', SETTINGS_KEYS);
+      .in('key', DB_KEYS);
 
     if (error && !String(error.message || '').toLowerCase().includes('does not exist')) {
       throw error;
     }
 
-    const valuesByKey: Record<string, unknown> = {};
+    const valuesByAppKey: Record<string, unknown> = {};
     (data || []).forEach((row: any) => {
-      valuesByKey[row.key] = row.value;
+      const appKey = DB_TO_APP_KEY[row.key];
+      if (appKey) valuesByAppKey[appKey] = row.value;
     });
 
-    const merged = SETTINGS_KEYS.reduce((acc, key) => {
+    const appKeys = Object.keys(DEFAULT_PLATFORM_SETTINGS);
+    const merged = appKeys.reduce((acc, key) => {
       const typedKey = key as keyof PlatformSettingsMap;
-      acc[typedKey] = parseSettingValue(typedKey, valuesByKey[key] ?? DEFAULT_PLATFORM_SETTINGS[typedKey]) as never;
+      acc[typedKey] = parseSettingValue(typedKey, valuesByAppKey[key] ?? DEFAULT_PLATFORM_SETTINGS[typedKey]) as never;
       return acc;
     }, { ...DEFAULT_PLATFORM_SETTINGS } as PlatformSettingsMap);
 

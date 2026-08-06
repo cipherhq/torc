@@ -13,33 +13,36 @@ import {
 
 export function AdminSettings() {
   const { user } = useAuth();
-  const [settings, setSettings] = useState(DEFAULT_PLATFORM_SETTINGS);
+  // Settings page works with DB snake_case keys directly
+  const [settings, setSettings] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadPlatformSettings() {
+    async function loadSettings() {
       try {
         setLoading(true);
         setFeedback(null);
-        const loaded = await loadPlatformSettings(true);
-        setSettings(loaded);
+        const { data, error } = await supabase.from('platform_settings').select('key, value');
+        if (error) throw error;
+        const map: Record<string, any> = {};
+        (data || []).forEach((row: any) => { map[row.key] = row.value; });
+        setSettings(map);
       } catch (error: any) {
         console.warn('Failed to load settings:', error);
-        setFeedback(error?.message || 'Could not load settings. Using defaults.');
-        setSettings(DEFAULT_PLATFORM_SETTINGS);
+        setFeedback(error?.message || 'Could not load settings.');
       } finally {
         setLoading(false);
       }
     }
-    void loadPlatformSettings();
+    void loadSettings();
   }, []);
 
   const handleToggle = (key: string) => {
     setSettings(prev => ({
       ...prev,
-      [key]: !prev[key as keyof typeof prev],
+      [key]: !prev[key],
     }));
   };
 
@@ -53,7 +56,7 @@ export function AdminSettings() {
           label: 'Platform Fee Percentage',
           description: 'Default commission on all transactions',
           type: 'number',
-          key: 'platformFee',
+          key: 'platform_commission_pct',
           suffix: '%',
         },
         {
@@ -74,13 +77,13 @@ export function AdminSettings() {
           label: 'Email Notifications',
           description: 'Send email alerts to users',
           type: 'toggle',
-          key: 'emailNotifications',
+          key: 'email_notifications',
         },
         {
           label: 'SMS Notifications',
           description: 'Send SMS alerts to users',
           type: 'toggle',
-          key: 'smsNotifications',
+          key: 'sms_notifications',
         },
       ],
     },
@@ -93,27 +96,27 @@ export function AdminSettings() {
           label: 'Auto-Approve Providers',
           description: 'Automatically verify new providers',
           type: 'toggle',
-          key: 'autoApproveProviders',
+          key: 'auto_approve_providers',
         },
         {
           label: 'Provider Response Timeout',
           description: 'Minutes before reassigning job',
           type: 'number',
-          key: 'providerTimeout',
+          key: 'provider_timeout',
           suffix: 'min',
         },
         {
           label: 'Urgent Ticket SLA',
           description: 'Max hours before urgent ticket is considered breached',
           type: 'number',
-          key: 'urgentSlaHours',
+          key: 'urgent_sla_hours',
           suffix: 'h',
         },
         {
           label: 'Standard Ticket SLA',
           description: 'Max hours before non-urgent ticket is considered breached',
           type: 'number',
-          key: 'standardSlaHours',
+          key: 'standard_sla_hours',
           suffix: 'h',
         },
       ],
@@ -127,13 +130,13 @@ export function AdminSettings() {
           label: 'Maintenance Mode',
           description: 'Disable new job requests',
           type: 'toggle',
-          key: 'maintenanceMode',
+          key: 'maintenance_mode',
         },
         {
           label: 'Max Job Search Radius',
           description: 'Maximum distance for provider matching',
           type: 'number',
-          key: 'maxJobRadius',
+          key: 'max_job_radius',
           suffix: 'miles',
         },
       ],

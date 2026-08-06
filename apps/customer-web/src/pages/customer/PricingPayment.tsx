@@ -193,7 +193,7 @@ export function PricingPayment() {
   useEffect(() => {
     if (!user) return;
     fetchPaymentMethods();
-    loadPlatformSettings().then(s => setTaxRate(s.tax_rate)).catch(() => {});
+    loadPlatformSettings().then(s => setTaxRate(s.tax_rate_pct)).catch(() => {});
   }, [user]);
 
   useEffect(() => {
