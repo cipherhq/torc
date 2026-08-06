@@ -189,6 +189,15 @@ jobs:
             checkout_id UUID
           );
           ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+          -- Minimal jobs RLS matching production (participants can read/update own jobs)
+          CREATE POLICY "Users can view own jobs" ON public.jobs FOR SELECT
+            USING (auth.uid() = customer_id OR auth.uid() = provider_id);
+          CREATE POLICY "Providers can view pending jobs" ON public.jobs FOR SELECT
+            USING (status = 'pending' AND provider_id IS NULL);
+          CREATE POLICY "Involved users can update jobs" ON public.jobs FOR UPDATE
+            USING (auth.uid() = customer_id OR auth.uid() = provider_id);
+          CREATE POLICY "Customers can create jobs" ON public.jobs FOR INSERT
+            WITH CHECK (auth.uid() = customer_id);
           CREATE TABLE IF NOT EXISTS public.job_events (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             job_id UUID NOT NULL,
