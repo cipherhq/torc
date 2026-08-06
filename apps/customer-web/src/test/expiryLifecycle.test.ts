@@ -1078,15 +1078,25 @@ describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
     expect(src).toContain('extract_job_tracking_uuid');
   });
 
+  it('LiveTracking status is declared before isTrackingActive (no TDZ)', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+    );
+    const lines = src.split('\n');
+    // Find the line numbers for status declaration and isTrackingActive usage
+    const statusDeclLine = lines.findIndex(l => l.includes('useState<JobStatus>'));
+    const trackingActiveLine = lines.findIndex(l => l.includes('isTrackingActive') && l.includes('status'));
+    expect(statusDeclLine).toBeGreaterThan(-1);
+    expect(trackingActiveLine).toBeGreaterThan(-1);
+    expect(statusDeclLine).toBeLessThan(trackingActiveLine);
+  });
+
   it('customer tracking is disabled after completed', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
     );
-    // isTrackingActive must exclude completed
     expect(src).toContain("status !== 'completed'");
-    // useWatchPosition must use the tracking-active condition
     expect(src).toMatch(/useWatchPosition\(isTrackingActive\)/);
-    // useRealtimeLocation must use the tracking-active condition
     expect(src).toContain('enabled: isTrackingActive');
   });
 
@@ -1097,23 +1107,36 @@ describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
     expect(src).toContain("status !== 'cancelled'");
   });
 
+  it('provider initial fetch sets terminal state for completed jobs', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    // The initial fetchJob handler must check for completed/cancelled and set terminal
+    expect(src).toMatch(/jobStatus\s*===\s*'completed'\s*\|\|\s*jobStatus\s*===\s*'cancelled'/);
+    expect(src).toContain('setIsJobTerminal(true)');
+  });
+
+  it('provider initial fetch also handles expired jobs as terminal', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
+    );
+    expect(src).toContain("jobStatus === 'expired'");
+  });
+
   it('provider tracking is disabled after customer cancellation', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
     );
-    // isJobTerminal must be set on cancellation
     expect(src).toContain('setIsJobTerminal(true)');
-    // Tracking hooks must use the terminal condition
     expect(src).toMatch(/useWatchPosition\(isTrackingActive\)/);
     expect(src).toContain('enabled: isTrackingActive');
     expect(src).toContain('!isJobTerminal');
   });
 
-  it('provider tracking is disabled after completion', () => {
+  it('provider tracking is disabled after DB completion event', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/JobActiveRealtime.tsx'), 'utf-8'
     );
-    // completion DB status triggers terminal
     expect(src).toMatch(/dbStatus\s*===\s*'completed'[\s\S]*?setIsJobTerminal\(true\)/);
   });
 

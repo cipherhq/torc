@@ -175,11 +175,18 @@ export function JobActiveRealtime() {
     if (!jobId) return;
     fetchJob(jobId)
       .then((job: any) => {
-        setStatus(mapJobStatusToUi(job?.status));
+        const jobStatus = job?.status;
+        setStatus(mapJobStatusToUi(jobStatus));
+        if (jobStatus === 'completed' || jobStatus === 'cancelled' || jobStatus === 'expired') {
+          setIsJobTerminal(true);
+        }
+        if (jobStatus === 'cancelled') {
+          setCancelledReason(job?.cancellation_reason || 'Job was cancelled');
+          setShowCustomerCancelled(true);
+        }
         if (job?.customer_completed_at) setCustomerConfirmed(true);
         // Show scheduled screen only for genuine scheduled requests (not instant)
-        // A real scheduled request has scheduled_for well after created_at AND in the future
-        if (job?.scheduled_for && job?.status === 'accepted') {
+        if (job?.scheduled_for && jobStatus === 'accepted') {
           const scheduledTime = new Date(job.scheduled_for).getTime();
           const createdTime = new Date(job.created_at).getTime();
           const now = Date.now();

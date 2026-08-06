@@ -62,9 +62,6 @@ export function LiveTracking() {
   const { isLoaded } = useGoogleMaps();
   const { currentLocation } = useLocationCtx();
   const { currentJob, fetchJob, updateJobStatus, cancelJob, platformSettings } = useJob();
-  // Tracking is active only for non-terminal job states
-  const isTrackingActive = status !== 'completed' && status !== 'cancelled';
-  const myPosition = useWatchPosition(isTrackingActive);
 
   // Read accepted payload from Matching page navigation state
   const acceptedPayload = (location.state as any)?.acceptedPayload;
@@ -81,6 +78,10 @@ export function LiveTracking() {
       return prev; // ignore backward transitions
     });
   }, []);
+
+  // Tracking is active only for non-terminal job states
+  const isTrackingActive = status !== 'completed' && status !== 'cancelled';
+  const myPosition = useWatchPosition(isTrackingActive);
   const [eta, setEta] = useState<number | null>(acceptedPayload?.eta_minutes ?? null);
   const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
   const [map, setMap] = useState<google.maps.Map | null>(null);
