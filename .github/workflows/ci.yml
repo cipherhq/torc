@@ -208,6 +208,9 @@ jobs:
             action_url TEXT,
             created_at TIMESTAMPTZ DEFAULT now()
           );
+          -- Ensure authenticated/service_role can access tables created above
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA realtime TO authenticated, service_role;
           SQL
       - name: Execute all new migrations in order
         run: |
