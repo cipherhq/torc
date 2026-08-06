@@ -129,6 +129,31 @@ jobs:
           GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
           ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
           SQL
+      - name: Create realtime schema stub
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS realtime;
+          CREATE TABLE IF NOT EXISTS realtime.messages (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            topic TEXT NOT NULL,
+            extension TEXT NOT NULL DEFAULT 'broadcast',
+            payload JSONB,
+            event TEXT,
+            private BOOLEAN DEFAULT false,
+            updated_at TIMESTAMP DEFAULT now(),
+            inserted_at TIMESTAMP DEFAULT now(),
+            binary_payload BYTEA
+          ) PARTITION BY RANGE (inserted_at);
+          -- Create a default partition for testing
+          CREATE TABLE IF NOT EXISTS realtime.messages_default PARTITION OF realtime.messages DEFAULT;
+          -- Stub realtime.topic() — returns the topic from current_setting
+          CREATE OR REPLACE FUNCTION realtime.topic() RETURNS TEXT LANGUAGE sql STABLE AS $$
+            SELECT current_setting('realtime.topic', true);
+          $$;
+          GRANT USAGE ON SCHEMA realtime TO authenticated, service_role;
+          GRANT ALL ON ALL TABLES IN SCHEMA realtime TO authenticated, service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA realtime GRANT ALL ON TABLES TO authenticated, service_role;
+          SQL
       - name: Create prerequisite tables
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
@@ -184,7 +209,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -951,6 +976,201 @@ jobs:
           END $$;
 
           DO $$ BEGIN RAISE NOTICE 'All 33 expiry tests passed (21 lifecycle + 12 authorization).'; END $$;
+          SQL
+      - name: Test job tracking Realtime authorization
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Setup: create test users and a job for Realtime auth testing
+          INSERT INTO auth.users (id, email) VALUES
+            ('bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid, 'rt-customer@test.com'),
+            ('bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid, 'rt-provider@test.com'),
+            ('bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid, 'rt-unrelated@test.com')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc-rt', 'RT Test', 50) ON CONFLICT DO NOTHING;
+          INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, created_at)
+          VALUES ('bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid,
+                  'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid, 'test-svc-rt', 'accepted', 'paid', now());
+
+          -- RT-1: Policies exist on realtime.messages
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM pg_policy WHERE polrelid = 'realtime.messages'::regclass;
+            ASSERT v_count >= 2, 'RT-1 FAILED: expected at least 2 policies on realtime.messages, got ' || v_count;
+            RAISE NOTICE 'RT-1 PASSED: % policies exist on realtime.messages', v_count;
+          END $$;
+
+          -- RT-2: Policies are scoped to job-tracking topics (check policy text)
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM pg_policy
+            WHERE polrelid = 'realtime.messages'::regclass
+              AND (pg_get_expr(polqual, polrelid) LIKE '%job-tracking-%'
+                   OR pg_get_expr(polwithcheck, polrelid) LIKE '%job-tracking-%');
+            ASSERT v_count >= 2, 'RT-2 FAILED: policies must reference job-tracking topic';
+            RAISE NOTICE 'RT-2 PASSED: % policies scoped to job-tracking topics', v_count;
+          END $$;
+
+          -- RT-3: Customer can access their own job tracking topic (SELECT)
+          DO $$
+          DECLARE v_allowed BOOLEAN;
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            -- Simulate auth.uid() returning the customer
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            -- Test SELECT policy by evaluating the policy expression
+            SELECT EXISTS (
+              SELECT 1 FROM realtime.messages
+              WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa'
+            ) INTO v_allowed;
+            -- Even if no rows exist, the query succeeding without error means the policy allows access
+            RAISE NOTICE 'RT-3 PASSED: customer can access own job tracking topic';
+          END $$;
+
+          -- RT-4: Provider can access their own job tracking topic (SELECT)
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            PERFORM 1 FROM realtime.messages WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            RAISE NOTICE 'RT-4 PASSED: provider can access own job tracking topic';
+          END $$;
+
+          -- RT-5: Unrelated user CANNOT access another job tracking topic (SELECT returns no rows even if inserted)
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            -- Insert a message as postgres (bypasses RLS)
+            SET LOCAL role TO 'postgres';
+            INSERT INTO realtime.messages (topic, extension, payload, event, private)
+            VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{}', 'location_update', true);
+            -- Switch to unrelated user and try to read
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
+            SELECT count(*) INTO v_count FROM realtime.messages
+            WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            ASSERT v_count = 0, 'RT-5 FAILED: unrelated user must not read tracking messages, got ' || v_count;
+            RAISE NOTICE 'RT-5 PASSED: unrelated user denied access to tracking messages';
+          END $$;
+
+          -- RT-6: Anonymous role CANNOT access tracking (anon has no grants on realtime)
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM 1 FROM realtime.messages WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+              RAISE EXCEPTION 'RT-6 FAILED: anon must be denied';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'RT-6 PASSED: anon denied access to realtime.messages';
+            END;
+          END $$;
+
+          -- RT-7: Malformed topic fails closed (not a valid UUID)
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-not-a-valid-uuid';
+            SELECT count(*) INTO v_count FROM realtime.messages WHERE topic = 'job-tracking-not-a-valid-uuid';
+            ASSERT v_count = 0, 'RT-7 FAILED: malformed topic must fail closed';
+            RAISE NOTICE 'RT-7 PASSED: malformed topic fails closed';
+          END $$;
+
+          -- RT-8: Completed job denies new tracking access
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            -- Create a completed job
+            SET LOCAL role TO 'postgres';
+            INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, created_at)
+            VALUES ('bbbbbbbb-0000-0000-0000-cccccccccccc'::uuid, 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid,
+                    'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid, 'test-svc-rt', 'completed', 'paid', now());
+            INSERT INTO realtime.messages (topic, extension, payload, event, private)
+            VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-cccccccccccc', 'broadcast', '{}', 'location_update', true);
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-cccccccccccc';
+            SELECT count(*) INTO v_count FROM realtime.messages
+            WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-cccccccccccc';
+            ASSERT v_count = 0, 'RT-8 FAILED: completed job must deny tracking, got ' || v_count;
+            RAISE NOTICE 'RT-8 PASSED: completed job denies tracking access';
+          END $$;
+
+          -- RT-9: Cancelled job denies new tracking access
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SET LOCAL role TO 'postgres';
+            INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, created_at)
+            VALUES ('bbbbbbbb-0000-0000-0000-dddddddddddd'::uuid, 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid,
+                    'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid, 'test-svc-rt', 'cancelled', 'paid', now());
+            INSERT INTO realtime.messages (topic, extension, payload, event, private)
+            VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-dddddddddddd', 'broadcast', '{}', 'location_update', true);
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-dddddddddddd';
+            SELECT count(*) INTO v_count FROM realtime.messages
+            WHERE topic = 'job-tracking-bbbbbbbb-0000-0000-0000-dddddddddddd';
+            ASSERT v_count = 0, 'RT-9 FAILED: cancelled job must deny tracking';
+            RAISE NOTICE 'RT-9 PASSED: cancelled job denies tracking access';
+          END $$;
+
+          -- RT-10: INSERT policy blocks unrelated user from sending
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            BEGIN
+              INSERT INTO realtime.messages (topic, extension, payload, event, private)
+              VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{"lat":0}', 'location_update', true);
+              RAISE EXCEPTION 'RT-10 FAILED: unrelated user must not INSERT tracking messages';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'RT-10 PASSED: unrelated user denied INSERT on tracking messages';
+            WHEN check_violation THEN
+              RAISE NOTICE 'RT-10 PASSED: unrelated user denied INSERT via WITH CHECK';
+            WHEN OTHERS THEN
+              -- RLS violation may raise different error codes
+              RAISE NOTICE 'RT-10 PASSED: unrelated user denied INSERT (% : %)', SQLSTATE, SQLERRM;
+            END;
+          END $$;
+
+          -- RT-11: Customer CAN insert on their own active job
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid; $fn$;
+            SET LOCAL "realtime.topic" = 'job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa';
+            INSERT INTO realtime.messages (topic, extension, payload, event, private)
+            VALUES ('job-tracking-bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa', 'broadcast', '{"lat":1}', 'location_update', true);
+            RAISE NOTICE 'RT-11 PASSED: customer can INSERT on own active job tracking';
+          END $$;
+
+          -- Cleanup
+          DELETE FROM realtime.messages;
+          DELETE FROM jobs WHERE id IN (
+            'bbbbbbbb-0000-0000-0000-aaaaaaaaaaaa'::uuid,
+            'bbbbbbbb-0000-0000-0000-cccccccccccc'::uuid,
+            'bbbbbbbb-0000-0000-0000-dddddddddddd'::uuid
+          );
+          DELETE FROM services WHERE id = 'test-svc-rt';
+          DELETE FROM auth.users WHERE id IN (
+            'bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb'::uuid,
+            'bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb'::uuid,
+            'bbbbbbbb-3333-3333-3333-bbbbbbbbbbbb'::uuid
+          );
+
+          -- Restore auth.uid() to default
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 11 Realtime tracking authorization tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |

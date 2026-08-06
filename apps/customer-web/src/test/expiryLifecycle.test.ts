@@ -1002,3 +1002,76 @@ describe('expire-pending-jobs auth hardening', () => {
     expect(fnSource).toContain('Server misconfigured');
   });
 });
+
+// =============================================================================
+// TRACK-001: Job tracking Realtime channel authorization tests
+// =============================================================================
+
+describe('Job tracking Realtime channel authorization (TRACK-001)', () => {
+  const customerHookPath = path.resolve(REPO_ROOT, 'apps/customer-web/src/hooks/useRealtimeLocation.ts');
+  const providerHookPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/hooks/useRealtimeLocation.ts');
+
+  it('customer job-tracking channel is private', () => {
+    const src = fs.readFileSync(customerHookPath, 'utf-8');
+    expect(src).toContain('private: true');
+  });
+
+  it('provider job-tracking channel is private', () => {
+    const src = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(src).toContain('private: true');
+  });
+
+  it('both hooks use the same job-specific topic pattern', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(custSrc).toContain('`job-tracking-${jobId}`');
+    expect(provSrc).toContain('`job-tracking-${jobId}`');
+  });
+
+  it('broadcast functionality remains in both hooks', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(custSrc).toContain("event: 'location_update'");
+    expect(provSrc).toContain("event: 'location_update'");
+    expect(custSrc).toContain('broadcastLocation');
+    expect(provSrc).toContain('broadcastLocation');
+  });
+
+  it('presence functionality remains in both hooks', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    expect(custSrc).toContain("event: 'join'");
+    expect(custSrc).toContain("event: 'leave'");
+    expect(provSrc).toContain("event: 'join'");
+    expect(provSrc).toContain("event: 'leave'");
+    expect(custSrc).toContain('channel.track(');
+    expect(provSrc).toContain('channel.track(');
+  });
+
+  it('no fallback public job-tracking channel exists', () => {
+    const custSrc = fs.readFileSync(customerHookPath, 'utf-8');
+    const provSrc = fs.readFileSync(providerHookPath, 'utf-8');
+    // Count occurrences of channel creation — should be exactly one per hook
+    const custChannels = (custSrc.match(/supabase\.channel\(/g) || []).length;
+    const provChannels = (provSrc.match(/supabase\.channel\(/g) || []).length;
+    expect(custChannels).toBe(1);
+    expect(provChannels).toBe(1);
+    // No public fallback — private must be the only mode
+    expect(custSrc).not.toContain('private: false');
+    expect(provSrc).not.toContain('private: false');
+  });
+
+  it('realtime authorization migration exists', () => {
+    const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260807000000_secure_job_tracking_realtime.sql');
+    expect(fs.existsSync(migrationPath)).toBe(true);
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('realtime.messages');
+    expect(src).toContain('job-tracking-');
+    expect(src).toContain('customer_id = auth.uid()');
+    expect(src).toContain('provider_id = auth.uid()');
+    expect(src).toContain("'completed'");
+    expect(src).toContain("'cancelled'");
+    expect(src).toContain('FOR SELECT');
+    expect(src).toContain('FOR INSERT');
+  });
+});
