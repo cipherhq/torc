@@ -3001,21 +3001,158 @@ jobs:
             RAISE NOTICE 'RADIUS-1 PASSED: max radius enforced';
           END $$;
 
+          -- PAYOUT-DML-1: Admin direct INSERT rejected
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO provider_payouts (provider_id, net_payout, status) VALUES ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 999, 'paid');
+              RAISE EXCEPTION 'PAYOUT-DML-1 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PAYOUT-DML-1 PASSED: admin direct INSERT rejected';
+            END;
+          END $$;
+
+          -- PAYOUT-DML-2: Provider direct INSERT rejected
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO provider_payouts (provider_id, net_payout, status) VALUES ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 999, 'paid');
+              RAISE EXCEPTION 'PAYOUT-DML-2 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'PAYOUT-DML-2 PASSED: provider direct INSERT rejected';
+            END;
+          END $$;
+
+          -- EARNINGS-UNPAID: Unpaid completed job creates no earning
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price, created_at)
+            VALUES ('ac00e500-0000-0000-0000-a0b333333333'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
+                    'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-acp', 'inprogress', 'unpaid', 100, now());
+            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-a0b333333333'::uuid;
+            SELECT count(*) INTO v_count FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-a0b333333333'::uuid;
+            ASSERT v_count = 0, 'EARNINGS-UNPAID FAILED: unpaid job should not create earning';
+            RAISE NOTICE 'EARNINGS-UNPAID PASSED: unpaid job has no earning';
+          END $$;
+
+          -- APPROVAL-PENDING: Required doc pending -> rejected
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE provider_profiles SET is_verified = false WHERE id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE documents SET status = 'pending' WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid AND type = 'insurance';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT approve_provider('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'MISSING_DOCUMENTS', 'APPROVAL-PENDING FAILED';
+            RAISE NOTICE 'APPROVAL-PENDING PASSED: pending doc blocks approval';
+            -- Reset
+            UPDATE documents SET status = 'approved' WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid AND type = 'insurance';
+          END $$;
+
+          -- APPROVAL-ROLE: Non-provider target rejected
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT approve_provider('ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'NOT_A_PROVIDER', 'APPROVAL-ROLE FAILED: ' || result::text;
+            RAISE NOTICE 'APPROVAL-ROLE PASSED: non-provider rejected';
+          END $$;
+
+          -- APPROVAL-IDEMPOTENT: Already verified returns safe success
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            UPDATE provider_profiles SET is_verified = true WHERE id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT approve_provider('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'APPROVAL-IDEMPOTENT FAILED';
+            ASSERT (result::jsonb)->>'already_verified' = 'true', 'APPROVAL-IDEMPOTENT: should be idempotent';
+            RAISE NOTICE 'APPROVAL-IDEMPOTENT PASSED';
+            UPDATE provider_profiles SET is_verified = false WHERE id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+          END $$;
+
+          -- SETTINGS-VAL-1: Negative commission rejected
+          DO $$
+          BEGIN
+            BEGIN
+              UPDATE platform_settings SET value = '-5' WHERE key = 'platform_commission_pct';
+              RAISE EXCEPTION 'SETTINGS-VAL-1 FAILED';
+            EXCEPTION WHEN check_violation THEN
+              RAISE NOTICE 'SETTINGS-VAL-1 PASSED: negative commission rejected';
+            END;
+          END $$;
+
+          -- SETTINGS-VAL-2: Commission > 100 rejected
+          DO $$
+          BEGIN
+            BEGIN
+              UPDATE platform_settings SET value = '150' WHERE key = 'platform_commission_pct';
+              RAISE EXCEPTION 'SETTINGS-VAL-2 FAILED';
+            EXCEPTION WHEN check_violation THEN
+              RAISE NOTICE 'SETTINGS-VAL-2 PASSED: commission > 100 rejected';
+            END;
+          END $$;
+
+          -- SETTINGS-VAL-3: Negative radius rejected
+          DO $$
+          BEGIN
+            BEGIN
+              UPDATE platform_settings SET value = '-10' WHERE key = 'max_job_radius';
+              RAISE EXCEPTION 'SETTINGS-VAL-3 FAILED';
+            EXCEPTION WHEN check_violation THEN
+              RAISE NOTICE 'SETTINGS-VAL-3 PASSED: negative radius rejected';
+            END;
+          END $$;
+
+          -- RADIUS-2: Provider outside max radius excluded
+          DO $$
+          DECLARE v_ids UUID[];
+          BEGIN
+            -- Provider A at ~0 miles (same coords)
+            UPDATE provider_locations SET latitude = 40.7128, longitude = -74.006, updated_at = now(), is_online = true
+            WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            -- Create Provider B at ~25 miles away
+            INSERT INTO auth.users (id, email) VALUES ('ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid, 'acp-far@test.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, first_name, status) VALUES ('ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid, 'provider', 'FarProv', 'active') ON CONFLICT DO NOTHING;
+            INSERT INTO provider_profiles (id, services, is_online) VALUES ('ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid, '{towing}', true) ON CONFLICT DO NOTHING;
+            INSERT INTO provider_locations (provider_id, latitude, longitude, is_online, updated_at) VALUES
+              ('ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid, 41.05, -74.006, true, now()) ON CONFLICT (provider_id) DO UPDATE SET latitude = 41.05, updated_at = now(), is_online = true;
+            -- Set max radius to 5
+            UPDATE platform_settings SET value = '5' WHERE key = 'max_job_radius';
+            SET LOCAL role TO 'authenticated';
+            SELECT array_agg(provider_id) INTO v_ids FROM get_nearby_providers(40.7128, -74.006, 100, 'towing');
+            ASSERT 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid = ANY(COALESCE(v_ids, '{}')), 'RADIUS-2 FAILED: near provider missing';
+            ASSERT NOT ('ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid = ANY(COALESCE(v_ids, '{}'))), 'RADIUS-2 FAILED: far provider should be excluded';
+            -- Reset
+            UPDATE platform_settings SET value = '50' WHERE key = 'max_job_radius';
+            RAISE NOTICE 'RADIUS-2 PASSED: far provider excluded by max radius';
+          END $$;
+
           -- Cleanup
-          DELETE FROM provider_earnings WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+          DELETE FROM provider_earnings WHERE provider_id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
           DELETE FROM provider_payouts WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
           DELETE FROM job_events WHERE job_id IN ('ac00e500-0000-0000-0000-a0b111111111'::uuid, 'ac00e500-0000-0000-0000-a0b222222222'::uuid);
           DELETE FROM provider_earnings WHERE job_id IN (SELECT id FROM jobs WHERE customer_id = 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid);
           DELETE FROM jobs WHERE customer_id = 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid;
           DELETE FROM documents WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
           DELETE FROM services WHERE id = 'test-svc-acp';
-          DELETE FROM provider_locations WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
-          DELETE FROM provider_profiles WHERE id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
-          DELETE FROM profiles WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid);
-          DELETE FROM auth.users WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid);
+          DELETE FROM provider_locations WHERE provider_id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
+          DELETE FROM provider_profiles WHERE id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
+          DELETE FROM profiles WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
+          DELETE FROM services WHERE id = 'test-svc-acp';
+          DELETE FROM auth.users WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 11 admin control plane tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 21 admin control plane tests passed.'; END $$;
           SQL
       - name: Test cancel_job actor-type authorization (CANCEL-AUTH-001)
         run: |
