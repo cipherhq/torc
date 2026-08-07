@@ -3095,10 +3095,10 @@ jobs:
           DO $$
           DECLARE v_count INT;
           BEGIN
-            -- Checkout linked to a DIFFERENT job
+            -- Checkout with job_id pointing to a NON-EXISTENT job (simulates mismatch)
             INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, job_id)
             VALUES ('ac00e500-0000-0000-cccc-a0b555555555'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
-                    'test-svc-acp', 200, 216, 'USD', 'paid', 'ac00e500-0000-0000-0000-a0b111111111'::uuid);
+                    'test-svc-acp', 200, 216, 'USD', 'paid', 'ac00e500-0000-0000-0000-a0b999999999'::uuid);
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price,
                     checkout_id, created_at)
             VALUES ('ac00e500-0000-0000-0000-a0b555555555'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
