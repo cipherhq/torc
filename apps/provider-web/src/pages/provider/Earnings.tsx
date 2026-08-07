@@ -57,7 +57,7 @@ export function ProviderEarnings() {
         setLoading(true);
 
         // Fetch in parallel: jobs, platform settings, payout methods, payout history
-        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes] = await Promise.all([
+        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes, earningsRes] = await Promise.all([
           supabase
             .from('jobs')
             .select('*, service:services(name)')
@@ -79,9 +79,21 @@ export function ProviderEarnings() {
             .select('status, net_payout')
             .eq('provider_id', user!.id)
             .then(r => r, () => ({ data: null, error: null })),
+          supabase
+            .from('provider_earnings')
+            .select('*')
+            .eq('provider_id', user!.id)
+            .order('created_at', { ascending: false })
+            .then(r => r, () => ({ data: null, error: null })),
         ]);
 
         const jobRows = jobsRes.data || [];
+        // Store ledger earnings for display
+        const ledgerEntries = earningsRes?.data || [];
+        const ledgerServiceTotal = ledgerEntries.filter((e: any) => e.entry_type === 'service_earning').reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+        const ledgerTipTotal = ledgerEntries.filter((e: any) => e.entry_type === 'tip').reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+        const ledgerCompTotal = ledgerEntries.filter((e: any) => e.entry_type === 'cancellation_compensation').reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+        console.log(`Ledger: service=$${ledgerServiceTotal.toFixed(2)}, tips=$${ledgerTipTotal.toFixed(2)}, compensation=$${ledgerCompTotal.toFixed(2)}`);
         // Batch-fetch customer names
         const custIds = [...new Set(jobRows.map((j: any) => j.customer_id).filter(Boolean))] as string[];
         if (custIds.length > 0) {

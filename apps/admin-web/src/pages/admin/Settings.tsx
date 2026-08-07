@@ -173,12 +173,18 @@ export function AdminSettings() {
       description: 'Control platform revenue, cancellation penalties, and surcharges',
       items: [
         {
-          label: 'Cancellation Fee (Not Active)',
-          description: 'Displayed in UI but refund/charge architecture not yet implemented',
+          label: 'Cancellation Fee (Accepted/En Route)',
+          description: 'Percentage charged when customer cancels after provider accepts',
           type: 'number' as const,
-          key: 'cancellation_fee_pct' as keyof PlatformSettings,
+          key: 'cancel_fee_accepted_pct' as keyof PlatformSettings,
           suffix: '%',
-          disabled: true,
+        },
+        {
+          label: 'Cancellation Fee (Arrived)',
+          description: 'Percentage charged when customer cancels after provider arrives',
+          type: 'number' as const,
+          key: 'cancel_fee_arrived_pct' as keyof PlatformSettings,
+          suffix: '%',
         },
         {
           label: 'Platform Commission',

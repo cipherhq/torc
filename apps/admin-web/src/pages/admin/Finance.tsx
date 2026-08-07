@@ -106,6 +106,20 @@ export function AdminFinance() {
       setRefunds((refundsData || []) as RefundRevenue[]);
       setPayouts((payoutsData || []) as ProviderPayoutRow[]);
       setPlatformFeePercent(settings.platformFee);
+
+      // Load cancellation operations and tips for financial visibility
+      const [cancelOpsRes, tipsRes, earningsRes] = await Promise.all([
+        supabase.from('job_cancellation_operations').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('job_tips').select('*').eq('stripe_status', 'succeeded').order('created_at', { ascending: false }).limit(50),
+        supabase.from('provider_earnings').select('*').order('created_at', { ascending: false }).limit(100),
+      ]);
+      // Log financial summary for admin visibility
+      const cancelOps = cancelOpsRes?.data || [];
+      const tips = tipsRes?.data || [];
+      const earnings = earningsRes?.data || [];
+      console.log(`[Finance] Cancellation ops: ${cancelOps.length} (completed: ${cancelOps.filter((o: any) => o.status === 'completed').length}, failed: ${cancelOps.filter((o: any) => o.status === 'failed').length}, manual_review: ${cancelOps.filter((o: any) => o.status === 'manual_review').length})`);
+      console.log(`[Finance] Tips: ${tips.length}, total: $${tips.reduce((s: number, t: any) => s + Number(t.amount || 0), 0).toFixed(2)}`);
+      console.log(`[Finance] Earnings: service=${earnings.filter((e: any) => e.entry_type === 'service_earning').length}, tips=${earnings.filter((e: any) => e.entry_type === 'tip').length}, compensation=${earnings.filter((e: any) => e.entry_type === 'cancellation_compensation').length}`);
     } catch (error: any) {
       console.warn('Failed to load finance page:', error);
       setLoadError(error?.message || 'Failed to load finance data.');

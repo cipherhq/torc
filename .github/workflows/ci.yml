@@ -3548,3 +3548,7 @@ jobs:
         run: deno check supabase/functions/stripe-webhook/index.ts
       - name: Check expire-pending-jobs compiles
         run: deno check supabase/functions/expire-pending-jobs/index.ts
+      - name: Check create-tip-intent compiles
+        run: deno check supabase/functions/create-tip-intent/index.ts
+      - name: Check process-cancellation-refunds compiles
+        run: deno check supabase/functions/process-cancellation-refunds/index.ts
