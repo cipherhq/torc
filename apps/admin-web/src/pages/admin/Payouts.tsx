@@ -149,48 +149,14 @@ export function AdminPayouts() {
     setError(null);
     try {
       const settings = await loadPlatformSettings();
-      const fee = settings.platformFee;
-      setPlatformFee(fee);
+      setPlatformFee(settings.platformFee);
 
-      /* 1) All completed jobs grouped by provider */
-      const { data: jobs, error: jobsErr } = await supabase
-        .from('jobs')
-        .select('provider_id, base_price, tip, total_amount, completed_at')
-        .eq('status', 'completed')
-        .not('provider_id', 'is', null);
+      /* 1) Server-authoritative provider balances from earnings ledger */
+      const { data: serverBalances, error: balErr } = await supabase.rpc('get_provider_payout_balances');
+      if (balErr) throw balErr;
 
-      if (jobsErr) throw jobsErr;
-
-      /* 2) All past payouts */
-      const { data: payouts, error: payoutsErr } = await supabase
-        .from('provider_payouts')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (payoutsErr) throw payoutsErr;
-
-      /* 3) Provider profiles */
-      const providerIds = Array.from(new Set((jobs || []).map((j: any) => j.provider_id).filter(Boolean)));
-      const payoutProviderIds = (payouts || []).map((p: any) => p.provider_id).filter(Boolean);
-      const allIds = Array.from(new Set([...providerIds, ...payoutProviderIds]));
-
-      const profileMap = new Map<string, { first_name: string; last_name: string; email: string }>();
-      if (allIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, first_name, last_name, email')
-          .in('id', allIds);
-        for (const p of (profiles || [])) {
-          profileMap.set(p.id, p);
-        }
-      }
-
-      /* 4) Provider payout methods */
-      const { data: methods } = await supabase
-        .from('provider_payout_methods')
-        .select('*')
-        .eq('status', 'active');
-
+      /* 2) Provider payout methods */
+      const { data: methods } = await supabase.from('provider_payout_methods').select('*').eq('status', 'active');
       const methodsByProvider: Record<string, PayoutMethod[]> = {};
       for (const m of (methods || [])) {
         if (!methodsByProvider[m.provider_id]) methodsByProvider[m.provider_id] = [];
@@ -198,60 +164,37 @@ export function AdminPayouts() {
       }
       setAllMethods(methodsByProvider);
 
-      /* 5) Aggregate jobs per provider */
-      const provMap = new Map<string, { jobs: number; earned: number; tips: number; fee: number; net: number }>();
-      for (const job of (jobs || [])) {
-        const pid = (job as any).provider_id;
-        if (!pid) continue;
-        const basePrice = deriveBasePrice(job as any);
-        const tip = Number((job as any).tip) || 0;
-        const pFee = basePrice * (fee / 100);
-        const net = basePrice - pFee + tip;
-
-        const existing = provMap.get(pid);
-        if (existing) {
-          existing.jobs += 1;
-          existing.earned += basePrice;
-          existing.tips += tip;
-          existing.fee += pFee;
-          existing.net += net;
-        } else {
-          provMap.set(pid, { jobs: 1, earned: basePrice, tips: tip, fee: pFee, net });
-        }
-      }
-
-      /* 6) Sum past payouts per provider */
-      const paidMap = new Map<string, number>();
-      for (const p of (payouts || [])) {
-        if (p.status === 'paid' || p.status === 'processing') {
-          paidMap.set(p.provider_id, (paidMap.get(p.provider_id) || 0) + Number(p.net_payout || 0));
-        }
-      }
-
-      /* 7) Build provider balance rows */
-      const balances: ProviderBalance[] = [];
-      for (const [pid, agg] of provMap.entries()) {
-        const prof = profileMap.get(pid);
-        const name = prof ? `${prof.first_name || ''} ${prof.last_name || ''}`.trim() : pid.slice(0, 8);
-        const email = prof?.email || '';
-        const paid = paidMap.get(pid) || 0;
-        balances.push({
-          provider_id: pid,
-          provider_name: name || 'Unknown Provider',
-          provider_email: email,
-          jobs_count: agg.jobs,
-          total_earned: agg.earned,
-          total_tips: agg.tips,
-          platform_fee: agg.fee,
-          net_owed: agg.net,
-          already_paid: paid,
-          balance: Math.max(0, agg.net - paid),
-        });
-      }
+      /* 3) Build provider balance rows from server data */
+      const balances: ProviderBalance[] = (serverBalances || []).map((b: any) => ({
+        provider_id: b.provider_id,
+        provider_name: b.provider_name || 'Unknown Provider',
+        provider_email: '',
+        jobs_count: Number(b.unpaid_count) || 0,
+        total_earned: Number(b.total_base) || 0,
+        total_tips: Number(b.total_tips) || 0,
+        platform_fee: Number(b.platform_fee) || 0,
+        net_owed: Number(b.net_unpaid) || 0,
+        already_paid: 0,
+        balance: Number(b.net_unpaid) || 0,
+      }));
       balances.sort((a, b) => b.balance - a.balance);
       setProviders(balances);
 
-      /* 8) Build payout history with names */
+      /* 4) All past payouts for history */
+      const { data: payouts, error: payoutsErr } = await supabase
+        .from('provider_payouts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (payoutsErr) throw payoutsErr;
+
+      const profileIds = Array.from(new Set((payouts || []).map((p: any) => p.provider_id).filter(Boolean)));
+      const profileMap = new Map<string, { first_name: string; last_name: string; email: string }>();
+      if (profileIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('id, first_name, last_name, email').in('id', profileIds);
+        for (const p of (profiles || [])) profileMap.set(p.id, p);
+      }
+
+      /* 5) Build payout history with names */
       const history: PayoutRecord[] = (payouts || []).map((p: any) => {
         const prof = profileMap.get(p.provider_id);
         const name = prof ? `${prof.first_name || ''} ${prof.last_name || ''}`.trim() : p.provider_id?.slice(0, 8);
@@ -353,29 +296,18 @@ export function AdminPayouts() {
       const selectedMethod = (allMethods[payingProvider.provider_id] || []).find((m) => m.id === payMethodId);
       const methodType = selectedMethod?.method_type || 'other';
 
-      const now = new Date();
-      const periodStart = new Date(now);
-      const day = periodStart.getDay();
-      const daysSinceMonday = day === 0 ? 6 : day - 1;
-      periodStart.setDate(periodStart.getDate() - daysSinceMonday);
-      periodStart.setHours(0, 0, 0, 0);
-
-      const { error: insertErr } = await supabase.from('provider_payouts').insert({
-        provider_id: payingProvider.provider_id,
-        period_start: periodStart.toISOString().split('T')[0],
-        period_end: now.toISOString().split('T')[0],
-        total_earnings: payingProvider.total_earned,
-        total_tips: payingProvider.total_tips,
-        platform_fee: payingProvider.platform_fee,
-        net_payout: amount,
-        status: 'paid',
-        paid_at: now.toISOString(),
-        reference_id: payRef.trim(),
-        payment_method: methodType,
-        notes: payNotes.trim() || null,
+      // Server-authoritative payout via RPC (calculates from earnings ledger)
+      const { data: payoutResult, error: rpcErr } = await supabase.rpc('create_provider_payout', {
+        p_provider_id: payingProvider.provider_id,
+        p_reference_id: payRef.trim(),
+        p_payment_method: methodType,
+        p_notes: payNotes.trim() || null,
       });
 
-      if (insertErr) throw insertErr;
+      if (rpcErr) throw rpcErr;
+      if (!payoutResult?.success) {
+        throw new Error(payoutResult?.message || payoutResult?.error || 'Payout failed');
+      }
 
       // Try to log audit (non-blocking)
       try {

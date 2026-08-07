@@ -86,6 +86,7 @@ type SettingItem = {
   suffix?: string;
   options?: string[];
   rows?: number;
+  disabled?: boolean;
 };
 
 type SettingSection = {
@@ -172,11 +173,12 @@ export function AdminSettings() {
       description: 'Control platform revenue, cancellation penalties, and surcharges',
       items: [
         {
-          label: 'Cancellation Fee',
-          description: 'Percentage charged when customer cancels after provider accepts',
+          label: 'Cancellation Fee (Not Active)',
+          description: 'Displayed in UI but refund/charge architecture not yet implemented',
           type: 'number' as const,
           key: 'cancellation_fee_pct' as keyof PlatformSettings,
           suffix: '%',
+          disabled: true,
         },
         {
           label: 'Platform Commission',
@@ -186,11 +188,12 @@ export function AdminSettings() {
           suffix: '%',
         },
         {
-          label: 'Service Fee',
-          description: 'Percentage added as service fee on base price',
+          label: 'Service Fee (Not Active)',
+          description: 'Currently not applied to checkout totals — activation requires product authorization',
           type: 'number' as const,
           key: 'service_fee_pct' as keyof PlatformSettings,
           suffix: '%',
+          disabled: true,
         },
         {
           label: 'Tax Rate',
@@ -222,11 +225,12 @@ export function AdminSettings() {
       description: 'Currency and payment configuration',
       items: [
         {
-          label: 'Currency',
-          description: 'Platform default currency',
+          label: 'Currency (USD Only)',
+          description: 'Payment processing currently supports USD only',
           type: 'select' as const,
           key: 'currency' as keyof PlatformSettings,
-          options: ['USD', 'EUR', 'GBP', 'CAD'],
+          options: ['USD'],
+          disabled: true,
         },
       ],
     },
@@ -237,16 +241,18 @@ export function AdminSettings() {
       description: 'Configure user notification channels',
       items: [
         {
-          label: 'Email Notifications',
-          description: 'Send email alerts to users',
+          label: 'Email Notifications (Not Active)',
+          description: 'Not yet consumed by email service',
           type: 'toggle' as const,
           key: 'email_notifications' as keyof PlatformSettings,
+          disabled: true,
         },
         {
-          label: 'SMS Notifications',
-          description: 'Send SMS alerts to users',
+          label: 'SMS Notifications (Not Active)',
+          description: 'Not yet consumed by SMS service',
           type: 'toggle' as const,
           key: 'sms_notifications' as keyof PlatformSettings,
+          disabled: true,
         },
       ],
     },
@@ -257,24 +263,27 @@ export function AdminSettings() {
       description: 'Provider approval and job assignment settings',
       items: [
         {
-          label: 'Auto-Approve Providers',
-          description: 'Automatically verify new providers',
+          label: 'Auto-Approve Providers (Not Active)',
+          description: 'Not yet enforced — providers require manual approval',
           type: 'toggle' as const,
           key: 'auto_approve_providers' as keyof PlatformSettings,
+          disabled: true,
         },
         {
-          label: 'Document Grace Period',
-          description: 'Days new providers have to submit all documents before account locks',
+          label: 'Document Grace Period (Not Active)',
+          description: 'Not yet enforced by backend',
           type: 'number' as const,
           key: 'document_grace_period_days' as keyof PlatformSettings,
           suffix: 'days',
+          disabled: true,
         },
         {
-          label: 'Provider Response Timeout',
-          description: 'Minutes before reassigning job',
+          label: 'Provider Response Timeout (Not Active)',
+          description: 'Not yet enforced by backend — provider matching is distance-based',
           type: 'number' as const,
           key: 'provider_timeout' as keyof PlatformSettings,
           suffix: 'min',
+          disabled: true,
         },
       ],
     },
@@ -285,10 +294,11 @@ export function AdminSettings() {
       description: 'System-wide operational settings',
       items: [
         {
-          label: 'Maintenance Mode',
-          description: 'Disable new job requests',
+          label: 'Maintenance Mode (Not Active)',
+          description: 'Not yet enforced — job creation is not blocked when enabled',
           type: 'toggle' as const,
           key: 'maintenance_mode' as keyof PlatformSettings,
+          disabled: true,
         },
         {
           label: 'Max Job Search Radius',
@@ -477,8 +487,9 @@ export function AdminSettings() {
                         <div className="ml-4">
                           {item.type === 'toggle' && (
                             <motion.button
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => handleToggle(item.key)}
+                              whileTap={item.disabled ? undefined : { scale: 0.9 }}
+                              onClick={() => !item.disabled && handleToggle(item.key)}
+                              disabled={item.disabled}
                               style={{
                                 width: 56,
                                 height: 32,
@@ -487,6 +498,8 @@ export function AdminSettings() {
                                 flexShrink: 0,
                                 backgroundColor: settings[item.key] ? '#111827' : '#D1D5DB',
                                 transition: 'background-color 0.2s',
+                                opacity: item.disabled ? 0.5 : 1,
+                                cursor: item.disabled ? 'not-allowed' : 'pointer',
                               }}
                             >
                               <div
@@ -512,12 +525,14 @@ export function AdminSettings() {
                                 inputMode="decimal"
                                 step="any"
                                 min="0"
+                                disabled={item.disabled}
                                 value={settings[item.key] as number}
                                 onChange={(e) => {
+                                  if (item.disabled) return;
                                   const val = e.target.value;
                                   handleNumberChange(item.key, val === '' ? 0 : Number(val));
                                 }}
-                                className="w-28 px-3 py-2.5 bg-white border-2 border-gray-200 rounded-xl text-gray-900 text-center text-lg font-bold focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                                className="w-28 px-3 py-2.5 bg-white border-2 border-gray-200 rounded-xl text-gray-900 text-center text-lg font-bold focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                               />
                               {item.suffix && (
                                 <span className="text-gray-600 text-sm font-semibold">{item.suffix}</span>

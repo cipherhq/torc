@@ -238,26 +238,25 @@ export function AdminProviders() {
     try {
       const admin = await requireAdminSession();
       const provider = providers.find(p => p.id === providerId);
-      const nowIso = new Date().toISOString();
 
-      const { error: upsertErr } = await supabase
-        .from('provider_profiles')
-        .upsert({ id: providerId, is_verified: true, updated_at: nowIso }, { onConflict: 'id' });
+      // Server-authoritative approval (validates document requirements)
+      const { data: result, error: rpcErr } = await supabase.rpc('approve_provider', {
+        p_provider_id: providerId,
+      });
 
-      if (upsertErr) throw upsertErr;
-
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .update({ is_verified: true, updated_at: nowIso })
-        .eq('id', providerId);
-      if (profileErr && !String(profileErr.message || '').includes('is_verified')) {
-        throw profileErr;
+      if (rpcErr) throw rpcErr;
+      if (!result?.success) {
+        if (result?.error === 'MISSING_DOCUMENTS') {
+          setError('Cannot approve: ' + (result.message || 'Required documents are missing or not approved.'));
+        } else {
+          setError('Approval failed: ' + (result?.message || result?.error || 'Unknown error'));
+        }
+        return;
       }
 
-      // Update local state only after confirmed DB success
       setProviders(prev => prev.map(p => p.id === providerId ? { ...p, is_verified: true } : p));
 
-      // Best-effort: audit log, email, notification (don't block UI)
+      // Best-effort audit
       supabase.from('admin_audit_logs').insert({
         actor_id: admin.userId,
         action: 'approve_provider',
@@ -270,17 +269,9 @@ export function AdminProviders() {
           name: `${provider.first_name} ${provider.last_name}`.trim() || 'Provider',
         });
       }
-
-      supabase.from('notifications').insert({
-        user_id: providerId,
-        type: 'info',
-        title: 'Application Approved!',
-        message: 'Your provider application has been approved. You can now go online and start accepting service requests.',
-        action_url: '/home',
-      }).then(() => {});
     } catch (e: any) {
       console.error('Failed to approve provider:', e);
-      setError(e?.message || 'Failed to approve provider. The database update may have been blocked by permissions.');
+      setError(e?.message || 'Failed to approve provider.');
     } finally {
       setActionLoading(null);
     }
