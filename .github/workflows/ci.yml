@@ -199,9 +199,13 @@ jobs:
             customer_completed_at TIMESTAMPTZ,
             scheduled_for TIMESTAMPTZ,
             checkout_id UUID,
+            base_price NUMERIC(10,2) DEFAULT 0,
+            total_amount NUMERIC(10,2) DEFAULT 0,
+            service_fee NUMERIC(10,2) DEFAULT 0,
+            tax NUMERIC(10,2) DEFAULT 0,
             rating INTEGER,
             review TEXT,
-            tip NUMERIC(10,2),
+            tip NUMERIC(10,2) DEFAULT 0,
             provider_photo_urls TEXT[]
           );
           ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
