@@ -149,6 +149,7 @@ jobs:
           ) PARTITION BY RANGE (inserted_at);
           -- Create a default partition for testing
           CREATE TABLE IF NOT EXISTS realtime.messages_default PARTITION OF realtime.messages DEFAULT;
+          ALTER TABLE realtime.messages FORCE ROW LEVEL SECURITY;
           -- Stub realtime.topic() — returns the topic from current_setting
           CREATE OR REPLACE FUNCTION realtime.topic() RETURNS TEXT LANGUAGE sql STABLE AS $$
             SELECT current_setting('realtime.topic', true);
