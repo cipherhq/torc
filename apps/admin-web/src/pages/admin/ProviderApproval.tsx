@@ -364,28 +364,20 @@ export function ProviderApproval() {
     try {
       const admin = await requireAdminSession();
       const provider = providers.find((p) => p.id === providerId);
-      const nowIso = new Date().toISOString();
 
-      // Mark all documents as approved
-      const { error: docsErr } = await supabase
-        .from('documents')
-        .update({ status: 'approved', rejection_reason: null, reviewed_at: nowIso })
-        .eq('provider_id', providerId);
-      if (docsErr) throw docsErr;
+      // Server-authoritative approval (validates document requirements)
+      const { data: result, error: rpcErr } = await supabase.rpc('approve_provider', {
+        p_provider_id: providerId,
+      });
 
-      const { error: updateErr } = await supabase
-        .from('provider_profiles')
-        .upsert({ id: providerId, is_verified: true, updated_at: nowIso }, { onConflict: 'id' });
-
-      if (updateErr) throw updateErr;
-
-      // Also mark profiles.is_verified if column exists
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .update({ is_verified: true, updated_at: nowIso })
-        .eq('id', providerId);
-      if (profileErr && !String(profileErr.message || '').includes('is_verified')) {
-        throw profileErr;
+      if (rpcErr) throw rpcErr;
+      if (!result?.success) {
+        if (result?.error === 'MISSING_DOCUMENTS') {
+          alert('Cannot approve: ' + (result.message || 'Required documents are missing or not approved.'));
+        } else {
+          alert('Approval failed: ' + (result?.message || result?.error || 'Unknown error'));
+        }
+        return;
       }
 
       // Remove from local list immediately after DB success
@@ -405,14 +397,6 @@ export function ProviderApproval() {
           name: provider.full_name || 'Provider',
         });
       }
-
-      supabase.from('notifications').insert({
-        user_id: providerId,
-        type: 'info',
-        title: 'Application Approved!',
-        message: 'Your provider application has been approved. You can now go online and start accepting service requests.',
-        action_url: '/home',
-      }).then(() => {});
     } catch (e: any) {
       console.error('Failed to approve provider:', e);
       alert('Failed to approve provider: ' + (e.message || 'Unknown error'));

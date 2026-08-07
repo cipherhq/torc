@@ -324,11 +324,16 @@ jobs:
           CREATE TABLE IF NOT EXISTS public.documents (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             provider_id UUID NOT NULL,
-            document_type TEXT REFERENCES public.document_types(id),
-            status TEXT DEFAULT 'pending',
+            type VARCHAR REFERENCES public.document_types(id),
             file_url TEXT,
-            expires_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ DEFAULT now()
+            file_name VARCHAR,
+            status TEXT DEFAULT 'pending',
+            admin_notes TEXT,
+            expires_at DATE,
+            reviewed_by UUID,
+            reviewed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            UNIQUE(provider_id, type)
           );
           ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
           CREATE POLICY "Provider can view own documents" ON public.documents

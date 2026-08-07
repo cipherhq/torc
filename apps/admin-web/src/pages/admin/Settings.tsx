@@ -172,11 +172,12 @@ export function AdminSettings() {
       description: 'Control platform revenue, cancellation penalties, and surcharges',
       items: [
         {
-          label: 'Cancellation Fee',
-          description: 'Percentage charged when customer cancels after provider accepts',
+          label: 'Cancellation Fee (Not Active)',
+          description: 'Displayed in UI but refund/charge architecture not yet implemented',
           type: 'number' as const,
           key: 'cancellation_fee_pct' as keyof PlatformSettings,
           suffix: '%',
+          disabled: true,
         },
         {
           label: 'Platform Commission',
@@ -186,11 +187,12 @@ export function AdminSettings() {
           suffix: '%',
         },
         {
-          label: 'Service Fee',
-          description: 'Percentage added as service fee on base price',
+          label: 'Service Fee (Not Active)',
+          description: 'Currently not applied to checkout totals — activation requires product authorization',
           type: 'number' as const,
           key: 'service_fee_pct' as keyof PlatformSettings,
           suffix: '%',
+          disabled: true,
         },
         {
           label: 'Tax Rate',
@@ -257,10 +259,11 @@ export function AdminSettings() {
       description: 'Provider approval and job assignment settings',
       items: [
         {
-          label: 'Auto-Approve Providers',
-          description: 'Automatically verify new providers',
+          label: 'Auto-Approve Providers (Not Active)',
+          description: 'Not yet enforced — providers require manual approval',
           type: 'toggle' as const,
           key: 'auto_approve_providers' as keyof PlatformSettings,
+          disabled: true,
         },
         {
           label: 'Document Grace Period',
@@ -285,10 +288,11 @@ export function AdminSettings() {
       description: 'System-wide operational settings',
       items: [
         {
-          label: 'Maintenance Mode',
-          description: 'Disable new job requests',
+          label: 'Maintenance Mode (Not Active)',
+          description: 'Not yet enforced — job creation is not blocked when enabled',
           type: 'toggle' as const,
           key: 'maintenance_mode' as keyof PlatformSettings,
+          disabled: true,
         },
         {
           label: 'Max Job Search Radius',

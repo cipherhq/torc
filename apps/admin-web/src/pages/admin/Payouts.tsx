@@ -353,29 +353,18 @@ export function AdminPayouts() {
       const selectedMethod = (allMethods[payingProvider.provider_id] || []).find((m) => m.id === payMethodId);
       const methodType = selectedMethod?.method_type || 'other';
 
-      const now = new Date();
-      const periodStart = new Date(now);
-      const day = periodStart.getDay();
-      const daysSinceMonday = day === 0 ? 6 : day - 1;
-      periodStart.setDate(periodStart.getDate() - daysSinceMonday);
-      periodStart.setHours(0, 0, 0, 0);
-
-      const { error: insertErr } = await supabase.from('provider_payouts').insert({
-        provider_id: payingProvider.provider_id,
-        period_start: periodStart.toISOString().split('T')[0],
-        period_end: now.toISOString().split('T')[0],
-        total_earnings: payingProvider.total_earned,
-        total_tips: payingProvider.total_tips,
-        platform_fee: payingProvider.platform_fee,
-        net_payout: amount,
-        status: 'paid',
-        paid_at: now.toISOString(),
-        reference_id: payRef.trim(),
-        payment_method: methodType,
-        notes: payNotes.trim() || null,
+      // Server-authoritative payout via RPC (calculates from earnings ledger)
+      const { data: payoutResult, error: rpcErr } = await supabase.rpc('create_provider_payout', {
+        p_provider_id: payingProvider.provider_id,
+        p_reference_id: payRef.trim(),
+        p_payment_method: methodType,
+        p_notes: payNotes.trim() || null,
       });
 
-      if (insertErr) throw insertErr;
+      if (rpcErr) throw rpcErr;
+      if (!payoutResult?.success) {
+        throw new Error(payoutResult?.message || payoutResult?.error || 'Payout failed');
+      }
 
       // Try to log audit (non-blocking)
       try {
