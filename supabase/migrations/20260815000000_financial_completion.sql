@@ -20,6 +20,43 @@ ALTER TABLE public.provider_earnings
 ALTER TABLE public.provider_earnings
   ADD CONSTRAINT provider_earnings_unique_job_type UNIQUE (job_id, entry_type);
 
+-- Update the earnings completion trigger to use new constraint
+CREATE OR REPLACE FUNCTION public.create_provider_earning_on_completion()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_commission_pct NUMERIC;
+  v_base NUMERIC;
+  v_fee NUMERIC;
+  v_net NUMERIC;
+BEGIN
+  IF NEW.status != 'completed' OR OLD.status = 'completed' THEN RETURN NEW; END IF;
+  IF NEW.provider_id IS NULL THEN RETURN NEW; END IF;
+  IF NEW.payment_status IS DISTINCT FROM 'paid' THEN RETURN NEW; END IF;
+  IF NEW.checkout_id IS NULL THEN RETURN NEW; END IF;
+  IF EXISTS (SELECT 1 FROM provider_earnings WHERE job_id = NEW.id AND entry_type = 'service_earning') THEN RETURN NEW; END IF;
+
+  SELECT c.base_price INTO v_base FROM checkouts c
+  WHERE c.id = NEW.checkout_id AND c.job_id = NEW.id AND c.user_id = NEW.customer_id AND c.status = 'paid';
+  IF v_base IS NULL THEN RETURN NEW; END IF;
+
+  SELECT COALESCE((value)::numeric, 15) INTO v_commission_pct FROM platform_settings WHERE key = 'platform_commission_pct';
+  IF v_commission_pct IS NULL THEN v_commission_pct := 15; END IF;
+
+  v_fee := ROUND(v_base * v_commission_pct / 100, 2);
+  v_net := v_base - v_fee;
+
+  INSERT INTO provider_earnings (job_id, provider_id, base_earnings, tip, commission_pct, platform_fee, provider_net, entry_type)
+  VALUES (NEW.id, NEW.provider_id, v_base, 0, v_commission_pct, v_fee, v_net, 'service_earning')
+  ON CONFLICT (job_id, entry_type) DO NOTHING;
+
+  RETURN NEW;
+END;
+$$;
+
 -- ============================================================
 -- 2) Cancellation refund operations table
 -- ============================================================
