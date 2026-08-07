@@ -2882,11 +2882,11 @@ jobs:
           DECLARE v_count INT;
           BEGIN
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price, tip, created_at)
-            VALUES ('ac00e500-0000-0000-0000-job111111111'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
+            VALUES ('ac00e500-0000-0000-0000-a0b111111111'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
                     'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-ca', 'inprogress', 'paid', 100, 10, now());
             -- Trigger completion
-            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-job111111111'::uuid;
-            SELECT count(*) INTO v_count FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-job111111111'::uuid;
+            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-a0b111111111'::uuid;
+            SELECT count(*) INTO v_count FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-a0b111111111'::uuid;
             ASSERT v_count = 1, 'EARNINGS-1 FAILED: expected 1 earning, got ' || v_count;
             RAISE NOTICE 'EARNINGS-1 PASSED: completion creates earning';
           END $$;
@@ -2895,12 +2895,12 @@ jobs:
           DO $$
           DECLARE v_pct NUMERIC;
           BEGIN
-            SELECT commission_pct INTO v_pct FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-job111111111'::uuid;
+            SELECT commission_pct INTO v_pct FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-a0b111111111'::uuid;
             ASSERT v_pct = 15, 'EARNINGS-2 FAILED: commission should be 15, got ' || v_pct;
             -- Change setting
             UPDATE platform_settings SET value = '20' WHERE key = 'platform_commission_pct';
             -- Earning should NOT change
-            SELECT commission_pct INTO v_pct FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-job111111111'::uuid;
+            SELECT commission_pct INTO v_pct FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-a0b111111111'::uuid;
             ASSERT v_pct = 15, 'EARNINGS-2 FAILED: commission changed to ' || v_pct;
             -- Reset
             UPDATE platform_settings SET value = '15' WHERE key = 'platform_commission_pct';
@@ -2949,9 +2949,9 @@ jobs:
           BEGIN
             -- Create another earning for test
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price, created_at)
-            VALUES ('ac00e500-0000-0000-0000-job222222222'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
+            VALUES ('ac00e500-0000-0000-0000-a0b222222222'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
                     'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-ca', 'inprogress', 'paid', 50, now());
-            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-job222222222'::uuid;
+            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-a0b222222222'::uuid;
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
             SELECT create_provider_payout('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'REF-001'::text) INTO result;
@@ -3003,7 +3003,7 @@ jobs:
           -- Cleanup
           DELETE FROM provider_earnings WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
           DELETE FROM provider_payouts WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
-          DELETE FROM job_events WHERE job_id IN ('ac00e500-0000-0000-0000-job111111111'::uuid, 'ac00e500-0000-0000-0000-job222222222'::uuid);
+          DELETE FROM job_events WHERE job_id IN ('ac00e500-0000-0000-0000-a0b111111111'::uuid, 'ac00e500-0000-0000-0000-a0b222222222'::uuid);
           DELETE FROM jobs WHERE customer_id = 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid;
           DELETE FROM documents WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
           DELETE FROM provider_locations WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
