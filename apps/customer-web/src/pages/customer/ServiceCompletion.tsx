@@ -105,7 +105,8 @@ export function ServiceCompletion() {
       // Save tip and photo to the job
       if (jobId) {
         const updateData: any = {};
-        if (tip > 0) updateData.tip = tip;
+        // Tip write disabled — no server-authoritative tip payment flow exists yet
+        // if (tip > 0) updateData.tip = tip;
         if (photoUrl) updateData.completion_photo_url = photoUrl;
         if (Object.keys(updateData).length > 0) {
           await supabase.from('jobs').update(updateData).eq('id', jobId);
@@ -266,14 +267,15 @@ export function ServiceCompletion() {
               <DollarSign className="w-4 h-4 text-[#008CE5]" />
               <p className="font-semibold text-sm" style={{ color: textColor }}>Tip Your Provider</p>
             </div>
-            <p className="text-xs mb-3" style={{ color: subColor }}>100% of tips go directly to your provider</p>
+            <p className="text-xs mb-3" style={{ color: subColor }}>Tipping is not yet available — coming soon!</p>
             <div className="flex gap-2">
               {tipOptions.map((amount) => (
                 <motion.button
                   key={amount}
                   whileTap={{ scale: 0.9 }}
                   animate={tip === amount ? { scale: 1.05 } : { scale: 1 }}
-                  onClick={() => setTip(amount)}
+                  onClick={() => {}} // Tipping disabled — no server-authoritative payment flow
+                  disabled
                   className="flex-1 py-2.5 rounded-xl font-bold transition-all"
                   style={tip === amount
                     ? {

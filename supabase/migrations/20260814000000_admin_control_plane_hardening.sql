@@ -1,6 +1,68 @@
 -- Admin control plane hardening.
 
 -- ============================================================
+-- 0) Extend job lifecycle guard to protect tip field
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.guard_job_lifecycle_fields()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF current_user IN ('postgres', 'supabase_admin') THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status IS DISTINCT FROM 'pending' THEN
+      RAISE EXCEPTION 'New jobs must have status pending.' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.accepted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set accepted_at on job creation.' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.started_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set started_at on job creation.' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.completed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set completed_at on job creation.' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.cancelled_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set cancelled_at on job creation.' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.customer_completed_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Cannot set customer_completed_at on job creation.' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE guard
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    RAISE EXCEPTION 'Direct job status mutation is not allowed.' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.accepted_at IS DISTINCT FROM OLD.accepted_at THEN
+    RAISE EXCEPTION 'Direct accepted_at mutation is not allowed.' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.started_at IS DISTINCT FROM OLD.started_at THEN
+    RAISE EXCEPTION 'Direct started_at mutation is not allowed.' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.completed_at IS DISTINCT FROM OLD.completed_at THEN
+    RAISE EXCEPTION 'Direct completed_at mutation is not allowed.' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.cancelled_at IS DISTINCT FROM OLD.cancelled_at THEN
+    RAISE EXCEPTION 'Direct cancelled_at mutation is not allowed.' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.customer_completed_at IS DISTINCT FROM OLD.customer_completed_at THEN
+    RAISE EXCEPTION 'Direct customer_completed_at mutation is not allowed.' USING ERRCODE = '42501';
+  END IF;
+  -- Financial field: tip (no server-authoritative tip payment exists yet)
+  IF NEW.tip IS DISTINCT FROM OLD.tip THEN
+    RAISE EXCEPTION 'Direct tip mutation is not allowed. Server-authoritative tip payment required.' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- ============================================================
 -- 1) Fix notification INSERT policy
 -- ============================================================
 DROP POLICY IF EXISTS "System can insert notifications" ON public.notifications;
@@ -74,8 +136,12 @@ BEGIN
   IF NEW.provider_id IS NULL THEN
     RETURN NEW;
   END IF;
-  -- Only create earning for paid jobs
+  -- Only create earning for paid jobs with authoritative checkout
   IF NEW.payment_status IS DISTINCT FROM 'paid' THEN
+    RETURN NEW;
+  END IF;
+  -- Require checkout for authoritative pricing (fail closed)
+  IF NEW.checkout_id IS NULL THEN
     RETURN NEW;
   END IF;
   -- Idempotent
@@ -83,14 +149,12 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Derive base from authoritative checkout if available
-  IF NEW.checkout_id IS NOT NULL THEN
-    SELECT COALESCE(c.base_price, NEW.base_price, 0)
-    INTO v_base
-    FROM checkouts c WHERE c.id = NEW.checkout_id;
-    IF v_base IS NULL THEN v_base := COALESCE(NEW.base_price, 0); END IF;
-  ELSE
-    v_base := COALESCE(NEW.base_price, 0);
+  -- Derive base from authoritative checkout only (never trust mutable job fields)
+  SELECT c.base_price INTO v_base
+  FROM checkouts c WHERE c.id = NEW.checkout_id AND c.status = 'paid';
+  IF v_base IS NULL THEN
+    -- Checkout missing or not paid — fail closed, leave for reconciliation
+    RETURN NEW;
   END IF;
 
   -- Snapshot commission
@@ -98,9 +162,10 @@ BEGIN
   FROM platform_settings WHERE key = 'platform_commission_pct';
   IF v_commission_pct IS NULL THEN v_commission_pct := 15; END IF;
 
-  v_tip := COALESCE(NEW.tip, 0);
+  -- Tip is NOT included — no server-authoritative tip charge exists yet
+  v_tip := 0;
   v_fee := ROUND(v_base * v_commission_pct / 100, 2);
-  v_net := v_base - v_fee + v_tip;
+  v_net := v_base - v_fee;
 
   INSERT INTO provider_earnings (job_id, provider_id, base_earnings, tip, commission_pct, platform_fee, provider_net)
   VALUES (NEW.id, NEW.provider_id, v_base, v_tip, v_commission_pct, v_fee, v_net)
