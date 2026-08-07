@@ -353,6 +353,23 @@ jobs:
           -- Seed default commission and max radius
           INSERT INTO platform_settings (key, value) VALUES ('platform_commission_pct', '15') ON CONFLICT DO NOTHING;
           INSERT INTO platform_settings (key, value) VALUES ('max_job_radius', '50') ON CONFLICT DO NOTHING;
+          -- Admin audit logs
+          CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            actor_id UUID,
+            action TEXT,
+            entity_type TEXT,
+            entity_id TEXT,
+            details JSONB,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
+          -- is_admin helper (must be before Admin policies)
+          CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID) RETURNS BOOLEAN
+            LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+            SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = user_id AND role = 'admin');
+          $$;
+          CREATE POLICY "Admin full access provider_profiles" ON public.provider_profiles
+            FOR ALL USING (is_admin(auth.uid()));
           -- Provider payouts table (from database/migrations/021)
           CREATE TABLE IF NOT EXISTS public.provider_payouts (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -375,23 +392,6 @@ jobs:
             FOR ALL USING (is_admin(auth.uid()));
           CREATE POLICY "providers_view_own_payouts" ON public.provider_payouts
             FOR SELECT USING (provider_id = auth.uid());
-          -- Admin audit logs
-          CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            actor_id UUID,
-            action TEXT,
-            entity_type TEXT,
-            entity_id TEXT,
-            details JSONB,
-            created_at TIMESTAMPTZ DEFAULT now()
-          );
-          -- is_admin helper (must be before Admin policy)
-          CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID) RETURNS BOOLEAN
-            LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-            SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = user_id AND role = 'admin');
-          $$;
-          CREATE POLICY "Admin full access provider_profiles" ON public.provider_profiles
-            FOR ALL USING (is_admin(auth.uid()));
           CREATE TABLE IF NOT EXISTS public.provider_locations (
             provider_id UUID PRIMARY KEY REFERENCES auth.users(id),
             latitude DOUBLE PRECISION,
