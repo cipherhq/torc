@@ -350,8 +350,41 @@ jobs:
           ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
           CREATE POLICY "Anyone can read settings" ON public.platform_settings
             FOR SELECT USING (true);
-          -- Seed default commission
+          -- Seed default commission and max radius
           INSERT INTO platform_settings (key, value) VALUES ('platform_commission_pct', '15') ON CONFLICT DO NOTHING;
+          INSERT INTO platform_settings (key, value) VALUES ('max_job_radius', '50') ON CONFLICT DO NOTHING;
+          -- Provider payouts table (from database/migrations/021)
+          CREATE TABLE IF NOT EXISTS public.provider_payouts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            provider_id UUID NOT NULL,
+            period_start DATE,
+            period_end DATE,
+            total_earnings NUMERIC(10,2) DEFAULT 0,
+            total_tips NUMERIC(10,2) DEFAULT 0,
+            platform_fee NUMERIC(10,2) DEFAULT 0,
+            net_payout NUMERIC(10,2) DEFAULT 0,
+            status TEXT DEFAULT 'pending' CHECK (status IN ('pending','processing','paid','failed')),
+            paid_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            reference_id TEXT,
+            payment_method TEXT,
+            notes TEXT
+          );
+          ALTER TABLE public.provider_payouts ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY "admin_full_access_payouts" ON public.provider_payouts
+            FOR ALL USING (is_admin(auth.uid()));
+          CREATE POLICY "providers_view_own_payouts" ON public.provider_payouts
+            FOR SELECT USING (provider_id = auth.uid());
+          -- Admin audit logs
+          CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            actor_id UUID,
+            action TEXT,
+            entity_type TEXT,
+            entity_id TEXT,
+            details JSONB,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
           -- is_admin helper (must be before Admin policy)
           CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID) RETURNS BOOLEAN
             LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
