@@ -312,6 +312,41 @@ jobs:
             FOR UPDATE USING (auth.uid() = id);
           CREATE POLICY "Provider can insert own profile" ON public.provider_profiles
             FOR INSERT WITH CHECK (auth.uid() = id);
+          CREATE TABLE IF NOT EXISTS public.document_types (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            is_required BOOLEAN DEFAULT false,
+            is_active BOOLEAN DEFAULT true,
+            display_order INTEGER DEFAULT 0,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS public.documents (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            provider_id UUID NOT NULL,
+            document_type TEXT REFERENCES public.document_types(id),
+            status TEXT DEFAULT 'pending',
+            file_url TEXT,
+            expires_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT now()
+          );
+          ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY "Provider can view own documents" ON public.documents
+            FOR SELECT USING (auth.uid() = provider_id);
+          CREATE POLICY "Provider can manage own documents" ON public.documents
+            FOR ALL USING (auth.uid() = provider_id);
+          -- platform_settings table
+          CREATE TABLE IF NOT EXISTS public.platform_settings (
+            key TEXT PRIMARY KEY,
+            value JSONB,
+            updated_by UUID,
+            updated_at TIMESTAMPTZ DEFAULT now()
+          );
+          ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
+          CREATE POLICY "Anyone can read settings" ON public.platform_settings
+            FOR SELECT USING (true);
+          -- Seed default commission
+          INSERT INTO platform_settings (key, value) VALUES ('platform_commission_pct', '15') ON CONFLICT DO NOTHING;
           -- is_admin helper (must be before Admin policy)
           CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID) RETURNS BOOLEAN
             LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -332,7 +367,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
