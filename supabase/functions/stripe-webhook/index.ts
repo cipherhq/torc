@@ -137,10 +137,12 @@ Deno.serve(async (req) => {
     // Duplicate webhook delivery is safe because finalize_expiry_refund
     // is idempotent (claim_token check + status guard).
     // ================================================================
+    // Shared refund objects for both expiry and cancellation correlation
+    const refundObjects: Array<{ id: string; status: string; payment_intent?: string }> = [];
+
     if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
       // For charge.refunded: eventObject is the charge, refunds are in eventObject.refunds.data[]
       // For refund.updated: eventObject is the refund itself
-      const refundObjects: Array<{ id: string; status: string; payment_intent?: string }> = [];
 
       if (event.type === 'refund.updated') {
         // eventObject IS the refund
