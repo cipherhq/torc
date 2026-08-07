@@ -298,13 +298,29 @@ BEGIN
     v_fee_pct := 0;
   END IF;
 
-  -- Get original paid amount
+  -- Get original paid amount from authoritative checkout only
   v_original_amount := 0;
-  IF v_job.checkout_id IS NOT NULL THEN
-    SELECT total_amount INTO v_original_amount FROM checkouts WHERE id = v_job.checkout_id AND status = 'paid';
-  END IF;
-  IF v_original_amount IS NULL OR v_original_amount = 0 THEN
-    v_original_amount := COALESCE(v_job.total_amount, v_job.base_price, 0);
+  IF v_job.payment_status = 'paid' AND v_job.checkout_id IS NOT NULL THEN
+    SELECT c.total_amount INTO v_original_amount
+    FROM checkouts c
+    WHERE c.id = v_job.checkout_id
+      AND c.job_id = v_job.id
+      AND c.user_id = v_job.customer_id
+      AND c.status = 'paid';
+    IF v_original_amount IS NULL THEN
+      -- Paid job but checkout mismatch — fail closed to manual_review
+      v_op_id := gen_random_uuid();
+      v_idem_key := 'torc:cancellation:' || v_op_id::text;
+      UPDATE jobs SET status = 'cancelled', cancellation_reason = p_reason,
+        cancelled_at = NOW(), cancelled_by = auth.uid(), updated_at = NOW()
+      WHERE id = p_job_id;
+      INSERT INTO job_cancellation_operations (id, job_id, actor_id, actor_type, reason, job_status_at_cancel,
+        original_amount, idempotency_key, status, last_error)
+      VALUES (v_op_id, p_job_id, auth.uid(), v_actor_type, p_reason, v_job.status,
+        0, v_idem_key, 'manual_review', 'Paid job but authoritative checkout linkage failed');
+      RETURN json_build_object('success', true, 'job_id', p_job_id, 'status', 'cancelled',
+        'refund_status', 'manual_review', 'message', 'Checkout verification failed. Support will process refund.');
+    END IF;
   END IF;
 
   v_fee := ROUND(v_original_amount * v_fee_pct / 100, 2);
@@ -352,12 +368,7 @@ BEGIN
       NULL, v_idem_key, 'pending'
     );
 
-    -- Provider compensation earning (if applicable)
-    IF v_provider_comp > 0 AND v_job.provider_id IS NOT NULL THEN
-      INSERT INTO provider_earnings (job_id, provider_id, base_earnings, tip, commission_pct, platform_fee, provider_net, entry_type)
-      VALUES (p_job_id, v_job.provider_id, v_fee, 0, v_commission_pct, v_platform_fee, v_provider_comp, 'cancellation_compensation')
-      ON CONFLICT (job_id, entry_type) DO NOTHING;
-    END IF;
+    -- Provider compensation created ONLY after refund succeeds (by process-cancellation-refunds)
 
     RETURN json_build_object('success', true, 'job_id', p_job_id, 'status', 'cancelled',
       'refund_status', 'pending', 'refund_amount', v_refund,
@@ -540,3 +551,46 @@ INSERT INTO platform_settings (key, value) VALUES
   ('tipping_enabled', 'true'),
   ('tip_presets', '[10, 15, 20]')
 ON CONFLICT (key) DO NOTHING;
+
+-- ============================================================
+-- 9) Extend job guard to protect financial fields
+-- ============================================================
+-- Redefine the guard to also protect cancellation_fee, cancellation_fee_pct
+CREATE OR REPLACE FUNCTION public.guard_job_lifecycle_fields()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF current_user IN ('postgres', 'supabase_admin') THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status IS DISTINCT FROM 'pending' THEN
+      RAISE EXCEPTION 'New jobs must have status pending.' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.accepted_at IS NOT NULL THEN RAISE EXCEPTION 'Cannot set accepted_at on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.started_at IS NOT NULL THEN RAISE EXCEPTION 'Cannot set started_at on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.completed_at IS NOT NULL THEN RAISE EXCEPTION 'Cannot set completed_at on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.cancelled_at IS NOT NULL THEN RAISE EXCEPTION 'Cannot set cancelled_at on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.customer_completed_at IS NOT NULL THEN RAISE EXCEPTION 'Cannot set customer_completed_at on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.tip IS NOT NULL AND NEW.tip != 0 THEN RAISE EXCEPTION 'Cannot set tip on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.cancellation_fee IS NOT NULL AND NEW.cancellation_fee != 0 THEN RAISE EXCEPTION 'Cannot set cancellation_fee on creation.' USING ERRCODE = '42501'; END IF;
+    IF NEW.cancellation_fee_pct IS NOT NULL AND NEW.cancellation_fee_pct != 0 THEN RAISE EXCEPTION 'Cannot set cancellation_fee_pct on creation.' USING ERRCODE = '42501'; END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE guard
+  IF NEW.status IS DISTINCT FROM OLD.status THEN RAISE EXCEPTION 'Direct status mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.accepted_at IS DISTINCT FROM OLD.accepted_at THEN RAISE EXCEPTION 'Direct accepted_at mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.started_at IS DISTINCT FROM OLD.started_at THEN RAISE EXCEPTION 'Direct started_at mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.completed_at IS DISTINCT FROM OLD.completed_at THEN RAISE EXCEPTION 'Direct completed_at mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.cancelled_at IS DISTINCT FROM OLD.cancelled_at THEN RAISE EXCEPTION 'Direct cancelled_at mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.customer_completed_at IS DISTINCT FROM OLD.customer_completed_at THEN RAISE EXCEPTION 'Direct customer_completed_at mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.tip IS DISTINCT FROM OLD.tip THEN RAISE EXCEPTION 'Direct tip mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.cancellation_fee IS DISTINCT FROM OLD.cancellation_fee THEN RAISE EXCEPTION 'Direct cancellation_fee mutation not allowed.' USING ERRCODE = '42501'; END IF;
+  IF NEW.cancellation_fee_pct IS DISTINCT FROM OLD.cancellation_fee_pct THEN RAISE EXCEPTION 'Direct cancellation_fee_pct mutation not allowed.' USING ERRCODE = '42501'; END IF;
+
+  RETURN NEW;
+END;
+$$;
