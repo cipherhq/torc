@@ -178,15 +178,33 @@ Deno.serve(async (req) => {
           failed++;
         }
       } catch (err: any) {
-        console.error(`[cancellation-refund] Op ${op.id} error:`, err?.message);
-        await adminClient
-          .from('job_cancellation_operations')
-          .update({
-            status: 'failed',
-            last_error: err?.message || 'Unknown error',
-          })
-          .eq('id', op.id);
-        failed++;
+        const isTimeout = err?.isTimeout === true;
+        const isNetworkError = !err?.stripeError;
+
+        if (isTimeout || isNetworkError) {
+          // Unknown outcome — do NOT mark as definitive failed.
+          // Revert to pending for retry with same idempotency key.
+          console.error(`[cancellation-refund] Op ${op.id} timeout/network error (will retry): ${err?.message}`);
+          await adminClient
+            .from('job_cancellation_operations')
+            .update({
+              status: 'pending',
+              last_error: err?.message || 'Stripe timeout — will retry',
+            })
+            .eq('id', op.id);
+          pending++;
+        } else {
+          // Definitive Stripe error — mark as manual_review
+          console.error(`[cancellation-refund] Op ${op.id} Stripe error: ${err?.message}`);
+          await adminClient
+            .from('job_cancellation_operations')
+            .update({
+              status: 'manual_review',
+              last_error: err?.message || 'Stripe error',
+            })
+            .eq('id', op.id);
+          failed++;
+        }
       }
     }
 

@@ -517,6 +517,11 @@ BEGIN
     RETURN json_build_object('success', true, 'already_completed', true);
   END IF;
 
+  -- Verify PaymentIntent matches if already stored
+  IF v_tip.payment_intent_id IS NOT NULL AND v_tip.payment_intent_id != p_payment_intent_id THEN
+    RETURN json_build_object('success', false, 'error', 'PAYMENT_INTENT_MISMATCH');
+  END IF;
+
   UPDATE job_tips
   SET payment_intent_id = p_payment_intent_id,
       stripe_status = p_stripe_status,
@@ -553,7 +558,37 @@ INSERT INTO platform_settings (key, value) VALUES
 ON CONFLICT (key) DO NOTHING;
 
 -- ============================================================
--- 9) Extend job guard to protect financial fields
+-- 9) Schedule cancellation refund processing (reuse existing cron pattern)
+-- ============================================================
+-- Uses the same Vault secret and pg_net pattern as expire-pending-jobs
+DO $$
+BEGIN
+  -- Only create if cron extension is available
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    PERFORM cron.schedule(
+      'process-cancellation-refunds',
+      '*/5 * * * *',
+      $cron$
+      SELECT net.http_post(
+        current_setting('app.settings.supabase_url', true) || '/functions/v1/process-cancellation-refunds',
+        '{}'::jsonb,
+        '{}'::jsonb,
+        jsonb_build_object(
+          'Content-Type', 'application/json',
+          'x-torc-cron-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'expire_pending_jobs_cron_secret')
+        ),
+        25000
+      );
+      $cron$
+    );
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  -- Cron may not be available in all environments
+  RAISE NOTICE 'Cron scheduling skipped: %', SQLERRM;
+END $$;
+
+-- ============================================================
+-- 10) Extend job guard to protect financial fields
 -- ============================================================
 -- Redefine the guard to also protect cancellation_fee, cancellation_fee_pct
 CREATE OR REPLACE FUNCTION public.guard_job_lifecycle_fields()

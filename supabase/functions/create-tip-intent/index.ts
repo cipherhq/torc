@@ -86,7 +86,27 @@ Deno.serve(async (req) => {
       }), { status: 200, headers: jsonHeaders });
     }
 
-    // Create Stripe PaymentIntent for the tip
+    // Look up the customer's Stripe customer ID and payment method from the original checkout
+    const { data: job } = await adminClient
+      .from('jobs')
+      .select('checkout_id')
+      .eq('id', tip.job_id)
+      .single();
+
+    let stripeCustomerId: string | null = null;
+    let paymentMethodId: string | null = null;
+
+    if (job?.checkout_id) {
+      const { data: checkout } = await adminClient
+        .from('checkouts')
+        .select('stripe_customer_id, payment_method_id')
+        .eq('id', job.checkout_id)
+        .single();
+      stripeCustomerId = checkout?.stripe_customer_id || null;
+      paymentMethodId = checkout?.payment_method_id || null;
+    }
+
+    // Create and auto-confirm Stripe PaymentIntent for the tip
     const amountCents = Math.round(tip.amount * 100);
 
     const params = new URLSearchParams();
@@ -95,6 +115,13 @@ Deno.serve(async (req) => {
     params.append('metadata[tip_id]', tip.id);
     params.append('metadata[job_id]', tip.job_id);
     params.append('metadata[type]', 'tip');
+    // Auto-confirm with the customer's saved payment method
+    if (stripeCustomerId) params.append('customer', stripeCustomerId);
+    if (paymentMethodId) {
+      params.append('payment_method', paymentMethodId);
+      params.append('confirm', 'true');
+      params.append('off_session', 'true');
+    }
 
     const stripeResponse = await fetch('https://api.stripe.com/v1/payment_intents', {
       method: 'POST',
