@@ -2882,10 +2882,10 @@ jobs:
           DO $$
           DECLARE v_count INT; v_tip NUMERIC; v_base NUMERIC;
           BEGIN
-            -- Create authoritative checkout first
-            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status)
+            -- Create authoritative checkout with bidirectional linkage
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, job_id)
             VALUES ('ac00e500-0000-0000-cccc-a0b111111111'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
-                    'test-svc-acp', 100, 108, 'USD', 'paid');
+                    'test-svc-acp', 100, 108, 'USD', 'paid', 'ac00e500-0000-0000-0000-a0b111111111'::uuid);
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price, tip, checkout_id, created_at)
             VALUES ('ac00e500-0000-0000-0000-a0b111111111'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
                     'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-acp', 'inprogress', 'paid', 100, 10,
@@ -2956,10 +2956,10 @@ jobs:
           DO $$
           DECLARE result JSON;
           BEGIN
-            -- Create checkout-backed earning for duplicate ref test
-            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status)
+            -- Create checkout-backed earning for duplicate ref test (bidirectional linkage)
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, job_id)
             VALUES ('ac00e500-0000-0000-cccc-a0b222222222'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
-                    'test-svc-acp', 50, 54, 'USD', 'paid');
+                    'test-svc-acp', 50, 54, 'USD', 'paid', 'ac00e500-0000-0000-0000-a0b222222222'::uuid);
             INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price, checkout_id, created_at)
             VALUES ('ac00e500-0000-0000-0000-a0b222222222'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
                     'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-acp', 'inprogress', 'paid', 50,
@@ -3091,6 +3091,59 @@ jobs:
             END;
           END $$;
 
+          -- CHECKOUT-LINK-1: Mismatched checkout job_id does NOT create earning
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            -- Checkout linked to a DIFFERENT job
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, job_id)
+            VALUES ('ac00e500-0000-0000-cccc-a0b555555555'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
+                    'test-svc-acp', 200, 216, 'USD', 'paid', 'ac00e500-0000-0000-0000-a0b111111111'::uuid);
+            INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price,
+                    checkout_id, created_at)
+            VALUES ('ac00e500-0000-0000-0000-a0b555555555'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
+                    'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-acp', 'inprogress', 'paid', 200,
+                    'ac00e500-0000-0000-cccc-a0b555555555'::uuid, now());
+            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-a0b555555555'::uuid;
+            SELECT count(*) INTO v_count FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-a0b555555555'::uuid;
+            ASSERT v_count = 0, 'CHECKOUT-LINK-1 FAILED: mismatched checkout.job_id should block earning';
+            RAISE NOTICE 'CHECKOUT-LINK-1 PASSED: mismatched checkout job_id fails closed';
+          END $$;
+
+          -- CHECKOUT-LINK-2: Mismatched checkout user_id does NOT create earning
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES ('ac00e500-5555-5555-5555-aaaaaaaaaaaa'::uuid, 'acp-other-cust@test.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, status) VALUES ('ac00e500-5555-5555-5555-aaaaaaaaaaaa'::uuid, 'customer', 'active') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, base_price, total_amount, currency, status, job_id)
+            VALUES ('ac00e500-0000-0000-cccc-a0b666666666'::uuid, 'ac00e500-5555-5555-5555-aaaaaaaaaaaa'::uuid,
+                    'test-svc-acp', 150, 162, 'USD', 'paid', 'ac00e500-0000-0000-0000-a0b666666666'::uuid);
+            INSERT INTO jobs (id, customer_id, provider_id, service_id, status, payment_status, base_price,
+                    checkout_id, created_at)
+            VALUES ('ac00e500-0000-0000-0000-a0b666666666'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid,
+                    'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'test-svc-acp', 'inprogress', 'paid', 150,
+                    'ac00e500-0000-0000-cccc-a0b666666666'::uuid, now());
+            UPDATE jobs SET status = 'completed' WHERE id = 'ac00e500-0000-0000-0000-a0b666666666'::uuid;
+            SELECT count(*) INTO v_count FROM provider_earnings WHERE job_id = 'ac00e500-0000-0000-0000-a0b666666666'::uuid;
+            ASSERT v_count = 0, 'CHECKOUT-LINK-2 FAILED: mismatched checkout.user_id should block earning';
+            RAISE NOTICE 'CHECKOUT-LINK-2 PASSED: mismatched checkout customer fails closed';
+          END $$;
+
+          -- TIP-GUARD-INSERT: Cannot create job with nonzero tip
+          DO $$
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              INSERT INTO jobs (id, customer_id, service_id, status, payment_status, tip)
+              VALUES (gen_random_uuid(), 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'test-svc-acp', 'pending', 'unpaid', 50);
+              RAISE EXCEPTION 'TIP-GUARD-INSERT FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'TIP-GUARD-INSERT PASSED: cannot create job with nonzero tip';
+            END;
+          END $$;
+
           -- APPROVAL-PENDING: Required doc pending -> rejected
           DO $$
           DECLARE result JSON;
@@ -3191,7 +3244,7 @@ jobs:
           -- Cleanup
           DELETE FROM provider_earnings WHERE provider_id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
           DELETE FROM provider_payouts WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
-          DELETE FROM checkouts WHERE id IN ('ac00e500-0000-0000-cccc-a0b111111111'::uuid, 'ac00e500-0000-0000-cccc-a0b222222222'::uuid);
+          DELETE FROM checkouts WHERE id IN ('ac00e500-0000-0000-cccc-a0b111111111'::uuid, 'ac00e500-0000-0000-cccc-a0b222222222'::uuid, 'ac00e500-0000-0000-cccc-a0b555555555'::uuid, 'ac00e500-0000-0000-cccc-a0b666666666'::uuid);
           DELETE FROM job_events WHERE job_id IN ('ac00e500-0000-0000-0000-a0b111111111'::uuid, 'ac00e500-0000-0000-0000-a0b222222222'::uuid);
           DELETE FROM provider_earnings WHERE job_id IN (SELECT id FROM jobs WHERE customer_id = 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid);
           DELETE FROM jobs WHERE customer_id = 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid;
@@ -3199,12 +3252,12 @@ jobs:
           DELETE FROM services WHERE id = 'test-svc-acp';
           DELETE FROM provider_locations WHERE provider_id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
           DELETE FROM provider_profiles WHERE id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
-          DELETE FROM profiles WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
+          DELETE FROM profiles WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid, 'ac00e500-5555-5555-5555-aaaaaaaaaaaa'::uuid);
           DELETE FROM services WHERE id = 'test-svc-acp';
-          DELETE FROM auth.users WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
+          DELETE FROM auth.users WHERE id IN ('ac00e500-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid, 'ac00e500-5555-5555-5555-aaaaaaaaaaaa'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 25 admin control plane tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 28 admin control plane tests passed.'; END $$;
           SQL
       - name: Test cancel_job actor-type authorization (CANCEL-AUTH-001)
         run: |

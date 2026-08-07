@@ -31,6 +31,9 @@ BEGIN
     IF NEW.customer_completed_at IS NOT NULL THEN
       RAISE EXCEPTION 'Cannot set customer_completed_at on job creation.' USING ERRCODE = '42501';
     END IF;
+    IF NEW.tip IS NOT NULL AND NEW.tip != 0 THEN
+      RAISE EXCEPTION 'Cannot set tip on job creation.' USING ERRCODE = '42501';
+    END IF;
     RETURN NEW;
   END IF;
 
@@ -149,11 +152,15 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Derive base from authoritative checkout only (never trust mutable job fields)
+  -- Derive base from authoritative checkout with exact bidirectional linkage
   SELECT c.base_price INTO v_base
-  FROM checkouts c WHERE c.id = NEW.checkout_id AND c.status = 'paid';
+  FROM checkouts c
+  WHERE c.id = NEW.checkout_id
+    AND c.job_id = NEW.id
+    AND c.user_id = NEW.customer_id
+    AND c.status = 'paid';
   IF v_base IS NULL THEN
-    -- Checkout missing or not paid — fail closed, leave for reconciliation
+    -- Checkout missing, not paid, or not linked to this exact job — fail closed
     RETURN NEW;
   END IF;
 
