@@ -203,6 +203,8 @@ jobs:
             total_amount NUMERIC(10,2) DEFAULT 0,
             service_fee NUMERIC(10,2) DEFAULT 0,
             tax NUMERIC(10,2) DEFAULT 0,
+            cancellation_fee NUMERIC(10,2) DEFAULT 0,
+            cancellation_fee_pct NUMERIC(5,2) DEFAULT 0,
             rating INTEGER,
             review TEXT,
             tip NUMERIC(10,2) DEFAULT 0,
