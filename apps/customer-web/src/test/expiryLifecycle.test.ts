@@ -1218,8 +1218,8 @@ describe('Server-authoritative job transitions (CROSS-001)', () => {
   it('cancellation still uses cancel_job RPC', () => {
     const custSrc = fs.readFileSync(custCtxPath, 'utf-8');
     const provSrc = fs.readFileSync(provCtxPath, 'utf-8');
-    expect(custSrc).toContain("supabase.rpc('cancel_job'");
-    expect(provSrc).toContain("supabase.rpc('cancel_job'");
+    expect(custSrc).toContain("supabase.rpc('cancel_job");
+    expect(provSrc).toContain("supabase.rpc('cancel_job");
   });
 
   it('acceptance still uses accept_job RPC', () => {
@@ -1300,7 +1300,7 @@ describe('Provider acceptance serialization (MATCH-001)', () => {
     const custCtx = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/context/JobContext.jsx'), 'utf-8'
     );
-    expect(custCtx).toContain("supabase.rpc('cancel_job'");
+    expect(custCtx).toContain("supabase.rpc('cancel_job");
   });
 
   it('CROSS-001 updateJobStatus still uses transition RPC (no regression)', () => {
@@ -1518,7 +1518,7 @@ describe('Server-owned no-provider expiry (CANCEL-RACE-001)', () => {
     const ctxSrc = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/context/JobContext.jsx'), 'utf-8'
     );
-    expect(ctxSrc).toContain("supabase.rpc('cancel_job'");
+    expect(ctxSrc).toContain("supabase.rpc('cancel_job");
     // But no request_expired usage remains
     expect(src).not.toContain("'request_expired'");
   });

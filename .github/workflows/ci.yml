@@ -411,7 +411,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
