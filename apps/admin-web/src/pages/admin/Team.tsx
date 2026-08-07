@@ -16,47 +16,19 @@ interface TeamMember {
   created_at: string | null;
 }
 
-/* Static role definitions — roles/permissions are code-level config, not DB */
+/* Role definitions — only roles actually enforced by the backend are shown.
+   Current authorization is binary: admin or non-admin (via profiles.role).
+   Granular RBAC (manager, support) is not yet implemented at the database level. */
 const ROLES = [
-  {
-    id: 'super_admin',
-    name: 'Super Admin',
-    description: 'Full platform access and control',
-    permissions: ['All Access'],
-    gradient: 'linear-gradient(135deg, #008CE5, #0070B8)',
-    icon: Crown,
-    badgeBg: 'rgba(0,140,229,0.1)',
-    badgeColor: '#008CE5',
-  },
   {
     id: 'admin',
     name: 'Admin',
-    description: 'Manage operations and users',
-    permissions: ['Jobs', 'Users', 'Providers', 'Analytics', 'Settings'],
-    gradient: 'linear-gradient(135deg, #007AFF, #0051D5)',
+    description: 'Full platform access — manage operations, users, providers, analytics, and settings',
+    permissions: ['All Access'],
+    gradient: 'linear-gradient(135deg, #008CE5, #0070B8)',
     icon: Shield,
-    badgeBg: 'rgba(0,122,255,0.1)',
-    badgeColor: '#007AFF',
-  },
-  {
-    id: 'manager',
-    name: 'Manager',
-    description: 'Oversee jobs and providers',
-    permissions: ['Jobs', 'Providers', 'Payments'],
-    gradient: 'linear-gradient(135deg, #FF6B6B, #FF5252)',
-    icon: Users,
-    badgeBg: 'rgba(255,107,107,0.1)',
-    badgeColor: '#FF6B6B',
-  },
-  {
-    id: 'support',
-    name: 'Support',
-    description: 'Handle customer and provider support',
-    permissions: ['Jobs', 'Users', 'Support Tickets'],
-    gradient: 'linear-gradient(135deg, #FFA500, #FF8C00)',
-    icon: Eye,
-    badgeBg: 'rgba(255,165,0,0.1)',
-    badgeColor: '#FFA500',
+    badgeBg: 'rgba(0,140,229,0.1)',
+    badgeColor: '#008CE5',
   },
 ];
 
