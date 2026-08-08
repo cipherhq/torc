@@ -7,12 +7,18 @@ import { useState, useEffect, useRef } from 'react';
 import { useJob } from '../../context/JobContext';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { loadPlatformSettings } from '../../lib/platformSettings';
+import { loadStripe } from '@stripe/stripe-js';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
 export function ServiceCompletion() {
   const navigate = useNavigate();
   const { jobId } = useParams();
   const { currentJob, fetchJob, rateJob } = useJob();
   const { isDark } = useTheme();
+  const [tippingEnabled, setTippingEnabled] = useState(true);
+  const [tipPresetsFromSettings, setTipPresetsFromSettings] = useState<number[]>([10, 15, 20]);
   const [rating, setRating] = useState(0);
   const [tip, setTip] = useState(0);
   const [feedback, setFeedback] = useState('');
@@ -68,10 +74,27 @@ export function ServiceCompletion() {
     if (jobId && !currentJob) {
       fetchJob(jobId).catch(console.warn);
     }
+    // Load tipping settings
+    loadPlatformSettings().then(s => {
+      // tipping_enabled is stored as a separate key, load directly
+      supabase.from('platform_settings').select('value').eq('key', 'tipping_enabled').maybeSingle()
+        .then(({ data }) => { if (data?.value === false) setTippingEnabled(false); });
+      supabase.from('platform_settings').select('value').eq('key', 'tip_presets').maybeSingle()
+        .then(({ data }) => {
+          if (Array.isArray(data?.value)) {
+            const valid = (data.value as number[]).filter(v => typeof v === 'number' && v > 0 && v <= 100);
+            if (valid.length > 0) setTipPresetsFromSettings(valid);
+          }
+        });
+    }).catch(() => {});
   }, [jobId]);
 
-  const tipOptions = [0, 5, 10, 15, 20];
-  const basePrice = currentJob?.base_price || currentJob?.service?.base_price || 0;
+  const [tipPct, setTipPct] = useState<number | null>(null);
+  const [customTipAmount, setCustomTipAmount] = useState('');
+  const [tipStatus, setTipStatus] = useState<'idle' | 'processing' | 'succeeded' | 'failed'>('idle');
+  const basePrice = Number(currentJob?.base_price || currentJob?.total_amount || currentJob?.service?.base_price || 0);
+  const tipPresets = tipPresetsFromSettings; // From platform settings
+  const tipAmount = tipPct !== null ? Math.round(basePrice * tipPct / 100 * 100) / 100 : (Number(customTipAmount) || 0);
   const serviceFee = currentJob?.service_fee || Math.round(basePrice * 0.1 * 100) / 100;
   const tax = currentJob?.tax || Math.round(basePrice * 0.05 * 100) / 100;
   const totalAmount = currentJob?.total_amount || (basePrice + serviceFee + tax);
@@ -108,33 +131,47 @@ export function ServiceCompletion() {
       }
 
       // Process tip via server-authoritative payment flow
-      if (tip > 0 && jobId) {
+      if (tipAmount > 0 && jobId) {
+        setTipStatus('processing');
         try {
-          // Step 1: Create tip record via RPC
           const { data: tipResult, error: tipError } = await supabase.rpc('request_tip_payment', {
             p_job_id: jobId,
-            p_amount: tip,
+            p_amount: tipAmount,
           });
           if (tipError) throw tipError;
           if (!tipResult?.success) {
-            console.warn('Tip request failed:', tipResult?.error);
+            setTipStatus('failed');
           } else {
-            // Step 2: Create Stripe PaymentIntent via Edge Function
+            // Create and auto-confirm Stripe PaymentIntent via Edge Function
             const { data: piResult, error: piError } = await supabase.functions.invoke('create-tip-intent', {
               body: { tip_id: tipResult.tip_id },
             });
             if (piError) {
-              console.warn('Tip payment creation failed:', piError);
+              setTipStatus('failed');
             } else if (piResult?.client_secret) {
-              // Step 3: Confirm payment client-side (Stripe Elements)
-              // For launch, we auto-confirm using the existing payment method
-              // The webhook will finalize the tip earning
-              console.log('Tip PaymentIntent created:', piResult.payment_intent_id);
+              // PI requires customer authentication (SCA)
+              setTipStatus('processing');
+              const stripe = await stripePromise;
+              if (stripe) {
+                const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
+                if (confirmError) {
+                  setTipStatus('failed');
+                } else {
+                  setTipStatus('succeeded');
+                }
+              } else {
+                setTipStatus('failed');
+              }
+            } else if (piResult?.payment_intent_id) {
+              // PI was auto-confirmed. Webhook will finalize.
+              setTipStatus('succeeded');
+            } else {
+              setTipStatus('failed');
             }
           }
         } catch (tipErr: any) {
           console.warn('Tip processing error:', tipErr?.message);
-          // Tip failure should not block the completion flow
+          setTipStatus('failed');
         }
       }
 
@@ -267,7 +304,7 @@ export function ServiceCompletion() {
             </div>
           </div>
 
-          <div className="rounded-2xl p-4" style={{
+          {tippingEnabled && <div className="rounded-2xl p-4" style={{
             background: isDark
               ? 'linear-gradient(180deg, rgba(0,140,229,0.12), rgba(255,255,255,0.04))'
               : 'linear-gradient(180deg, rgba(0,140,229,0.06), rgba(255,255,255,0.8))',
@@ -277,36 +314,56 @@ export function ServiceCompletion() {
               <DollarSign className="w-4 h-4 text-[#008CE5]" />
               <p className="font-semibold text-sm" style={{ color: textColor }}>Tip Your Provider</p>
             </div>
-            <p className="text-xs mb-3" style={{ color: subColor }}>100% of tips go directly to your provider</p>
+            <p className="text-xs mb-3" style={{ color: subColor }}>
+              {tipStatus === 'processing' ? 'Processing tip...' :
+               tipStatus === 'succeeded' ? 'Tip sent! 100% goes to your provider.' :
+               tipStatus === 'failed' ? 'Tip failed. You can try again later.' :
+               '100% of tips go directly to your provider'}
+            </p>
             <div className="flex gap-2">
-              {tipOptions.map((amount) => (
+              {/* No Tip */}
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { setTipPct(null); setCustomTipAmount(''); setTip(0); }}
+                className="flex-1 py-2.5 rounded-xl font-bold transition-all text-xs"
+                style={tipPct === null && !customTipAmount
+                  ? { background: 'linear-gradient(135deg, #008CE5, #0070B8)', color: '#FFFFFF', border: '2px solid #008CE5' }
+                  : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: subColor, border: `2px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }
+                }
+              >No Tip</motion.button>
+              {/* Percentage presets */}
+              {tipPresets.map((pct) => (
                 <motion.button
-                  key={amount}
+                  key={pct}
                   whileTap={{ scale: 0.9 }}
-                  animate={tip === amount ? { scale: 1.05 } : { scale: 1 }}
-                  onClick={() => setTip(amount)}
-                  className="flex-1 py-2.5 rounded-xl font-bold transition-all"
-                  style={tip === amount
-                    ? {
-                        background: 'linear-gradient(135deg, #008CE5, #0070B8)',
-                        color: '#FFFFFF',
-                        boxShadow: '0 4px 16px rgba(0,140,229,0.45)',
-                        border: '2px solid #008CE5',
-                      }
-                    : {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-                        color: subColor,
-                        border: `2px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                      }
+                  onClick={() => { setTipPct(pct); setCustomTipAmount(''); setTip(Math.round(basePrice * pct / 100 * 100) / 100); }}
+                  className="flex-1 py-2.5 rounded-xl font-bold transition-all text-xs"
+                  style={tipPct === pct
+                    ? { background: 'linear-gradient(135deg, #008CE5, #0070B8)', color: '#FFFFFF', border: '2px solid #008CE5' }
+                    : { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: subColor, border: `2px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }
                   }
                 >
-                  ${amount}
+                  {pct}%{basePrice > 0 ? ` ($${(basePrice * pct / 100).toFixed(0)})` : ''}
                 </motion.button>
               ))}
             </div>
-          </div>
+            {/* Custom tip */}
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="number"
+                placeholder="Custom $"
+                min="0"
+                max="500"
+                value={customTipAmount}
+                onChange={(e) => { setCustomTipAmount(e.target.value); setTipPct(null); setTip(Number(e.target.value) || 0); }}
+                className="w-24 px-2 py-1.5 rounded-lg text-sm border"
+                style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5F9FF', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#D3E0F2', color: textColor }}
+              />
+              {tipAmount > 0 && <span className="text-xs" style={{ color: subColor }}>Tip: ${tipAmount.toFixed(2)}</span>}
+            </div>
+          </div>}
 
-          {tip > 0 && (
+          {tippingEnabled && tipAmount > 0 && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}

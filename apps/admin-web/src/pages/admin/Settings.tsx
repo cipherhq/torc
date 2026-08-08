@@ -25,6 +25,8 @@ interface PlatformSettings {
   chat_conversations_per_page: number;
   chat_max_image_size_mb: number;
   chat_enable_images: boolean;
+  tipping_enabled: boolean;
+  tip_presets: string;
   terms_version: string;
   terms_last_updated: string;
   terms_customer_text: string;
@@ -54,6 +56,8 @@ const DEFAULTS: PlatformSettings = {
   chat_conversations_per_page: 20,
   chat_max_image_size_mb: 5,
   chat_enable_images: true,
+  tipping_enabled: true,
+  tip_presets: '[10, 15, 20]',
   terms_version: 'v1.0.0',
   terms_last_updated: '2026-02-26',
   terms_customer_text: `TORC CUSTOMER TERMS OF SERVICE
@@ -228,8 +232,20 @@ export function AdminSettings() {
       title: 'Financial Settings',
       icon: DollarSign,
       gradient: 'linear-gradient(135deg, #008CE5, #0070B8)',
-      description: 'Currency and payment configuration',
+      description: 'Currency, tipping, and payment configuration',
       items: [
+        {
+          label: 'Enable Tipping',
+          description: 'Allow customers to tip providers after service completion',
+          type: 'toggle' as const,
+          key: 'tipping_enabled' as keyof PlatformSettings,
+        },
+        {
+          label: 'Tip Presets (JSON)',
+          description: 'Percentage presets shown to customers, e.g. [10, 15, 20]',
+          type: 'text' as const,
+          key: 'tip_presets' as keyof PlatformSettings,
+        },
         {
           label: 'Currency (USD Only)',
           description: 'Payment processing currently supports USD only',

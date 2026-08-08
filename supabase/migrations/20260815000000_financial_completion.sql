@@ -185,13 +185,12 @@ BEGIN
     v_fee_pct := 0;
   END IF;
 
-  -- Get original amount from checkout or job
+  -- Get original amount from authoritative checkout only
   v_original_amount := 0;
-  IF v_job.checkout_id IS NOT NULL THEN
-    SELECT total_amount INTO v_original_amount FROM checkouts WHERE id = v_job.checkout_id AND status = 'paid';
-  END IF;
-  IF v_original_amount IS NULL OR v_original_amount = 0 THEN
-    v_original_amount := COALESCE(v_job.total_amount, v_job.base_price, 0);
+  IF v_job.payment_status = 'paid' AND v_job.checkout_id IS NOT NULL THEN
+    SELECT c.total_amount INTO v_original_amount FROM checkouts c
+    WHERE c.id = v_job.checkout_id AND c.job_id = v_job.id
+      AND c.user_id = v_job.customer_id AND c.status = 'paid';
   END IF;
 
   v_fee := ROUND(v_original_amount * v_fee_pct / 100, 2);
@@ -629,3 +628,174 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- ============================================================
+-- 11) PROV-002: Only verified providers in matching and acceptance
+-- ============================================================
+
+-- Update get_nearby_providers to require is_verified
+CREATE OR REPLACE FUNCTION public.get_nearby_providers(
+  p_pickup_lat DOUBLE PRECISION, p_pickup_lng DOUBLE PRECISION,
+  p_radius_miles DOUBLE PRECISION, p_service_id TEXT DEFAULT NULL
+)
+RETURNS TABLE(provider_id UUID, latitude DOUBLE PRECISION, longitude DOUBLE PRECISION, distance_miles DOUBLE PRECISION)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE v_max_radius DOUBLE PRECISION; v_effective_radius DOUBLE PRECISION;
+BEGIN
+  SELECT COALESCE((value)::numeric, 50) INTO v_max_radius
+  FROM platform_settings WHERE key = 'max_job_radius';
+  IF v_max_radius IS NULL THEN v_max_radius := 50; END IF;
+  v_effective_radius := LEAST(p_radius_miles, v_max_radius);
+
+  RETURN QUERY
+  SELECT pl.provider_id, pl.latitude, pl.longitude,
+    (3958.8 * 2 * ASIN(SQRT(
+      POWER(SIN(RADIANS(p_pickup_lat - pl.latitude) / 2), 2) +
+      COS(RADIANS(pl.latitude)) * COS(RADIANS(p_pickup_lat)) *
+      POWER(SIN(RADIANS(p_pickup_lng - pl.longitude) / 2), 2)
+    ))) AS distance_miles
+  FROM provider_locations pl
+  INNER JOIN provider_profiles pp ON pp.id = pl.provider_id
+  WHERE pl.is_online = true AND pp.is_online = true
+    AND pp.is_verified = true  -- PROV-002: only verified providers
+    AND pl.updated_at > NOW() - INTERVAL '5 minutes'
+    AND (p_service_id IS NULL OR p_service_id = ANY(pp.services))
+    AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.provider_id = pl.provider_id
+        AND j.status IN ('accepted','en_route','enroute','arrived','in_progress','inprogress'))
+    AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = pl.provider_id AND p.status IN ('suspended', 'pending_deletion'))
+    AND (3958.8 * 2 * ASIN(SQRT(
+      POWER(SIN(RADIANS(p_pickup_lat - pl.latitude) / 2), 2) +
+      COS(RADIANS(pl.latitude)) * COS(RADIANS(p_pickup_lat)) *
+      POWER(SIN(RADIANS(p_pickup_lng - pl.longitude) / 2), 2)
+    ))) <= v_effective_radius
+  ORDER BY distance_miles ASC;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_nearby_providers(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_nearby_providers(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.get_nearby_providers(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) TO authenticated;
+
+-- Update accept_job to require is_verified
+CREATE OR REPLACE FUNCTION public.accept_job(p_job_id UUID, p_provider_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_job RECORD; v_active_job RECORD; v_provider_name TEXT;
+  v_lock_key BIGINT; v_provider_status TEXT; v_is_verified BOOLEAN;
+BEGIN
+  IF p_provider_id != auth.uid() THEN
+    RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED');
+  END IF;
+
+  -- Check suspension
+  SELECT status INTO v_provider_status FROM profiles WHERE id = p_provider_id;
+  IF v_provider_status = 'suspended' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_SUSPENDED');
+  END IF;
+
+  -- Block pending_deletion providers
+  IF v_provider_status = 'pending_deletion' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'ACCOUNT_PENDING_DELETION',
+      'message', 'Your account is pending deletion and cannot accept jobs');
+  END IF;
+
+  -- PROV-002: Check verification
+  SELECT is_verified INTO v_is_verified FROM provider_profiles WHERE id = p_provider_id;
+  IF v_is_verified IS NOT TRUE THEN
+    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_NOT_VERIFIED',
+      'message', 'Your provider account must be verified to accept jobs');
+  END IF;
+
+  -- Provider serialization
+  v_lock_key := ('x' || left(replace(p_provider_id::text, '-', ''), 16))::bit(64)::bigint;
+  PERFORM pg_advisory_xact_lock(v_lock_key);
+
+  SELECT id, status INTO v_active_job FROM jobs
+  WHERE provider_id = p_provider_id
+    AND status IN ('accepted','en_route','enroute','arrived','in_progress','inprogress')
+    AND id != p_job_id LIMIT 1;
+  IF FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_BUSY',
+      'active_job_id', v_active_job.id, 'active_job_status', v_active_job.status);
+  END IF;
+
+  SELECT * INTO v_job FROM jobs WHERE id = p_job_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'JOB_NOT_FOUND');
+  END IF;
+
+  IF v_job.status = 'accepted' AND v_job.provider_id = p_provider_id THEN
+    RETURN jsonb_build_object('success', true, 'job_id', p_job_id, 'provider_id', p_provider_id,
+      'status', 'accepted', 'already_accepted', true, 'accepted_at', v_job.accepted_at);
+  END IF;
+
+  IF v_job.status != 'pending' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'JOB_ALREADY_ACCEPTED',
+      'current_status', v_job.status);
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM job_expiry_refund_operations WHERE job_id = p_job_id AND status != 'abandoned_before_refund') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'JOB_EXPIRY_IN_PROGRESS');
+  END IF;
+
+  UPDATE jobs SET provider_id = p_provider_id, status = 'accepted',
+    accepted_at = NOW(), updated_at = NOW() WHERE id = p_job_id;
+
+  INSERT INTO job_events (job_id, event_type, actor_id, actor_type, metadata)
+  VALUES (p_job_id, 'job_accepted', p_provider_id, 'provider',
+    jsonb_build_object('previous_status', v_job.status));
+
+  PERFORM pg_notify('job_accepted', jsonb_build_object(
+    'job_id', p_job_id, 'provider_id', p_provider_id, 'customer_id', v_job.customer_id)::text);
+
+  SELECT COALESCE(NULLIF(TRIM(first_name), '') || COALESCE(' ' || LEFT(last_name, 1) || '.', ''), 'A provider')
+  INTO v_provider_name FROM profiles WHERE id = p_provider_id;
+
+  INSERT INTO notifications (user_id, type, title, message, action_url)
+  VALUES (v_job.customer_id, 'service', 'Provider Accepted',
+    v_provider_name || ' has accepted your service request.', '/tracking/' || p_job_id::text);
+
+  IF v_job.scheduled_for IS NOT NULL AND v_job.scheduled_for > NOW() + INTERVAL '10 minutes' THEN
+    INSERT INTO notifications (user_id, type, title, message, action_url)
+    VALUES (p_provider_id, 'service', 'Scheduled Job Accepted',
+      'You accepted a scheduled job for ' || TO_CHAR(v_job.scheduled_for AT TIME ZONE 'America/New_York', 'Mon DD at HH12:MI AM'),
+      '/job/' || p_job_id::text);
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'job_id', p_job_id,
+    'provider_id', p_provider_id, 'status', 'accepted', 'accepted_at', NOW());
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.accept_job(UUID, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.accept_job(UUID, UUID) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.accept_job(UUID, UUID) TO authenticated;
+
+-- Block pending_deletion users from creating jobs
+-- (extend the INSERT guard for status check)
+
+-- Block pending_deletion users from creating jobs
+CREATE OR REPLACE FUNCTION public.check_user_not_pending_deletion()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE v_status TEXT;
+BEGIN
+  IF current_user IN ('postgres', 'supabase_admin') THEN RETURN NEW; END IF;
+  IF TG_OP = 'INSERT' THEN
+    SELECT status INTO v_status FROM profiles WHERE id = NEW.customer_id;
+    IF v_status = 'pending_deletion' THEN
+      RAISE EXCEPTION 'Account is pending deletion. Cannot create new requests.' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_check_deletion_on_job_create ON public.jobs;
+CREATE TRIGGER trg_check_deletion_on_job_create
+  BEFORE INSERT ON public.jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.check_user_not_pending_deletion();

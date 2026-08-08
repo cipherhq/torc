@@ -160,7 +160,7 @@ export function AccountSecurity() {
       return;
     }
 
-    if (!window.confirm('Are you sure you want to delete your account? This action cannot be undone. Your data will be permanently removed within 30 days.')) {
+    if (!window.confirm('Are you sure you want to request account deletion? Our team will review and process your request. This cannot be undone once completed.')) {
       return;
     }
 
@@ -187,7 +187,7 @@ export function AccountSecurity() {
       if (!updatedProfile) throw new Error('Could not mark account for deletion.');
 
       setDeleteReason('');
-      setDeleteMessage('Your account has been scheduled for deletion. You will be signed out now.');
+      setDeleteMessage('Deletion request submitted. Your account is now pending review. You will be signed out.');
 
       // Sign out after short delay so user sees the message
       setTimeout(async () => {

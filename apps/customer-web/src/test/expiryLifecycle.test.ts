@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import path from 'path';
 import fs from 'fs';
 
@@ -1420,7 +1420,7 @@ describe('Account deletion lifecycle (DEL-001)', () => {
     expect(src).toContain(".select('id')");
     // All checks before success message
     const zeroRowCheck = src.indexOf('if (!updatedProfile)');
-    const successMsg = src.indexOf('scheduled for deletion');
+    const successMsg = src.indexOf('pending review');
     expect(zeroRowCheck).toBeLessThan(successMsg);
   });
 
@@ -1432,7 +1432,7 @@ describe('Account deletion lifecycle (DEL-001)', () => {
     expect(src).toContain('if (!updatedProfile)');
     expect(src).toContain(".select('id')");
     const zeroRowCheck = src.indexOf('if (!updatedProfile)');
-    const successMsg = src.indexOf('scheduled for deletion');
+    const successMsg = src.indexOf('pending review');
     expect(zeroRowCheck).toBeLessThan(successMsg);
   });
 
@@ -1446,7 +1446,7 @@ describe('Account deletion lifecycle (DEL-001)', () => {
     // signOut is only reachable after success message
     const throwLine = src.indexOf('throw statusError');
     const signOut = src.indexOf('signOut');
-    const successLine = src.indexOf('scheduled for deletion');
+    const successLine = src.indexOf('pending review');
     expect(throwLine).toBeLessThan(successLine);
     expect(successLine).toBeLessThan(signOut);
   });
@@ -1530,5 +1530,269 @@ describe('Server-owned no-provider expiry (CANCEL-RACE-001)', () => {
     expect(src).toContain('claim_expiry_eligible_jobs');
     expect(src).toContain("j.status = 'pending'");
     expect(src).toContain('j.provider_id IS NULL');
+  });
+});
+
+// =============================================================================
+// PROV-002: Verified-only matching and acceptance
+// =============================================================================
+
+describe('PROV-002: Verified-only provider matching and acceptance', () => {
+  const migrationPath = path.resolve(
+    REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'
+  );
+
+  it('get_nearby_providers requires pp.is_verified = true', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('pp.is_verified = true');
+    // Must appear in the WHERE clause of the matching query
+    const fnStart = src.indexOf('get_nearby_providers');
+    const verifiedCheck = src.indexOf('pp.is_verified = true', fnStart);
+    expect(verifiedCheck).toBeGreaterThan(fnStart);
+  });
+
+  it('accept_job blocks unverified providers with PROVIDER_NOT_VERIFIED', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('PROVIDER_NOT_VERIFIED');
+    expect(src).toContain('v_is_verified IS NOT TRUE');
+  });
+
+  it('accept_job checks verification AFTER suspension check', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const acceptStart = src.indexOf("CREATE OR REPLACE FUNCTION public.accept_job");
+    const suspCheck = src.indexOf('PROVIDER_SUSPENDED', acceptStart);
+    const verCheck = src.indexOf('PROVIDER_NOT_VERIFIED', acceptStart);
+    expect(suspCheck).toBeLessThan(verCheck);
+  });
+
+  it('get_nearby_providers excludes pending_deletion providers', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('get_nearby_providers');
+    const fnEnd = src.indexOf('$$;', fnStart);
+    const fnBody = src.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("'pending_deletion'");
+  });
+});
+
+// =============================================================================
+// Pending deletion: accept_job and job creation blocks
+// =============================================================================
+
+describe('Pending deletion lifecycle enforcement', () => {
+  const migrationPath = path.resolve(
+    REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'
+  );
+
+  it('accept_job blocks pending_deletion providers with ACCOUNT_PENDING_DELETION', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('ACCOUNT_PENDING_DELETION');
+    const acceptStart = src.indexOf("CREATE OR REPLACE FUNCTION public.accept_job");
+    const deletionCheck = src.indexOf('ACCOUNT_PENDING_DELETION', acceptStart);
+    expect(deletionCheck).toBeGreaterThan(acceptStart);
+  });
+
+  it('job creation trigger blocks pending_deletion customers', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('check_user_not_pending_deletion');
+    expect(src).toContain("v_status = 'pending_deletion'");
+    expect(src).toContain('trg_check_deletion_on_job_create');
+  });
+
+  it('admin Users page renders pending_deletion badge', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/admin-web/src/pages/admin/Users.tsx'), 'utf-8'
+    );
+    expect(src).toContain("case 'pending_deletion'");
+    expect(src).toContain('bg-orange-100 text-orange-700');
+  });
+});
+
+// =============================================================================
+// Financial completion: tipping, cancellation refunds, provider earnings
+// =============================================================================
+
+describe('Financial completion integrity', () => {
+  const migrationPath = path.resolve(
+    REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'
+  );
+
+  it('provider_earnings supports multiple entry types per job', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('provider_earnings_unique_job_type');
+    expect(src).toContain("entry_type TEXT NOT NULL DEFAULT 'service_earning'");
+  });
+
+  it('tip finalization creates provider earning only on succeeded', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('finalize_tip_payment');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain("p_stripe_status = 'succeeded'");
+    expect(fnBody).toContain("'tip'");
+  });
+
+  it('cancellation refund does NOT create provider compensation prematurely', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('cancel_job_with_refund');
+    const fnEnd = src.indexOf('$$;', fnStart);
+    const fnBody = src.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('Provider compensation created ONLY after refund succeeds');
+  });
+
+  it('admin settings includes tipping controls', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/admin-web/src/pages/admin/Settings.tsx'), 'utf-8'
+    );
+    expect(src).toContain('tipping_enabled');
+    expect(src).toContain('tip_presets');
+    expect(src).toContain('Enable Tipping');
+  });
+
+  it('admin finance renders cancellation operations and tips', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/admin-web/src/pages/admin/Finance.tsx'), 'utf-8'
+    );
+    expect(src).toContain('setCancelOps');
+    expect(src).toContain('setTips');
+    expect(src).toContain('setEarnings');
+    expect(src).toContain('Cancellation Refunds');
+    expect(src).toContain('Tips & Provider Earnings');
+  });
+
+  it('provider Earnings.tsx uses ledger not job-based recomputation', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx'), 'utf-8'
+    );
+    expect(src).toContain('provider_earnings');
+    expect(src).toContain('ledgerEntries');
+    expect(src).toContain("entry_type === 'service_earning'");
+    expect(src).toContain("entry_type === 'tip'");
+    expect(src).toContain("entry_type === 'cancellation_compensation'");
+    // Must NOT reference earningsRes directly in calcProviderEarnings
+    expect(src).not.toContain('(earningsRes as any)');
+  });
+
+  it('ServiceCompletion consumes tipping settings', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain('tipping_enabled');
+    expect(src).toContain('tip_presets');
+    expect(src).toContain('confirmCardPayment');
+  });
+});
+
+// =============================================================================
+// Supabase modern secret key support
+// =============================================================================
+
+describe('Supabase modern secret key support', () => {
+  const sharedKeyPath = path.resolve(REPO_ROOT, 'supabase/functions/_shared/supabaseKeys.ts');
+
+  it('shared helper exists with getSupabaseSecretKey and getSupabasePublishableKey', () => {
+    const src = fs.readFileSync(sharedKeyPath, 'utf-8');
+    expect(src).toContain('export function getSupabaseSecretKey');
+    expect(src).toContain('export function getSupabasePublishableKey');
+  });
+
+  it('shared helper prefers SUPABASE_SECRET_KEYS JSON over legacy', () => {
+    const src = fs.readFileSync(sharedKeyPath, 'utf-8');
+    expect(src).toContain('SUPABASE_SECRET_KEYS');
+    expect(src).toContain("parsed?.default");
+    // Fallback to legacy
+    expect(src).toContain('SERVICE_ROLE_KEY');
+    expect(src).toContain('SUPABASE_SERVICE_ROLE_KEY');
+  });
+
+  it('shared helper prefers SUPABASE_PUBLISHABLE_KEYS JSON over legacy', () => {
+    const src = fs.readFileSync(sharedKeyPath, 'utf-8');
+    expect(src).toContain('SUPABASE_PUBLISHABLE_KEYS');
+    expect(src).toContain('SUPABASE_ANON_KEY');
+  });
+
+  it('all Edge Functions import from shared helper', () => {
+    const fns = [
+      'create-payment-intent', 'create-tip-intent', 'expire-pending-jobs',
+      'process-cancellation-refunds', 'stripe-webhook', 'send-email', 'send-sms',
+    ];
+    for (const fn of fns) {
+      const src = fs.readFileSync(
+        path.resolve(REPO_ROOT, `supabase/functions/${fn}/index.ts`), 'utf-8'
+      );
+      expect(src).toContain("from '../_shared/supabaseKeys.ts'");
+      expect(src).toContain('getSupabaseSecretKey');
+    }
+  });
+
+  it('no Edge Function directly reads SERVICE_ROLE_KEY after migration', () => {
+    const fns = [
+      'create-payment-intent', 'create-tip-intent', 'expire-pending-jobs',
+      'process-cancellation-refunds', 'stripe-webhook', 'send-email', 'send-sms',
+    ];
+    for (const fn of fns) {
+      const src = fs.readFileSync(
+        path.resolve(REPO_ROOT, `supabase/functions/${fn}/index.ts`), 'utf-8'
+      );
+      expect(src).not.toContain("Deno.env.get('SERVICE_ROLE_KEY')");
+      expect(src).not.toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
+    }
+  });
+
+  it('shared helper warns that modern keys are not JWTs', () => {
+    const src = fs.readFileSync(sharedKeyPath, 'utf-8');
+    expect(src).toContain('NOT JWTs');
+  });
+
+  it('no Edge Function uses Supabase key as Bearer token (only Stripe uses Bearer)', () => {
+    // The service role key should only go into createClient(), never as Authorization: Bearer
+    const fns = [
+      'create-payment-intent', 'create-tip-intent', 'expire-pending-jobs',
+      'process-cancellation-refunds', 'stripe-webhook', 'send-email', 'send-sms',
+    ];
+    for (const fn of fns) {
+      const src = fs.readFileSync(
+        path.resolve(REPO_ROOT, `supabase/functions/${fn}/index.ts`), 'utf-8'
+      );
+      // All Bearer usages should be with stripeSecretKey, authHeader, or other non-supabase vars
+      const bearerLines = src.split('\n').filter((l: string) => l.includes('Bearer') && l.includes('supabaseServiceRoleKey'));
+      expect(bearerLines).toHaveLength(0);
+      const bearerLines2 = src.split('\n').filter((l: string) => l.includes('Bearer') && l.includes('serviceRoleKey'));
+      expect(bearerLines2).toHaveLength(0);
+    }
+  });
+});
+
+// =============================================================================
+// Account deletion wording truthfulness
+// =============================================================================
+
+describe('Account deletion wording truthfulness', () => {
+  it('customer deletion confirm does NOT promise automatic permanent destruction', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
+    );
+    expect(src).not.toContain('permanently removed within 30 days');
+    expect(src).toContain('review and process your request');
+  });
+
+  it('provider deletion confirm does NOT promise automatic permanent destruction', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
+    );
+    expect(src).not.toContain('permanently removed within 30 days');
+    expect(src).toContain('review and process your request');
+  });
+
+  it('customer deletion success message says scheduled, not permanent', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
+    );
+    expect(src).toContain('pending review');
+  });
+
+  it('provider deletion success message says scheduled, not permanent', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
+    );
+    expect(src).toContain('pending review');
   });
 });

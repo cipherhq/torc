@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSupabaseSecretKey, getSupabasePublishableKey } from '../_shared/supabaseKeys.ts';
 
 /**
  * create-tip-intent Edge Function
@@ -21,8 +22,7 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseServiceRoleKey =
-      Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseServiceRoleKey = getSupabaseSecretKey();
     const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
 
     if (!supabaseUrl || !supabaseServiceRoleKey || !stripeSecretKey) {
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const jwt = authHeader.replace(/^Bearer\s+/i, '');
 
     // Create client with user's JWT for auth context
-    const userClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || supabaseServiceRoleKey, {
+    const userClient = createClient(supabaseUrl, getSupabasePublishableKey() || supabaseServiceRoleKey, {
       global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
 

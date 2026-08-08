@@ -46,6 +46,7 @@ export function ProviderEarnings() {
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [payoutMethods, setPayoutMethods] = useState<any[]>([]);
   const [payouts, setPayouts] = useState<ProviderPayout[]>([]);
+  const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
 
   // ── Fetch data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -88,12 +89,8 @@ export function ProviderEarnings() {
         ]);
 
         const jobRows = jobsRes.data || [];
-        // Store ledger earnings for display
-        const ledgerEntries = earningsRes?.data || [];
-        const ledgerServiceTotal = ledgerEntries.filter((e: any) => e.entry_type === 'service_earning').reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
-        const ledgerTipTotal = ledgerEntries.filter((e: any) => e.entry_type === 'tip').reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
-        const ledgerCompTotal = ledgerEntries.filter((e: any) => e.entry_type === 'cancellation_compensation').reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
-        console.log(`Ledger: service=$${ledgerServiceTotal.toFixed(2)}, tips=$${ledgerTipTotal.toFixed(2)}, compensation=$${ledgerCompTotal.toFixed(2)}`);
+        // Store ledger earnings in state for calcProviderEarnings
+        setLedgerEntries(earningsRes?.data || []);
         // Batch-fetch customer names
         const custIds = [...new Set(jobRows.map((j: any) => j.customer_id).filter(Boolean))] as string[];
         if (custIds.length > 0) {
@@ -122,23 +119,19 @@ export function ProviderEarnings() {
     [jobs]
   );
 
-  const calcProviderEarnings = (jobList: Job[]) => {
-    let grossBase = 0;
-    let totalTips = 0;
-    let totalCommission = 0;
+  // Use authoritative provider_earnings ledger for finalized earnings
+  const calcProviderEarnings = (_jobList: Job[]) => {
+    const serviceEntries = ledgerEntries.filter((e: any) => e.entry_type === 'service_earning');
+    const tipEntries = ledgerEntries.filter((e: any) => e.entry_type === 'tip');
+    const compEntries = ledgerEntries.filter((e: any) => e.entry_type === 'cancellation_compensation');
 
-    jobList.forEach(j => {
-      const base = deriveBasePrice(j);
-      const tip = Number(j.tip) || 0;
-      grossBase += base;
-      totalTips += tip;
-      totalCommission += base * (commissionPct / 100);
-    });
+    const grossBase = serviceEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
+    const totalTips = tipEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0)
+      + compEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+    const totalCommission = serviceEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0);
+    const netEarnings = serviceEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0) + totalTips;
 
-    const grossEarnings = grossBase + totalTips;
-    const netEarnings = grossBase - totalCommission + totalTips;
-
-    return { grossBase, totalTips, totalCommission, grossEarnings, netEarnings, jobCount: jobList.length };
+    return { grossBase, totalTips, totalCommission, grossEarnings: grossBase + totalTips, netEarnings, jobCount: serviceEntries.length };
   };
 
   const now = new Date();
@@ -160,10 +153,10 @@ export function ProviderEarnings() {
     [completedJobs, monthStart]
   );
 
-  const allTimeStats = useMemo(() => calcProviderEarnings(completedJobs), [completedJobs, commissionPct]);
-  const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, commissionPct]);
-  const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, commissionPct]);
-  const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, commissionPct]);
+  const allTimeStats = useMemo(() => calcProviderEarnings(completedJobs), [completedJobs, ledgerEntries]);
+  const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, ledgerEntries]);
+  const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, ledgerEntries]);
+  const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, ledgerEntries]);
   const paidOutTotal = useMemo(
     () => payouts
       .filter((p) => p.status === 'paid')

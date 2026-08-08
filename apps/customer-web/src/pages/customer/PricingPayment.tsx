@@ -182,6 +182,8 @@ export function PricingPayment() {
   const [saving, setSaving] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [taxRate, setTaxRate] = useState(8);
+  const [serverHazardFee, setServerHazardFee] = useState(15);
+  const [serverSchedulingFee, setServerSchedulingFee] = useState(5);
 
   const textColor = isDark ? '#FFFFFF' : '#14263D';
   const subColor = isDark ? 'rgba(255,255,255,0.5)' : '#6B7280';
@@ -193,7 +195,11 @@ export function PricingPayment() {
   useEffect(() => {
     if (!user) return;
     fetchPaymentMethods();
-    loadPlatformSettings().then(s => setTaxRate(s.tax_rate_pct)).catch(() => {});
+    loadPlatformSettings().then(s => {
+      setTaxRate(s.tax_rate_pct);
+      setServerHazardFee(s.hazard_fee);
+      setServerSchedulingFee(s.scheduling_fee);
+    }).catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -239,8 +245,8 @@ export function PricingPayment() {
   };
 
   const basePrice = Number(context.serviceBasePrice || 0);
-  const hazardFee = context.isHazardous ? 15 : 0;
-  const schedulingFee = context.scheduledFor ? 5 : 0;
+  const hazardFee = context.isHazardous ? serverHazardFee : 0;
+  const schedulingFee = context.scheduledFor ? serverSchedulingFee : 0;
   const subtotal = basePrice + hazardFee + schedulingFee;
   const tax = subtotal * (taxRate / 100);
   const total = subtotal + tax;
