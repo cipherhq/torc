@@ -588,6 +588,46 @@ REVOKE EXECUTE ON FUNCTION public.finalize_tip_payment(UUID, TEXT, TEXT) FROM an
 REVOKE EXECUTE ON FUNCTION public.finalize_tip_payment(UUID, TEXT, TEXT) FROM authenticated;
 
 -- ============================================================
+-- 7b) Atomic idempotency key rotation for dead tip PI retry
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.rotate_tip_idempotency_key(
+  p_tip_id UUID,
+  p_old_payment_intent_id TEXT
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_tip RECORD;
+  v_new_key TEXT;
+BEGIN
+  -- SELECT FOR UPDATE to serialize concurrent callers
+  SELECT * INTO v_tip FROM job_tips WHERE id = p_tip_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN json_build_object('success', false, 'error', 'TIP_NOT_FOUND');
+  END IF;
+  -- Only rotate if the PI still matches the expected dead one
+  IF v_tip.payment_intent_id IS DISTINCT FROM p_old_payment_intent_id THEN
+    RETURN json_build_object('success', false, 'error', 'ALREADY_ROTATED');
+  END IF;
+  IF v_tip.stripe_status = 'succeeded' THEN
+    RETURN json_build_object('success', false, 'error', 'TIP_ALREADY_COMPLETED');
+  END IF;
+  v_new_key := 'torc:tip:retry:' || gen_random_uuid()::text;
+  UPDATE job_tips SET payment_intent_id = NULL, stripe_status = 'pending', idempotency_key = v_new_key
+  WHERE id = p_tip_id;
+  RETURN json_build_object('success', true, 'new_idempotency_key', v_new_key);
+END;
+$$;
+
+-- Service role only (called from Edge Function)
+REVOKE EXECUTE ON FUNCTION public.rotate_tip_idempotency_key(UUID, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.rotate_tip_idempotency_key(UUID, TEXT) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.rotate_tip_idempotency_key(UUID, TEXT) FROM authenticated;
+
+-- ============================================================
 -- 8) Cancellation policy settings (defaults)
 -- ============================================================
 INSERT INTO platform_settings (key, value) VALUES

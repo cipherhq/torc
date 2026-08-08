@@ -127,10 +127,12 @@ export function ProviderEarnings() {
     [jobs]
   );
 
-  // Use authoritative provider_earnings ledger for finalized earnings — filtered by job IDs
-  const calcProviderEarnings = (jobList: Job[]) => {
-    const jobIds = new Set(jobList.map(j => j.id));
-    const filtered = ledgerEntries.filter((e: any) => jobIds.has(e.job_id));
+  // Authoritative provider_earnings ledger — filter by ledger created_at, not job status
+  // This ensures cancellation_compensation on cancelled jobs is included
+  const calcLedgerStats = (since?: Date) => {
+    const filtered = since
+      ? ledgerEntries.filter((e: any) => new Date(e.created_at) >= since)
+      : ledgerEntries;
 
     const serviceEntries = filtered.filter((e: any) => e.entry_type === 'service_earning');
     const tipEntries = filtered.filter((e: any) => e.entry_type === 'tip');
@@ -144,19 +146,21 @@ export function ProviderEarnings() {
       + totalTips + totalCompensation;
 
     return { grossBase, totalTips, totalCompensation, totalCommission,
-      grossEarnings: grossBase + totalTips + totalCompensation, netEarnings, jobCount: serviceEntries.length };
+      grossEarnings: grossBase + totalTips + totalCompensation, netEarnings,
+      jobCount: serviceEntries.length };
   };
 
   const now = new Date();
   const weekStart = useMemo(() => {
     const d = new Date(now);
     const day = d.getDay();
-    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)); // Monday start
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
     d.setHours(0, 0, 0, 0);
     return d;
   }, []);
   const monthStart = useMemo(() => new Date(now.getFullYear(), now.getMonth(), 1), []);
 
+  // Job lists for chart/detail views (completed only)
   const weekJobs = useMemo(
     () => completedJobs.filter(j => new Date(j.completed_at || j.created_at) >= weekStart),
     [completedJobs, weekStart]
@@ -166,10 +170,17 @@ export function ProviderEarnings() {
     [completedJobs, monthStart]
   );
 
-  const allTimeStats = useMemo(() => calcProviderEarnings(completedJobs), [completedJobs, ledgerEntries]);
-  const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, ledgerEntries]);
-  const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, ledgerEntries]);
-  const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, ledgerEntries]);
+  // Financial stats — authoritative from ledger timestamps, not job status
+  const allTimeStats = useMemo(() => calcLedgerStats(), [ledgerEntries]);
+  const weekStats = useMemo(() => calcLedgerStats(weekStart), [ledgerEntries, weekStart]);
+  const monthStats = useMemo(() => calcLedgerStats(monthStart), [ledgerEntries, monthStart]);
+
+  // Pending estimate for active (unfinalized) jobs
+  const pendingStats = useMemo(() => {
+    const estimated = pendingJobs.reduce((s, j) => s + deriveBasePrice(j), 0);
+    const net = estimated * (1 - commissionPct / 100);
+    return { netEarnings: net };
+  }, [pendingJobs, commissionPct]);
   const paidOutTotal = useMemo(
     () => payouts
       .filter((p) => p.status === 'paid')
@@ -183,31 +194,26 @@ export function ProviderEarnings() {
 
   const activeStats = activeTab === 'week' ? weekStats : activeTab === 'month' ? monthStats : allTimeStats;
 
-  // Chart data — uses finalized ledger earnings per job
-  const ledgerNetByJob = useMemo(() => {
-    const map = new Map<string, number>();
-    ledgerEntries.forEach((e: any) => {
-      map.set(e.job_id, (map.get(e.job_id) || 0) + Number(e.provider_net || 0));
-    });
-    return map;
-  }, [ledgerEntries]);
-
+  // Chart data — uses finalized ledger entry timestamps for the week
   const chartData = useMemo(() => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const dayMap = [1, 2, 3, 4, 5, 6, 0];
     const totals: Record<string, number> = {};
     days.forEach(d => { totals[d] = 0; });
 
-    weekJobs.forEach(j => {
-      const jsDay = new Date(j.completed_at || j.created_at).getDay();
-      const idx = dayMap.indexOf(jsDay);
-      if (idx >= 0) {
-        totals[days[idx]] += ledgerNetByJob.get(j.id) || 0;
-      }
-    });
+    // Use ledger entry created_at for day assignment — includes compensation on cancelled jobs
+    ledgerEntries
+      .filter((e: any) => new Date(e.created_at) >= weekStart)
+      .forEach((e: any) => {
+        const jsDay = new Date(e.created_at).getDay();
+        const idx = dayMap.indexOf(jsDay);
+        if (idx >= 0) {
+          totals[days[idx]] += Number(e.provider_net || 0);
+        }
+      });
 
     return days.map(d => ({ day: d, amount: Math.round(totals[d] * 100) / 100 }));
-  }, [weekJobs, ledgerNetByJob]);
+  }, [ledgerEntries, weekStart]);
 
   // Per-job breakdown — finalized from ledger, estimated for active jobs
   const jobLedgerMap = useMemo(() => {

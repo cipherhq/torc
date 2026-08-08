@@ -119,14 +119,15 @@ export function ServiceCompletion() {
   const handleSubmit = async () => {
     setSubmitError('');
     setSubmitting(true);
+    // Local flow outcome — does NOT rely on async React state
+    let tipOutcome: 'idle' | 'processing' | 'requires_action' | 'succeeded' | 'failed' = 'idle';
+
     try {
       // Upload photo if taken
       let photoUrl: string | null = null;
       if (afterPhoto && jobId) {
         photoUrl = await uploadPhoto(afterPhoto, jobId);
       }
-
-      // Save photo to the job
       if (jobId && photoUrl) {
         await supabase.from('jobs').update({ completion_photo_url: photoUrl }).eq('id', jobId);
       }
@@ -134,6 +135,7 @@ export function ServiceCompletion() {
       // Process tip via server-authoritative payment flow
       if (tipAmount > 0 && jobId && tipStatus !== 'succeeded') {
         setTipStatus('processing');
+        tipOutcome = 'processing';
         try {
           const { data: tipResult, error: tipError } = await supabase.rpc('request_tip_payment', {
             p_job_id: jobId,
@@ -143,69 +145,65 @@ export function ServiceCompletion() {
           if (!tipResult?.success) {
             if (tipResult?.error === 'TIP_ALREADY_COMPLETED') {
               setTipStatus('succeeded');
+              tipOutcome = 'succeeded';
             } else {
               setTipStatus('failed');
+              tipOutcome = 'failed';
             }
           } else {
-            // Create or retrieve Stripe PaymentIntent via Edge Function
             const { data: piResult, error: piError } = await supabase.functions.invoke('create-tip-intent', {
               body: { tip_id: tipResult.tip_id },
             });
             if (piError) {
               setTipStatus('failed');
+              tipOutcome = 'failed';
             } else {
-              // Handle PI status explicitly
-              const piStatus = piResult?.status;
+              const piStatus = piResult?.status as string | undefined;
+
               if (piStatus === 'succeeded') {
+                // Already confirmed — do not reconfirm
                 setTipStatus('succeeded');
+                tipOutcome = 'succeeded';
               } else if (piStatus === 'requires_action' && piResult?.client_secret) {
                 setTipStatus('requires_action');
                 setTipClientSecret(piResult.client_secret);
-                // Attempt SCA authentication
+                tipOutcome = 'requires_action';
                 const stripe = await stripePromise;
                 if (stripe) {
                   const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
                   if (confirmError) {
                     setTipStatus('failed');
+                    tipOutcome = 'failed';
                   } else {
                     setTipStatus('succeeded');
                     setTipClientSecret(null);
+                    tipOutcome = 'succeeded';
                   }
                 } else {
                   setTipStatus('failed');
+                  tipOutcome = 'failed';
                 }
               } else if (piStatus === 'processing') {
-                // PI is processing — webhook will finalize
-                setTipStatus('succeeded');
-              } else if (piResult?.client_secret && !piStatus) {
-                // New PI with client_secret — SCA may be needed
-                setTipStatus('requires_action');
-                setTipClientSecret(piResult.client_secret);
-                const stripe = await stripePromise;
-                if (stripe) {
-                  const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
-                  if (confirmError) {
-                    setTipStatus('failed');
-                  } else {
-                    setTipStatus('succeeded');
-                    setTipClientSecret(null);
-                  }
-                } else {
-                  setTipStatus('failed');
-                }
-              } else if (piResult?.payment_intent_id) {
-                // PI auto-confirmed (no SCA needed)
-                setTipStatus('succeeded');
+                // Stripe still processing — NOT succeeded yet
+                setTipStatus('processing');
+                tipOutcome = 'processing';
               } else if (piStatus === 'requires_payment_method' || piStatus === 'canceled') {
                 setTipStatus('failed');
+                tipOutcome = 'failed';
+              } else if (piResult?.payment_intent_id && !piStatus) {
+                // Fallback: PI created but no status returned — assume processing
+                setTipStatus('processing');
+                tipOutcome = 'processing';
               } else {
                 setTipStatus('failed');
+                tipOutcome = 'failed';
               }
             }
           }
         } catch (tipErr: any) {
           console.warn('Tip processing error:', tipErr?.message);
           setTipStatus('failed');
+          tipOutcome = 'failed';
         }
       }
 
@@ -214,10 +212,11 @@ export function ServiceCompletion() {
         await rateJob(jobId, rating, feedback);
       }
 
-      // Only navigate away if tip is not in an actionable retry state
-      if (tipStatus !== 'failed' && tipStatus !== 'requires_action') {
+      // Navigate away ONLY when no actionable tip retry is needed
+      if (tipOutcome === 'idle' || tipOutcome === 'succeeded') {
         navigate('/home');
       }
+      // failed, requires_action, processing → stay on page
     } catch (err) {
       console.warn('Failed to submit:', err);
       setSubmitError('Could not submit. Please try again.');

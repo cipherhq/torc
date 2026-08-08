@@ -1869,16 +1869,16 @@ describe('Admin Finance RLS', () => {
 describe('Provider Earnings ledger period filtering', () => {
   const earningsPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx');
 
-  it('calcProviderEarnings filters by job IDs from the passed job list', () => {
+  it('calcLedgerStats filters by created_at timestamp', () => {
     const src = fs.readFileSync(earningsPath, 'utf-8');
-    expect(src).toContain('jobIds.has(e.job_id)');
-    expect(src).toContain('const jobIds = new Set(jobList.map');
+    expect(src).toContain('calcLedgerStats');
+    expect(src).toContain("new Date(e.created_at) >= since");
   });
 
-  it('chart uses ledger net per job, not deriveBasePrice', () => {
+  it('chart uses ledger entry timestamps, not job-based filtering', () => {
     const src = fs.readFileSync(earningsPath, 'utf-8');
     const chartSection = src.slice(src.indexOf('// Chart data'), src.indexOf('// Per-job'));
-    expect(chartSection).toContain('ledgerNetByJob');
+    expect(chartSection).toContain("new Date(e.created_at) >= weekStart");
     expect(chartSection).not.toContain('deriveBasePrice');
   });
 
@@ -2102,12 +2102,11 @@ describe('Tip SCA and retry state', () => {
     expect(src).toContain("piStatus === 'canceled'");
   });
 
-  it('does not navigate away when tip is in actionable retry state', () => {
+  it('does not navigate away when tip outcome is actionable', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
     );
-    expect(src).toContain("tipStatus !== 'failed'");
-    expect(src).toContain("tipStatus !== 'requires_action'");
+    expect(src).toContain("tipOutcome === 'idle' || tipOutcome === 'succeeded'");
   });
 
   it('shows retry guidance for failed tip', () => {
@@ -2124,12 +2123,11 @@ describe('Tip SCA and retry state', () => {
     expect(src).toContain('Authentication needed');
   });
 
-  it('create-tip-intent generates new idempotency key for dead PI retry', () => {
+  it('create-tip-intent uses atomic RPC for dead PI retry', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
     );
-    expect(src).toContain('torc:tip:retry:');
-    expect(src).toContain('idempotency_key: newIdemKey');
+    expect(src).toContain('rotate_tip_idempotency_key');
   });
 
   it('retry does not skip tip when tipStatus is already succeeded', () => {
@@ -2137,5 +2135,141 @@ describe('Tip SCA and retry state', () => {
       path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
     );
     expect(src).toContain("tipStatus !== 'succeeded'");
+  });
+});
+
+// =============================================================================
+// Blocker 1: Provider earnings includes all finalized ledger money
+// =============================================================================
+
+describe('Provider earnings includes all finalized ledger money', () => {
+  const earningsPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx');
+
+  it('all-time stats use ledger timestamps, not completedJobs filter', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('calcLedgerStats()');
+    expect(src).not.toContain('calcProviderEarnings(completedJobs)');
+  });
+
+  it('week/month stats filter by ledger created_at timestamp', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('calcLedgerStats(weekStart)');
+    expect(src).toContain('calcLedgerStats(monthStart)');
+  });
+
+  it('calcLedgerStats filters entries by since date', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("new Date(e.created_at) >= since");
+  });
+
+  it('chart uses ledger entry timestamps for all entry types including compensation', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    const chartSection = src.slice(src.indexOf('// Chart data'), src.indexOf('// Per-job'));
+    expect(chartSection).toContain("new Date(e.created_at) >= weekStart");
+    expect(chartSection).toContain('e.provider_net');
+  });
+
+  it('cancellation_compensation increases netEarnings and available balance', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('totalCompensation');
+    expect(src).toContain('+ totalTips + totalCompensation');
+  });
+
+  it('paidOutTotal only subtracts paid payouts, not processing/pending', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("p.status === 'paid'");
+    expect(src).toContain('allTimeStats.netEarnings - paidOutTotal');
+  });
+
+  it('pending estimate is clearly separate from finalized ledger', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('deriveBasePrice');
+    expect(src).toContain('pendingJobs');
+  });
+});
+
+// =============================================================================
+// Blocker 2: Tip SCA/retry control flow
+// =============================================================================
+
+describe('Tip SCA/retry control flow', () => {
+  const scPath = path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx');
+  const tipIntentPath = path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts');
+  const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql');
+
+  it('2A: uses local tipOutcome variable, not stale React state, for navigation', () => {
+    const src = fs.readFileSync(scPath, 'utf-8');
+    expect(src).toContain('tipOutcome');
+    expect(src).toContain("tipOutcome === 'idle' || tipOutcome === 'succeeded'");
+    expect(src).toContain("navigate('/home')");
+  });
+
+  it('2A: failed tip stays on page', () => {
+    const src = fs.readFileSync(scPath, 'utf-8');
+    // Only navigates on idle or succeeded
+    const navLine = src.indexOf("navigate('/home')");
+    const guardLine = src.lastIndexOf('tipOutcome', navLine);
+    expect(src.slice(guardLine, navLine)).toContain("=== 'succeeded'");
+  });
+
+  it('2A: requires_action stays on page', () => {
+    const src = fs.readFileSync(scPath, 'utf-8');
+    expect(src).toContain('// failed, requires_action, processing');
+  });
+
+  it('2B: new PI response includes status field', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    // The new-PI response must include status: pi.status
+    const newPiResponse = src.slice(src.lastIndexOf('client_secret: pi.client_secret'));
+    expect(newPiResponse).toContain('status: pi.status');
+  });
+
+  it('2C: processing maps to processing, not succeeded', () => {
+    const src = fs.readFileSync(scPath, 'utf-8');
+    const processingBlock = src.slice(
+      src.indexOf("piStatus === 'processing'"),
+      src.indexOf("piStatus === 'processing'") + 200
+    );
+    expect(processingBlock).toContain("setTipStatus('processing')");
+    expect(processingBlock).not.toContain("setTipStatus('succeeded')");
+  });
+
+  it('2C: processing tipOutcome is processing, not succeeded', () => {
+    const src = fs.readFileSync(scPath, 'utf-8');
+    const processingBlock = src.slice(
+      src.indexOf("piStatus === 'processing'"),
+      src.indexOf("piStatus === 'processing'") + 200
+    );
+    expect(processingBlock).toContain("tipOutcome = 'processing'");
+    expect(processingBlock).not.toContain("tipOutcome = 'succeeded'");
+  });
+
+  it('2D: dead PI rotation uses atomic RPC, not direct DB update', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).toContain('rotate_tip_idempotency_key');
+    expect(src).not.toContain("'torc:tip:retry:' + crypto.randomUUID()");
+  });
+
+  it('2D: rotate_tip_idempotency_key uses SELECT FOR UPDATE', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('rotate_tip_idempotency_key');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('FOR UPDATE');
+    expect(fnBody).toContain('ALREADY_ROTATED');
+  });
+
+  it('2D: concurrent loser observes winning PI', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).toContain('Another caller already rotated');
+    expect(src).toContain('winning PI');
+  });
+
+  it('succeeded PI is not reconfirmed', () => {
+    const src = fs.readFileSync(scPath, 'utf-8');
+    const succeededBlock = src.slice(
+      src.indexOf("piStatus === 'succeeded'"),
+      src.indexOf("piStatus === 'succeeded'") + 200
+    );
+    expect(succeededBlock).not.toContain('confirmCardPayment');
   });
 });

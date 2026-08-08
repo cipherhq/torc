@@ -90,19 +90,40 @@ Deno.serve(async (req) => {
             error: 'PaymentIntent identity mismatch',
           }), { status: 409, headers: jsonHeaders });
         }
-        // Dead PI — clear and generate new idempotency key for fresh PI creation
+        // Dead PI — atomically claim rotation via RPC to prevent concurrent duplicate PIs
         if (existingPi.status === 'canceled' || existingPi.status === 'requires_payment_method') {
-          const newIdemKey = 'torc:tip:retry:' + crypto.randomUUID();
-          await adminClient
-            .from('job_tips')
-            .update({ payment_intent_id: null, stripe_status: 'pending', idempotency_key: newIdemKey })
-            .eq('id', tip_id);
-          // Re-read tip to get updated idempotency_key
-          const { data: refreshedTip } = await adminClient
-            .from('job_tips').select('*').eq('id', tip_id).single();
-          if (refreshedTip) {
-            Object.assign(tip, refreshedTip);
+          const { data: rotateResult, error: rotateError } = await adminClient.rpc(
+            'rotate_tip_idempotency_key',
+            { p_tip_id: tip_id, p_old_payment_intent_id: tip.payment_intent_id }
+          );
+          if (rotateError || !rotateResult?.success) {
+            // Another caller already rotated — re-read and return their PI
+            const { data: refreshedTip } = await adminClient
+              .from('job_tips').select('*').eq('id', tip_id).single();
+            if (refreshedTip?.payment_intent_id) {
+              // Return the winning PI
+              const winnerPiRes = await fetch(
+                `https://api.stripe.com/v1/payment_intents/${refreshedTip.payment_intent_id}`,
+                { headers: { 'Authorization': `Bearer ${stripeSecretKey}` } }
+              );
+              if (winnerPiRes.ok) {
+                const winnerPi = await winnerPiRes.json();
+                return new Response(JSON.stringify({
+                  client_secret: winnerPi.client_secret || null,
+                  tip_id: tip_id,
+                  payment_intent_id: refreshedTip.payment_intent_id,
+                  status: winnerPi.status,
+                  amount: refreshedTip.amount,
+                  already_created: true,
+                }), { status: 200, headers: jsonHeaders });
+              }
+            }
+            return new Response(JSON.stringify({ error: 'Tip retry in progress' }), {
+              status: 409, headers: jsonHeaders,
+            });
           }
+          // Won the rotation — update local tip with new idempotency key
+          Object.assign(tip, { payment_intent_id: null, idempotency_key: rotateResult.new_idempotency_key });
           // Fall through to create a new PI with new idempotency key
         } else {
           // Active PI — return client_secret for SCA or status for succeeded
@@ -182,6 +203,7 @@ Deno.serve(async (req) => {
       client_secret: pi.client_secret,
       tip_id: tip.id,
       payment_intent_id: pi.id,
+      status: pi.status,
       amount: tip.amount,
     }), { status: 200, headers: jsonHeaders });
 
