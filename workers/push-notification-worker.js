@@ -17,7 +17,7 @@
  * Required environment variables:
  * - DATABASE_URL
  * - SUPABASE_URL
- * - SUPABASE_SERVICE_ROLE_KEY
+ * - SUPABASE_SECRET_KEY (modern) or SUPABASE_SERVICE_ROLE_KEY (legacy)
  *
  * Optional for FCM delivery:
  * - FIREBASE_SERVICE_ACCOUNT_JSON (JSON string)
@@ -45,7 +45,7 @@ const { createClient } = require('@supabase/supabase-js');
 const expo = new Expo();
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 // Track pending Expo tickets for delivery confirmation
@@ -527,7 +527,7 @@ async function sendViaApns(pushToken, notification, userRole) {
 
 /**
  * Main worker loop — uses Supabase Realtime instead of direct pg connection.
- * No DATABASE_URL required; only SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
+ * No DATABASE_URL required; only SUPABASE_URL + SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY).
  */
 async function main() {
   console.log('🚀 Starting push notification worker...');

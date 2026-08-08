@@ -250,21 +250,19 @@ export function JobProvider({ children }) {
     if (!user) throw new Error('User must be authenticated');
 
     // ✅ USE ATOMIC RPC - Server-side authorization and push notifications
-    const { data, error } = await supabase.rpc('cancel_job', {
+    // Use server-authoritative cancellation with refund
+    const { data, error } = await supabase.rpc('cancel_job_with_refund', {
       p_job_id: jobId,
-      p_actor_id: user.id,
-      p_actor_type: 'customer',
       p_reason: reason
     });
 
     if (error) throw error;
 
     if (!data || !data.success) {
-      throw new Error(data?.message || 'Cancellation failed');
+      throw new Error(data?.message || data?.error || 'Cancellation failed');
     }
 
-    // Push worker will automatically notify provider via pg_notify
-    console.log('Job cancelled successfully:', data);
+    console.log('Job cancelled:', data);
 
     // Refetch enriched job data
     await fetchJob(jobId);
