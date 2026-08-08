@@ -119,19 +119,24 @@ export function ProviderEarnings() {
     [jobs]
   );
 
-  // Use authoritative provider_earnings ledger for finalized earnings
-  const calcProviderEarnings = (_jobList: Job[]) => {
-    const serviceEntries = ledgerEntries.filter((e: any) => e.entry_type === 'service_earning');
-    const tipEntries = ledgerEntries.filter((e: any) => e.entry_type === 'tip');
-    const compEntries = ledgerEntries.filter((e: any) => e.entry_type === 'cancellation_compensation');
+  // Use authoritative provider_earnings ledger for finalized earnings — filtered by job IDs
+  const calcProviderEarnings = (jobList: Job[]) => {
+    const jobIds = new Set(jobList.map(j => j.id));
+    const filtered = ledgerEntries.filter((e: any) => jobIds.has(e.job_id));
+
+    const serviceEntries = filtered.filter((e: any) => e.entry_type === 'service_earning');
+    const tipEntries = filtered.filter((e: any) => e.entry_type === 'tip');
+    const compEntries = filtered.filter((e: any) => e.entry_type === 'cancellation_compensation');
 
     const grossBase = serviceEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
-    const totalTips = tipEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0)
-      + compEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+    const totalTips = tipEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+    const totalCompensation = compEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
     const totalCommission = serviceEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0);
-    const netEarnings = serviceEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0) + totalTips;
+    const netEarnings = serviceEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0)
+      + totalTips + totalCompensation;
 
-    return { grossBase, totalTips, totalCommission, grossEarnings: grossBase + totalTips, netEarnings, jobCount: serviceEntries.length };
+    return { grossBase, totalTips, totalCompensation, totalCommission,
+      grossEarnings: grossBase + totalTips + totalCompensation, netEarnings, jobCount: serviceEntries.length };
   };
 
   const now = new Date();
@@ -170,10 +175,18 @@ export function ProviderEarnings() {
 
   const activeStats = activeTab === 'week' ? weekStats : activeTab === 'month' ? monthStats : allTimeStats;
 
-  // Chart data
+  // Chart data — uses finalized ledger earnings per job
+  const ledgerNetByJob = useMemo(() => {
+    const map = new Map<string, number>();
+    ledgerEntries.forEach((e: any) => {
+      map.set(e.job_id, (map.get(e.job_id) || 0) + Number(e.provider_net || 0));
+    });
+    return map;
+  }, [ledgerEntries]);
+
   const chartData = useMemo(() => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const dayMap = [1, 2, 3, 4, 5, 6, 0]; // JS getDay() mapping
+    const dayMap = [1, 2, 3, 4, 5, 6, 0];
     const totals: Record<string, number> = {};
     days.forEach(d => { totals[d] = 0; });
 
@@ -181,22 +194,43 @@ export function ProviderEarnings() {
       const jsDay = new Date(j.completed_at || j.created_at).getDay();
       const idx = dayMap.indexOf(jsDay);
       if (idx >= 0) {
-        const base = deriveBasePrice(j);
-        const tip = Number(j.tip) || 0;
-        totals[days[idx]] += base * (1 - commissionPct / 100) + tip;
+        totals[days[idx]] += ledgerNetByJob.get(j.id) || 0;
       }
     });
 
     return days.map(d => ({ day: d, amount: Math.round(totals[d] * 100) / 100 }));
-  }, [weekJobs, commissionPct]);
+  }, [weekJobs, ledgerNetByJob]);
 
-  // Per-job breakdown for recent jobs
+  // Per-job breakdown — finalized from ledger, estimated for active jobs
+  const jobLedgerMap = useMemo(() => {
+    const map = new Map<string, { base: number; tip: number; compensation: number; commission: number; net: number }>();
+    ledgerEntries.forEach((e: any) => {
+      const cur = map.get(e.job_id) || { base: 0, tip: 0, compensation: 0, commission: 0, net: 0 };
+      if (e.entry_type === 'service_earning') {
+        cur.base += Number(e.base_earnings || 0);
+        cur.commission += Number(e.platform_fee || 0);
+        cur.net += Number(e.provider_net || 0);
+      } else if (e.entry_type === 'tip') {
+        cur.tip += Number(e.provider_net || 0);
+        cur.net += Number(e.provider_net || 0);
+      } else if (e.entry_type === 'cancellation_compensation') {
+        cur.compensation += Number(e.provider_net || 0);
+        cur.net += Number(e.provider_net || 0);
+      }
+      map.set(e.job_id, cur);
+    });
+    return map;
+  }, [ledgerEntries]);
+
   const recentJobsDetailed = useMemo(() => {
     return jobs.slice(0, 20).map(j => {
-      const base = deriveBasePrice(j);
-      const tip = Number(j.tip) || 0;
-      const commission = base * (commissionPct / 100);
-      const net = base - commission + tip;
+      const ledger = jobLedgerMap.get(j.id);
+      const isFinalized = !!ledger;
+      // Finalized: use ledger. Active: estimate with current commission
+      const base = isFinalized ? ledger.base : deriveBasePrice(j);
+      const tip = isFinalized ? ledger.tip : (Number(j.tip) || 0);
+      const commission = isFinalized ? ledger.commission : (base * (commissionPct / 100));
+      const net = isFinalized ? ledger.net : (base - commission + tip);
       return {
         id: j.id,
         service: j.service?.name || 'Service',
@@ -209,6 +243,7 @@ export function ProviderEarnings() {
         net,
         status: j.status,
         paymentStatus: j.payment_status,
+        isEstimated: !isFinalized,
         date: new Date(j.completed_at || j.created_at).toLocaleDateString('en-US', {
           month: 'short', day: 'numeric', year: 'numeric',
         }),
@@ -217,7 +252,7 @@ export function ProviderEarnings() {
         }),
       };
     });
-  }, [jobs, commissionPct]);
+  }, [jobs, jobLedgerMap, commissionPct]);
 
   // Payout history — group completed+paid jobs by week
   const payoutHistory = useMemo(() => {
@@ -418,6 +453,17 @@ export function ProviderEarnings() {
                   <span className="font-semibold text-sm" style={{ color: '#10B981' }}>+${fmt(activeStats.totalTips)}</span>
                 </div>
 
+                {/* Cancellation compensation */}
+                {activeStats.totalCompensation > 0 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#F59E0B' }} />
+                    <span className="text-sm" style={{ color: textSecondary }}>Cancellation compensation</span>
+                  </div>
+                  <span className="font-semibold text-sm" style={{ color: '#F59E0B' }}>+${fmt(activeStats.totalCompensation)}</span>
+                </div>
+                )}
+
                 {/* Divider */}
                 <div className="border-t pt-3 mt-1" style={{ borderColor: cardBorder }}>
                   <div className="flex items-center justify-between">
@@ -574,6 +620,7 @@ export function ProviderEarnings() {
                   const statusLabel = job.status === 'completed'
                     ? 'Completed'
                     : job.status === 'cancelled' ? 'Cancelled' : 'In Progress';
+                  const isEstimated = (job as any).isEstimated;
 
                   return (
                     <motion.div
@@ -606,7 +653,7 @@ export function ProviderEarnings() {
                         </div>
                         <div className="text-right flex-shrink-0 flex items-center gap-2">
                           <div>
-                            <p className="font-bold text-sm" style={{ color: textPrimary }}>${fmt(job.net)}</p>
+                            <p className="font-bold text-sm" style={{ color: textPrimary }}>{isEstimated ? '~' : ''}${fmt(job.net)}</p>
                             {job.tip > 0 && <p className="text-xs" style={{ color: '#10B981' }}>+${fmt(job.tip)} tip</p>}
                           </div>
                           {isExpanded

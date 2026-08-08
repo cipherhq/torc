@@ -76,14 +76,40 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Already has a PaymentIntent
+    // Already has a PaymentIntent — retrieve from Stripe for SCA continuation
     if (tip.payment_intent_id) {
-      return new Response(JSON.stringify({
-        client_secret: null,
-        tip_id: tip.id,
-        status: tip.stripe_status,
-        already_created: true,
-      }), { status: 200, headers: jsonHeaders });
+      const existingPiRes = await fetch(
+        `https://api.stripe.com/v1/payment_intents/${tip.payment_intent_id}`,
+        { headers: { 'Authorization': `Bearer ${stripeSecretKey}` } }
+      );
+      if (existingPiRes.ok) {
+        const existingPi = await existingPiRes.json();
+        // Verify PI belongs to this tip
+        if (existingPi.metadata?.tip_id !== tip.id) {
+          return new Response(JSON.stringify({
+            error: 'PaymentIntent identity mismatch',
+          }), { status: 409, headers: jsonHeaders });
+        }
+        // Dead PI — clear and allow new creation below
+        if (existingPi.status === 'canceled' || existingPi.status === 'requires_payment_method') {
+          await adminClient
+            .from('job_tips')
+            .update({ payment_intent_id: null, stripe_status: 'pending' })
+            .eq('id', tip_id);
+          // Fall through to create a new PI
+        } else {
+          // Active PI — return client_secret for SCA or status for succeeded
+          return new Response(JSON.stringify({
+            client_secret: existingPi.client_secret || null,
+            tip_id: tip.id,
+            payment_intent_id: tip.payment_intent_id,
+            status: existingPi.status,
+            amount: tip.amount,
+            already_created: true,
+          }), { status: 200, headers: jsonHeaders });
+        }
+      }
+      // Stripe lookup failed — fall through to create new PI
     }
 
     // Look up the customer's Stripe customer ID and payment method from the original checkout
@@ -120,7 +146,8 @@ Deno.serve(async (req) => {
     if (paymentMethodId) {
       params.append('payment_method', paymentMethodId);
       params.append('confirm', 'true');
-      params.append('off_session', 'true');
+      // Customer is present during tipping — use return_url for SCA redirects
+      params.append('return_url', `${supabaseUrl}/functions/v1/create-tip-intent`);
     }
 
     const stripeResponse = await fetch('https://api.stripe.com/v1/payment_intents', {

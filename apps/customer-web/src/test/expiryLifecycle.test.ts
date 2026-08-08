@@ -1565,12 +1565,12 @@ describe('PROV-002: Verified-only provider matching and acceptance', () => {
     expect(suspCheck).toBeLessThan(verCheck);
   });
 
-  it('get_nearby_providers excludes pending_deletion providers', () => {
+  it('get_nearby_providers requires active status (fail-closed)', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
     const fnStart = src.indexOf('get_nearby_providers');
     const fnEnd = src.indexOf('$$;', fnStart);
     const fnBody = src.slice(fnStart, fnEnd);
-    expect(fnBody).toContain("'pending_deletion'");
+    expect(fnBody).toContain("p.status = 'active'");
   });
 });
 
@@ -1794,5 +1794,244 @@ describe('Account deletion wording truthfulness', () => {
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
     );
     expect(src).toContain('pending review');
+  });
+});
+
+// =============================================================================
+// Defect 1: Paid cancellation fail-closed on missing checkout linkage
+// =============================================================================
+
+describe('Paid cancellation fail-closed checkout linkage', () => {
+  const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql');
+
+  it('get_cancellation_quote fails on paid job with NULL checkout_id', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('get_cancellation_quote');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('CHECKOUT_LINKAGE_MISSING');
+    expect(fnBody).toContain('checkout_id IS NULL');
+  });
+
+  it('get_cancellation_quote fails on paid job with invalid checkout', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('get_cancellation_quote');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('CHECKOUT_VERIFICATION_FAILED');
+  });
+
+  it('cancel_job_with_refund sends paid+NULL checkout to manual_review', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('cancel_job_with_refund');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('NULL checkout_id');
+    expect(fnBody).toContain("'manual_review'");
+  });
+
+  it('both RPCs no longer gate checkout lookup on checkout_id IS NOT NULL', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    // The old pattern was: IF v_job.payment_status = 'paid' AND v_job.checkout_id IS NOT NULL
+    // Should NOT appear anymore — now just: IF v_job.payment_status = 'paid'
+    const quoteStart = src.indexOf('get_cancellation_quote');
+    const quoteBody = src.slice(quoteStart, src.indexOf('$$;', quoteStart));
+    expect(quoteBody).not.toContain("payment_status = 'paid' AND v_job.checkout_id IS NOT NULL");
+
+    const cancelStart = src.indexOf('cancel_job_with_refund');
+    const cancelBody = src.slice(cancelStart, src.indexOf('$$;', cancelStart));
+    expect(cancelBody).not.toContain("payment_status = 'paid' AND v_job.checkout_id IS NOT NULL");
+  });
+});
+
+// =============================================================================
+// Defect 2: Admin Finance RLS
+// =============================================================================
+
+describe('Admin Finance RLS', () => {
+  it('job_cancellation_operations has admin SELECT policy', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'), 'utf-8'
+    );
+    expect(src).toContain('Admin can read cancellation ops');
+    expect(src).toContain('FOR SELECT USING (is_admin(auth.uid()))');
+  });
+
+  it('job_tips has admin SELECT policy', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'), 'utf-8'
+    );
+    expect(src).toContain('Admin can view all tips');
+  });
+});
+
+// =============================================================================
+// Defect 3: Provider Earnings ledger period filtering
+// =============================================================================
+
+describe('Provider Earnings ledger period filtering', () => {
+  const earningsPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx');
+
+  it('calcProviderEarnings filters by job IDs from the passed job list', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('jobIds.has(e.job_id)');
+    expect(src).toContain('const jobIds = new Set(jobList.map');
+  });
+
+  it('chart uses ledger net per job, not deriveBasePrice', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    const chartSection = src.slice(src.indexOf('// Chart data'), src.indexOf('// Per-job'));
+    expect(chartSection).toContain('ledgerNetByJob');
+    expect(chartSection).not.toContain('deriveBasePrice');
+  });
+
+  it('recent jobs use ledger for finalized and estimate for active', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('isFinalized');
+    expect(src).toContain('isEstimated');
+    expect(src).toContain('jobLedgerMap');
+  });
+
+  it('cancellation compensation is tracked separately from tips', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('totalCompensation');
+    expect(src).toContain('Cancellation compensation');
+  });
+});
+
+// =============================================================================
+// Defect 4: Admin Settings cancel fee + tip_presets validation
+// =============================================================================
+
+describe('Admin Settings cancel fee and tip_presets', () => {
+  const settingsPath = path.resolve(REPO_ROOT, 'apps/admin-web/src/pages/admin/Settings.tsx');
+
+  it('interface includes cancel_fee_accepted_pct and cancel_fee_arrived_pct', () => {
+    const src = fs.readFileSync(settingsPath, 'utf-8');
+    expect(src).toContain('cancel_fee_accepted_pct: number');
+    expect(src).toContain('cancel_fee_arrived_pct: number');
+    expect(src).not.toContain('cancellation_fee_pct: number');
+  });
+
+  it('defaults include both cancellation fee keys', () => {
+    const src = fs.readFileSync(settingsPath, 'utf-8');
+    expect(src).toContain('cancel_fee_accepted_pct: 25');
+    expect(src).toContain('cancel_fee_arrived_pct: 50');
+  });
+
+  it('tip_presets JSON array is validated before save', () => {
+    const src = fs.readFileSync(settingsPath, 'utf-8');
+    expect(src).toContain('JSON.parse(settings.tip_presets)');
+    expect(src).toContain('Array.isArray(parsedTipPresets)');
+  });
+
+  it('cancellation percentages validated to 0-100 range', () => {
+    const src = fs.readFileSync(settingsPath, 'utf-8');
+    expect(src).toContain("v < 0 || v > 100");
+  });
+
+  it('tip_presets serialized as JSON array when saving to DB', () => {
+    const src = fs.readFileSync(settingsPath, 'utf-8');
+    expect(src).toContain("key === 'tip_presets' ? parsedTipPresets : value");
+  });
+
+  it('loading handles JSON array from DB for tip_presets', () => {
+    const src = fs.readFileSync(settingsPath, 'utf-8');
+    expect(src).toContain("Array.isArray(row.value)");
+    expect(src).toContain("JSON.stringify(row.value)");
+  });
+});
+
+// =============================================================================
+// Defect 5: PROV-002 active status fail-closed
+// =============================================================================
+
+describe('PROV-002 active status fail-closed', () => {
+  const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql');
+
+  it('get_nearby_providers positively requires status = active', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('get_nearby_providers');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain("p.status = 'active'");
+    // Must NOT use deny-list pattern
+    expect(fnBody).not.toContain("p.status IN ('suspended'");
+  });
+
+  it('accept_job requires active status via fail-closed CASE', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('CREATE OR REPLACE FUNCTION public.accept_job');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain("IS DISTINCT FROM 'active'");
+    expect(fnBody).toContain('PROVIDER_INACTIVE');
+    expect(fnBody).toContain('PROVIDER_NOT_FOUND');
+  });
+});
+
+// =============================================================================
+// Defect 6: Tip SCA + idempotent continuation
+// =============================================================================
+
+describe('Tip SCA and idempotent continuation', () => {
+  it('request_tip_payment returns existing tip for retry instead of TIP_ALREADY_EXISTS', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'), 'utf-8'
+    );
+    const fnStart = src.indexOf('request_tip_payment');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    // Should NOT have the old hard block
+    expect(fnBody).not.toContain("'TIP_ALREADY_EXISTS'");
+    // Should return existing tip for continuation
+    expect(fnBody).toContain("'existing', true");
+    // Should block completed tips
+    expect(fnBody).toContain("TIP_ALREADY_COMPLETED");
+  });
+
+  it('create-tip-intent retrieves existing PI from Stripe for SCA continuation', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
+    );
+    expect(src).toContain('payment_intents/${tip.payment_intent_id}');
+    expect(src).toContain('client_secret');
+    expect(src).toContain('already_created');
+  });
+
+  it('create-tip-intent verifies PI belongs to tip via metadata', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
+    );
+    expect(src).toContain('metadata?.tip_id');
+    expect(src).toContain('PaymentIntent identity mismatch');
+  });
+
+  it('create-tip-intent handles dead PIs by clearing and recreating', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
+    );
+    expect(src).toContain("status === 'canceled'");
+    expect(src).toContain("payment_intent_id: null");
+  });
+
+  it('customer ServiceCompletion handles TIP_ALREADY_COMPLETED', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain('TIP_ALREADY_COMPLETED');
+  });
+
+  it('tipping flow does not use off_session for customer-present flow', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
+    );
+    expect(src).not.toContain('off_session');
+    expect(src).toContain('return_url');
+  });
+
+  it('webhook finalization remains idempotent', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'), 'utf-8'
+    );
+    const fnStart = src.indexOf('finalize_tip_payment');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain("v_tip.stripe_status = 'succeeded'");
+    expect(fnBody).toContain("'already_completed', true");
+    expect(fnBody).toContain('ON CONFLICT (job_id, entry_type) DO NOTHING');
   });
 });

@@ -92,7 +92,9 @@ CREATE TABLE IF NOT EXISTS public.job_cancellation_operations (
 ALTER TABLE public.job_cancellation_operations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Service role only cancellation ops" ON public.job_cancellation_operations
   FOR ALL USING (false);
--- Only SECURITY DEFINER functions access this table
+-- Admin can read cancellation operations for financial visibility
+CREATE POLICY "Admin can read cancellation ops" ON public.job_cancellation_operations
+  FOR SELECT USING (is_admin(auth.uid()));
 
 -- ============================================================
 -- 3) Tip tracking table
@@ -185,12 +187,20 @@ BEGIN
     v_fee_pct := 0;
   END IF;
 
-  -- Get original amount from authoritative checkout only
+  -- Get original amount from authoritative checkout only — fail closed for paid jobs
   v_original_amount := 0;
-  IF v_job.payment_status = 'paid' AND v_job.checkout_id IS NOT NULL THEN
+  IF v_job.payment_status = 'paid' THEN
+    IF v_job.checkout_id IS NULL THEN
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_LINKAGE_MISSING',
+        'message', 'Paid job is missing checkout linkage. Contact support.');
+    END IF;
     SELECT c.total_amount INTO v_original_amount FROM checkouts c
     WHERE c.id = v_job.checkout_id AND c.job_id = v_job.id
       AND c.user_id = v_job.customer_id AND c.status = 'paid';
+    IF v_original_amount IS NULL THEN
+      RETURN json_build_object('success', false, 'error', 'CHECKOUT_VERIFICATION_FAILED',
+        'message', 'Could not verify payment for this job. Contact support.');
+    END IF;
   END IF;
 
   v_fee := ROUND(v_original_amount * v_fee_pct / 100, 2);
@@ -297,9 +307,23 @@ BEGIN
     v_fee_pct := 0;
   END IF;
 
-  -- Get original paid amount from authoritative checkout only
+  -- Get original paid amount from authoritative checkout only — fail closed for paid jobs
   v_original_amount := 0;
-  IF v_job.payment_status = 'paid' AND v_job.checkout_id IS NOT NULL THEN
+  IF v_job.payment_status = 'paid' THEN
+    IF v_job.checkout_id IS NULL THEN
+      -- Fail closed: paid job with no checkout linkage -> manual_review
+      v_op_id := gen_random_uuid();
+      v_idem_key := 'torc:cancellation:' || v_op_id::text;
+      UPDATE jobs SET status = 'cancelled', cancellation_reason = p_reason,
+        cancelled_at = NOW(), cancelled_by = auth.uid(), updated_at = NOW()
+      WHERE id = p_job_id;
+      INSERT INTO job_cancellation_operations (id, job_id, actor_id, actor_type, reason, job_status_at_cancel,
+        original_amount, idempotency_key, status, last_error)
+      VALUES (v_op_id, p_job_id, auth.uid(), v_actor_type, p_reason, v_job.status,
+        0, v_idem_key, 'manual_review', 'Paid job with NULL checkout_id');
+      RETURN json_build_object('success', true, 'job_id', p_job_id, 'status', 'cancelled',
+        'refund_status', 'manual_review', 'message', 'Checkout linkage missing. Support will process refund.');
+    END IF;
     SELECT c.total_amount INTO v_original_amount
     FROM checkouts c
     WHERE c.id = v_job.checkout_id
@@ -432,6 +456,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_job RECORD;
+  v_existing_tip RECORD;
   v_idem_key TEXT;
   v_tip_id UUID;
 BEGIN
@@ -465,15 +490,31 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'INVALID_AMOUNT');
   END IF;
 
-  -- One tip per job
-  IF EXISTS (SELECT 1 FROM job_tips WHERE job_id = p_job_id) THEN
-    RETURN json_build_object('success', false, 'error', 'TIP_ALREADY_EXISTS');
+  -- Idempotent continuation: if tip exists, return for retry or reject if completed
+  SELECT * INTO v_existing_tip FROM job_tips WHERE job_id = p_job_id;
+  IF FOUND THEN
+    IF v_existing_tip.stripe_status = 'succeeded' THEN
+      RETURN json_build_object('success', false, 'error', 'TIP_ALREADY_COMPLETED');
+    END IF;
+    IF v_existing_tip.customer_id != auth.uid() THEN
+      RETURN json_build_object('success', false, 'error', 'UNAUTHORIZED');
+    END IF;
+    -- Pending/failed tip: allow amount update if no PI yet
+    IF v_existing_tip.payment_intent_id IS NULL AND v_existing_tip.amount != p_amount THEN
+      UPDATE job_tips SET amount = p_amount WHERE id = v_existing_tip.id;
+    END IF;
+    RETURN json_build_object('success', true,
+      'tip_id', v_existing_tip.id,
+      'amount', CASE WHEN v_existing_tip.payment_intent_id IS NULL THEN p_amount ELSE v_existing_tip.amount END,
+      'idempotency_key', v_existing_tip.idempotency_key,
+      'provider_id', v_existing_tip.provider_id,
+      'job_id', p_job_id,
+      'existing', true);
   END IF;
 
   v_tip_id := gen_random_uuid();
   v_idem_key := 'torc:tip:' || v_tip_id::text;
 
-  -- Create tip record (pending — will be completed by Stripe webhook)
   INSERT INTO job_tips (id, job_id, customer_id, provider_id, amount, idempotency_key, stripe_status)
   VALUES (v_tip_id, p_job_id, auth.uid(), v_job.provider_id, p_amount, v_idem_key, 'pending');
 
@@ -663,7 +704,7 @@ BEGIN
     AND (p_service_id IS NULL OR p_service_id = ANY(pp.services))
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.provider_id = pl.provider_id
         AND j.status IN ('accepted','en_route','enroute','arrived','in_progress','inprogress'))
-    AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = pl.provider_id AND p.status IN ('suspended', 'pending_deletion'))
+    AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = pl.provider_id AND p.status = 'active')
     AND (3958.8 * 2 * ASIN(SQRT(
       POWER(SIN(RADIANS(p_pickup_lat - pl.latitude) / 2), 2) +
       COS(RADIANS(pl.latitude)) * COS(RADIANS(p_pickup_lat)) *
@@ -689,16 +730,17 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED');
   END IF;
 
-  -- Check suspension
+  -- Require active status — fail closed on any non-active state
   SELECT status INTO v_provider_status FROM profiles WHERE id = p_provider_id;
-  IF v_provider_status = 'suspended' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_SUSPENDED');
-  END IF;
-
-  -- Block pending_deletion providers
-  IF v_provider_status = 'pending_deletion' THEN
-    RETURN jsonb_build_object('success', false, 'error', 'ACCOUNT_PENDING_DELETION',
-      'message', 'Your account is pending deletion and cannot accept jobs');
+  IF v_provider_status IS DISTINCT FROM 'active' THEN
+    RETURN jsonb_build_object('success', false, 'error',
+      CASE
+        WHEN v_provider_status = 'suspended' THEN 'PROVIDER_SUSPENDED'
+        WHEN v_provider_status = 'pending_deletion' THEN 'ACCOUNT_PENDING_DELETION'
+        WHEN v_provider_status IS NULL THEN 'PROVIDER_NOT_FOUND'
+        ELSE 'PROVIDER_INACTIVE'
+      END,
+      'message', 'Provider account is not in active status');
   END IF;
 
   -- PROV-002: Check verification

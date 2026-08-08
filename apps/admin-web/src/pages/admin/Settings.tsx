@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 
 interface PlatformSettings {
-  cancellation_fee_pct: number;
+  cancel_fee_accepted_pct: number;
+  cancel_fee_arrived_pct: number;
   platform_commission_pct: number;
   tax_rate_pct: number;
   service_fee_pct: number;
@@ -36,7 +37,8 @@ interface PlatformSettings {
 }
 
 const DEFAULTS: PlatformSettings = {
-  cancellation_fee_pct: 25,
+  cancel_fee_accepted_pct: 25,
+  cancel_fee_arrived_pct: 50,
   platform_commission_pct: 15,
   tax_rate_pct: 8,
   service_fee_pct: 10,
@@ -119,7 +121,12 @@ export function AdminSettings() {
           const loaded = { ...DEFAULTS };
           data.forEach((row: { key: string; value: any }) => {
             if (row.key in loaded) {
-              (loaded as any)[row.key] = row.value;
+              // JSON arrays (like tip_presets) come as parsed arrays — stringify for text input
+              if (row.key === 'tip_presets' && Array.isArray(row.value)) {
+                (loaded as any)[row.key] = JSON.stringify(row.value);
+              } else {
+                (loaded as any)[row.key] = row.value;
+              }
             }
           });
           setSettings(loaded);
@@ -133,15 +140,37 @@ export function AdminSettings() {
     load();
   }, []);
 
-  // Save all settings to DB
+  // Save all settings to DB with validation
   const handleSave = async () => {
+    // Validate cancellation fee percentages (0-100)
+    for (const key of ['cancel_fee_accepted_pct', 'cancel_fee_arrived_pct'] as const) {
+      const v = Number(settings[key]);
+      if (isNaN(v) || v < 0 || v > 100) {
+        alert(`${key} must be between 0 and 100.`);
+        return;
+      }
+    }
+    // Validate tip_presets is a JSON array of numeric values > 0 and <= 100
+    let parsedTipPresets: number[] | null = null;
+    try {
+      parsedTipPresets = JSON.parse(settings.tip_presets);
+      if (!Array.isArray(parsedTipPresets)) throw new Error('not an array');
+      for (const v of parsedTipPresets) {
+        if (typeof v !== 'number' || v <= 0 || v > 100) throw new Error(`invalid preset: ${v}`);
+      }
+    } catch {
+      alert('Tip presets must be a JSON array of numbers between 1 and 100, e.g. [10, 15, 20]');
+      return;
+    }
+
     setSaving(true);
     setSaved(false);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const entries = Object.entries(settings).map(([key, value]) => ({
         key,
-        value,
+        // tip_presets: save as parsed JSON array, not string
+        value: key === 'tip_presets' ? parsedTipPresets : value,
         updated_by: user?.id || null,
         updated_at: new Date().toISOString(),
       }));

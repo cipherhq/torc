@@ -140,7 +140,11 @@ export function ServiceCompletion() {
           });
           if (tipError) throw tipError;
           if (!tipResult?.success) {
-            setTipStatus('failed');
+            if (tipResult?.error === 'TIP_ALREADY_COMPLETED') {
+              setTipStatus('succeeded');
+            } else {
+              setTipStatus('failed');
+            }
           } else {
             // Create and auto-confirm Stripe PaymentIntent via Edge Function
             const { data: piResult, error: piError } = await supabase.functions.invoke('create-tip-intent', {
@@ -162,6 +166,9 @@ export function ServiceCompletion() {
               } else {
                 setTipStatus('failed');
               }
+            } else if (piResult?.status === 'succeeded') {
+              // PI already confirmed (idempotent retry). Webhook will finalize.
+              setTipStatus('succeeded');
             } else if (piResult?.payment_intent_id) {
               // PI was auto-confirmed. Webhook will finalize.
               setTipStatus('succeeded');
