@@ -90,13 +90,20 @@ Deno.serve(async (req) => {
             error: 'PaymentIntent identity mismatch',
           }), { status: 409, headers: jsonHeaders });
         }
-        // Dead PI — clear and allow new creation below
+        // Dead PI — clear and generate new idempotency key for fresh PI creation
         if (existingPi.status === 'canceled' || existingPi.status === 'requires_payment_method') {
+          const newIdemKey = 'torc:tip:retry:' + crypto.randomUUID();
           await adminClient
             .from('job_tips')
-            .update({ payment_intent_id: null, stripe_status: 'pending' })
+            .update({ payment_intent_id: null, stripe_status: 'pending', idempotency_key: newIdemKey })
             .eq('id', tip_id);
-          // Fall through to create a new PI
+          // Re-read tip to get updated idempotency_key
+          const { data: refreshedTip } = await adminClient
+            .from('job_tips').select('*').eq('id', tip_id).single();
+          if (refreshedTip) {
+            Object.assign(tip, refreshedTip);
+          }
+          // Fall through to create a new PI with new idempotency key
         } else {
           // Active PI — return client_secret for SCA or status for succeeded
           return new Response(JSON.stringify({

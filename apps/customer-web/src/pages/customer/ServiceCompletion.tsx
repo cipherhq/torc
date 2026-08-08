@@ -91,7 +91,8 @@ export function ServiceCompletion() {
 
   const [tipPct, setTipPct] = useState<number | null>(null);
   const [customTipAmount, setCustomTipAmount] = useState('');
-  const [tipStatus, setTipStatus] = useState<'idle' | 'processing' | 'succeeded' | 'failed'>('idle');
+  const [tipStatus, setTipStatus] = useState<'idle' | 'processing' | 'requires_action' | 'succeeded' | 'failed'>('idle');
+  const [tipClientSecret, setTipClientSecret] = useState<string | null>(null);
   const basePrice = Number(currentJob?.base_price || currentJob?.total_amount || currentJob?.service?.base_price || 0);
   const tipPresets = tipPresetsFromSettings; // From platform settings
   const tipAmount = tipPct !== null ? Math.round(basePrice * tipPct / 100 * 100) / 100 : (Number(customTipAmount) || 0);
@@ -131,7 +132,7 @@ export function ServiceCompletion() {
       }
 
       // Process tip via server-authoritative payment flow
-      if (tipAmount > 0 && jobId) {
+      if (tipAmount > 0 && jobId && tipStatus !== 'succeeded') {
         setTipStatus('processing');
         try {
           const { data: tipResult, error: tipError } = await supabase.rpc('request_tip_payment', {
@@ -146,34 +147,60 @@ export function ServiceCompletion() {
               setTipStatus('failed');
             }
           } else {
-            // Create and auto-confirm Stripe PaymentIntent via Edge Function
+            // Create or retrieve Stripe PaymentIntent via Edge Function
             const { data: piResult, error: piError } = await supabase.functions.invoke('create-tip-intent', {
               body: { tip_id: tipResult.tip_id },
             });
             if (piError) {
               setTipStatus('failed');
-            } else if (piResult?.client_secret) {
-              // PI requires customer authentication (SCA)
-              setTipStatus('processing');
-              const stripe = await stripePromise;
-              if (stripe) {
-                const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
-                if (confirmError) {
-                  setTipStatus('failed');
+            } else {
+              // Handle PI status explicitly
+              const piStatus = piResult?.status;
+              if (piStatus === 'succeeded') {
+                setTipStatus('succeeded');
+              } else if (piStatus === 'requires_action' && piResult?.client_secret) {
+                setTipStatus('requires_action');
+                setTipClientSecret(piResult.client_secret);
+                // Attempt SCA authentication
+                const stripe = await stripePromise;
+                if (stripe) {
+                  const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
+                  if (confirmError) {
+                    setTipStatus('failed');
+                  } else {
+                    setTipStatus('succeeded');
+                    setTipClientSecret(null);
+                  }
                 } else {
-                  setTipStatus('succeeded');
+                  setTipStatus('failed');
                 }
+              } else if (piStatus === 'processing') {
+                // PI is processing — webhook will finalize
+                setTipStatus('succeeded');
+              } else if (piResult?.client_secret && !piStatus) {
+                // New PI with client_secret — SCA may be needed
+                setTipStatus('requires_action');
+                setTipClientSecret(piResult.client_secret);
+                const stripe = await stripePromise;
+                if (stripe) {
+                  const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
+                  if (confirmError) {
+                    setTipStatus('failed');
+                  } else {
+                    setTipStatus('succeeded');
+                    setTipClientSecret(null);
+                  }
+                } else {
+                  setTipStatus('failed');
+                }
+              } else if (piResult?.payment_intent_id) {
+                // PI auto-confirmed (no SCA needed)
+                setTipStatus('succeeded');
+              } else if (piStatus === 'requires_payment_method' || piStatus === 'canceled') {
+                setTipStatus('failed');
               } else {
                 setTipStatus('failed');
               }
-            } else if (piResult?.status === 'succeeded') {
-              // PI already confirmed (idempotent retry). Webhook will finalize.
-              setTipStatus('succeeded');
-            } else if (piResult?.payment_intent_id) {
-              // PI was auto-confirmed. Webhook will finalize.
-              setTipStatus('succeeded');
-            } else {
-              setTipStatus('failed');
             }
           }
         } catch (tipErr: any) {
@@ -186,7 +213,11 @@ export function ServiceCompletion() {
       if (jobId && rating > 0) {
         await rateJob(jobId, rating, feedback);
       }
-      navigate('/home');
+
+      // Only navigate away if tip is not in an actionable retry state
+      if (tipStatus !== 'failed' && tipStatus !== 'requires_action') {
+        navigate('/home');
+      }
     } catch (err) {
       console.warn('Failed to submit:', err);
       setSubmitError('Could not submit. Please try again.');
@@ -323,8 +354,9 @@ export function ServiceCompletion() {
             </div>
             <p className="text-xs mb-3" style={{ color: subColor }}>
               {tipStatus === 'processing' ? 'Processing tip...' :
+               tipStatus === 'requires_action' ? 'Authentication needed. Complete payment below.' :
                tipStatus === 'succeeded' ? 'Tip sent! 100% goes to your provider.' :
-               tipStatus === 'failed' ? 'Tip failed. You can try again later.' :
+               tipStatus === 'failed' ? 'Tip failed. Tap "Complete" to retry.' :
                '100% of tips go directly to your provider'}
             </p>
             <div className="flex gap-2">

@@ -2035,3 +2035,107 @@ describe('Tip SCA and idempotent continuation', () => {
     expect(fnBody).toContain('ON CONFLICT (job_id, entry_type) DO NOTHING');
   });
 });
+
+// =============================================================================
+// Blocker 1: Provider payout state must be authoritative
+// =============================================================================
+
+describe('Provider payout state authority', () => {
+  const earningsPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx');
+
+  it('payout history uses provider_payouts records, not fabricated weekly groups', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    // Must NOT group completed jobs by week and hardcode paid
+    expect(src).not.toContain("status: 'paid' as const");
+    // Must use actual payout records
+    expect(src).toContain('p.status');
+    expect(src).toContain('period_start');
+    expect(src).toContain('period_end');
+  });
+
+  it('payout status renders from actual payout record, not hardcoded', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("payout.status === 'paid'");
+    expect(src).toContain("payout.status === 'processing'");
+    expect(src).toContain("payout.status === 'failed'");
+    expect(src).toContain("payout.status === 'pending'");
+    // Actual status label is dynamic
+    expect(src).not.toMatch(/>\s*Paid\s*<\/span>\s*\n\s*<\/div>\s*\n\s*<\/div>\s*\n\s*<div.*text-xs.*\n.*Gross/);
+  });
+
+  it('ProviderPayout interface includes period and status fields', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('period_start');
+    expect(src).toContain('period_end');
+    expect(src).toContain("total_earnings");
+    expect(src).toContain("total_tips");
+    expect(src).toContain("platform_fee");
+  });
+
+  it('payouts query fetches complete records for authoritative display', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("'id, status, net_payout, total_earnings, total_tips, platform_fee, period_start, period_end, created_at'");
+  });
+});
+
+// =============================================================================
+// Blocker 2: Tip SCA + retry state
+// =============================================================================
+
+describe('Tip SCA and retry state', () => {
+  it('tipStatus includes requires_action state', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain("'requires_action'");
+    expect(src).toContain("tipClientSecret");
+  });
+
+  it('handles PI status requires_action explicitly', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain("piStatus === 'requires_action'");
+    expect(src).toContain("piStatus === 'processing'");
+    expect(src).toContain("piStatus === 'succeeded'");
+    expect(src).toContain("piStatus === 'requires_payment_method'");
+    expect(src).toContain("piStatus === 'canceled'");
+  });
+
+  it('does not navigate away when tip is in actionable retry state', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain("tipStatus !== 'failed'");
+    expect(src).toContain("tipStatus !== 'requires_action'");
+  });
+
+  it('shows retry guidance for failed tip', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain('retry');
+  });
+
+  it('shows authentication guidance for requires_action', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain('Authentication needed');
+  });
+
+  it('create-tip-intent generates new idempotency key for dead PI retry', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
+    );
+    expect(src).toContain('torc:tip:retry:');
+    expect(src).toContain('idempotency_key: newIdemKey');
+  });
+
+  it('retry does not skip tip when tipStatus is already succeeded', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+    );
+    expect(src).toContain("tipStatus !== 'succeeded'");
+  });
+});

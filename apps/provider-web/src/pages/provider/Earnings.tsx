@@ -28,8 +28,15 @@ interface Job {
 }
 
 interface ProviderPayout {
+  id?: string;
   status: string;
   net_payout: number | null;
+  total_earnings?: number | null;
+  total_tips?: number | null;
+  platform_fee?: number | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  created_at?: string;
 }
 
 const FALLBACK_COMMISSION_PCT = 15;
@@ -77,8 +84,9 @@ export function ProviderEarnings() {
             .then(r => r, () => ({ data: null, error: null })),
           supabase
             .from('provider_payouts')
-            .select('status, net_payout')
+            .select('id, status, net_payout, total_earnings, total_tips, platform_fee, period_start, period_end, created_at')
             .eq('provider_id', user!.id)
+            .order('created_at', { ascending: false })
             .then(r => r, () => ({ data: null, error: null })),
           supabase
             .from('provider_earnings')
@@ -254,42 +262,34 @@ export function ProviderEarnings() {
     });
   }, [jobs, jobLedgerMap, commissionPct]);
 
-  // Payout history — group completed+paid jobs by week
+  // Payout history — use authoritative provider_payouts records, not fabricated weekly groups
   const payoutHistory = useMemo(() => {
-    const paidJobs = completedJobs.filter(j => j.payment_status === 'paid');
-    if (paidJobs.length === 0) return [];
-
-    const weeks: Record<string, { start: Date; end: Date; jobs: Job[] }> = {};
-    paidJobs.forEach(j => {
-      const d = new Date(j.completed_at || j.created_at);
-      const weekKey = getWeekKey(d);
-      if (!weeks[weekKey]) {
-        const ws = getWeekStart(d);
-        const we = new Date(ws);
-        we.setDate(we.getDate() + 6);
-        weeks[weekKey] = { start: ws, end: we, jobs: [] };
-      }
-      weeks[weekKey].jobs.push(j);
-    });
-
-    return Object.entries(weeks)
-      .sort(([a], [b]) => b.localeCompare(a))
+    return payouts
+      .sort((a, b) => {
+        const da = (a as any).created_at || '';
+        const db = (b as any).created_at || '';
+        return db.localeCompare(da);
+      })
       .slice(0, 8)
-      .map(([key, week]) => {
-        const stats = calcProviderEarnings(week.jobs);
-        const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      .map((p: any, i: number) => {
+        const periodStart = p.period_start ? new Date(p.period_start) : null;
+        const periodEnd = p.period_end ? new Date(p.period_end) : null;
+        const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         return {
-          id: key,
-          period: `${fmt(week.start)} – ${fmt(week.end)}`,
-          jobCount: week.jobs.length,
-          gross: stats.grossEarnings,
-          commission: stats.totalCommission,
-          tips: stats.totalTips,
-          net: stats.netEarnings,
-          status: 'paid' as const,
+          id: p.id || `payout-${i}`,
+          period: periodStart && periodEnd
+            ? `${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`
+            : p.created_at
+              ? new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Payout',
+          net: Number(p.net_payout) || 0,
+          gross: Number(p.total_earnings) || 0,
+          tips: Number(p.total_tips) || 0,
+          commission: Number(p.platform_fee) || 0,
+          status: p.status as 'pending' | 'processing' | 'paid' | 'failed',
         };
       });
-  }, [completedJobs, commissionPct]);
+  }, [payouts]);
 
   const defaultPayout = payoutMethods.find(m => m.is_default) || payoutMethods[0];
 
@@ -720,7 +720,16 @@ export function ProviderEarnings() {
               </div>
             ) : (
               <div className="space-y-3">
-                {payoutHistory.map((payout, index) => (
+                {payoutHistory.map((payout, index) => {
+                  const statusColor = payout.status === 'paid' ? '#10B981'
+                    : payout.status === 'failed' ? '#EF4444'
+                    : payout.status === 'processing' ? '#008CE5'
+                    : payout.status === 'pending' ? '#F59E0B' : '#9CA3AF';
+                  const statusLabel = payout.status === 'paid' ? 'Paid'
+                    : payout.status === 'processing' ? 'Processing'
+                    : payout.status === 'failed' ? 'Failed'
+                    : payout.status === 'pending' ? 'Pending' : payout.status;
+                  return (
                   <motion.div
                     key={payout.id}
                     initial={{ opacity: 0, y: 15 }}
@@ -732,14 +741,13 @@ export function ProviderEarnings() {
                     <div className="flex items-center justify-between mb-2">
                       <div>
                         <p className="font-semibold text-sm" style={{ color: textPrimary }}>{payout.period}</p>
-                        <p className="text-xs" style={{ color: textSecondary }}>{payout.jobCount} job{payout.jobCount !== 1 ? 's' : ''} completed</p>
                       </div>
                       <div className="text-right">
                         <p className="font-bold" style={{ color: '#008CE5' }}>${fmt(payout.net)}</p>
                         <span className="text-xs px-2 py-0.5 rounded-full"
-                          style={{ backgroundColor: 'rgba(16,185,129,0.1)', color: '#10B981' }}
+                          style={{ backgroundColor: `${statusColor}15`, color: statusColor }}
                         >
-                          Paid
+                          {statusLabel}
                         </span>
                       </div>
                     </div>
@@ -749,7 +757,8 @@ export function ProviderEarnings() {
                       <span>Tips: ${fmt(payout.tips)}</span>
                     </div>
                   </motion.div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
