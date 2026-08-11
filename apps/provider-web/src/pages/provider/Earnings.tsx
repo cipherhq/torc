@@ -129,6 +129,7 @@ export function ProviderEarnings() {
 
   // Authoritative provider_earnings ledger — filter by ledger created_at, not job status
   // This ensures cancellation_compensation on cancelled jobs is included
+  // Accounting: grossEarnings - totalCommission = netEarnings (when tip fees are zero)
   const calcLedgerStats = (since?: Date) => {
     const filtered = since
       ? ledgerEntries.filter((e: any) => new Date(e.created_at) >= since)
@@ -138,16 +139,20 @@ export function ProviderEarnings() {
     const tipEntries = filtered.filter((e: any) => e.entry_type === 'tip');
     const compEntries = filtered.filter((e: any) => e.entry_type === 'cancellation_compensation');
 
-    const grossBase = serviceEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
+    const serviceGross = serviceEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
+    const compensationGross = compEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
     const totalTips = tipEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
-    const totalCompensation = compEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
-    const totalCommission = serviceEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0);
-    const netEarnings = serviceEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0)
-      + totalTips + totalCompensation;
+    const netCompensation = compEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
 
-    return { grossBase, totalTips, totalCompensation, totalCommission,
-      grossEarnings: grossBase + totalTips + totalCompensation, netEarnings,
-      jobCount: serviceEntries.length };
+    // Commission from both service earnings AND cancellation compensation
+    const totalCommission = serviceEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0)
+      + compEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0);
+
+    const grossEarnings = serviceGross + compensationGross + totalTips;
+    const netEarnings = filtered.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+
+    return { serviceGross, compensationGross, totalTips, netCompensation, totalCommission,
+      grossEarnings, netEarnings, jobCount: serviceEntries.length };
   };
 
   const now = new Date();
@@ -363,7 +368,7 @@ export function ProviderEarnings() {
               <div className="absolute top-0 right-0 w-40 h-40 rounded-full" style={{ background: 'rgba(255,255,255,0.08)', filter: 'blur(40px)' }} />
               <p className="text-sm mb-1" style={{ color: 'rgba(255,255,255,0.85)' }}>Available Balance</p>
               <h2 className="font-bold text-4xl mb-1" style={{ color: '#FFFFFF' }}>${fmt(availableBalance)}</h2>
-              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after {commissionPct}% platform fee</p>
+              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after platform fees</p>
 
               <div className="flex items-center gap-3">
                 <motion.button
@@ -438,14 +443,14 @@ export function ProviderEarnings() {
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#008CE5' }} />
                     <span className="text-sm" style={{ color: textSecondary }}>Service earnings</span>
                   </div>
-                  <span className="font-semibold text-sm" style={{ color: textPrimary }}>${fmt(activeStats.grossBase)}</span>
+                  <span className="font-semibold text-sm" style={{ color: textPrimary }}>${fmt(activeStats.serviceGross)}</span>
                 </div>
 
                 {/* Platform fee */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#EF4444' }} />
-                    <span className="text-sm" style={{ color: textSecondary }}>Platform fee ({commissionPct}%)</span>
+                    <span className="text-sm" style={{ color: textSecondary }}>Platform fees</span>
                   </div>
                   <span className="font-semibold text-sm text-red-500">−${fmt(activeStats.totalCommission)}</span>
                 </div>
@@ -460,13 +465,13 @@ export function ProviderEarnings() {
                 </div>
 
                 {/* Cancellation compensation */}
-                {activeStats.totalCompensation > 0 && (
+                {activeStats.netCompensation > 0 && (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#F59E0B' }} />
                     <span className="text-sm" style={{ color: textSecondary }}>Cancellation compensation</span>
                   </div>
-                  <span className="font-semibold text-sm" style={{ color: '#F59E0B' }}>+${fmt(activeStats.totalCompensation)}</span>
+                  <span className="font-semibold text-sm" style={{ color: '#F59E0B' }}>+${fmt(activeStats.netCompensation)}</span>
                 </div>
                 )}
 
@@ -483,7 +488,7 @@ export function ProviderEarnings() {
               <div className="mt-4 flex items-start gap-2 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.08)' : 'rgba(0,140,229,0.05)' }}>
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <p className="text-xs" style={{ color: textSecondary }}>
-                  Torc charges a {commissionPct}% platform fee on service earnings. Tips are never deducted — you keep 100%.
+                  Torc deducts a platform fee from service earnings and cancellation compensation. Tips are never deducted — you keep 100%.
                 </p>
               </div>
             </motion.div>
@@ -684,7 +689,7 @@ export function ProviderEarnings() {
                               <span style={{ color: textPrimary }}>${fmt(job.basePrice)}</span>
                             </div>
                             <div className="flex justify-between text-sm">
-                              <span style={{ color: textSecondary }}>Platform fee ({commissionPct}%)</span>
+                              <span style={{ color: textSecondary }}>{isEstimated ? `Platform fee (est. ${commissionPct}%)` : 'Platform fees'}</span>
                               <span className="text-red-500">−${fmt(job.commission)}</span>
                             </div>
                             {job.tip > 0 && (
@@ -783,7 +788,7 @@ export function ProviderEarnings() {
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span style={{ color: textSecondary }}>Gross income (1099)</span>
-                  <span className="font-semibold" style={{ color: textPrimary }}>${fmt(allTimeStats.grossBase + allTimeStats.totalTips)}</span>
+                  <span className="font-semibold" style={{ color: textPrimary }}>${fmt(allTimeStats.grossEarnings)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span style={{ color: textSecondary }}>Platform fees (deductible)</span>

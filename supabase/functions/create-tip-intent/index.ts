@@ -136,8 +136,13 @@ Deno.serve(async (req) => {
             already_created: true,
           }), { status: 200, headers: jsonHeaders });
         }
+      } else {
+        // Stripe GET failed (429/5xx/network) — fail closed, do NOT create another PI
+        return new Response(JSON.stringify({
+          error: 'Could not verify existing payment. Please try again.',
+          retryable: true,
+        }), { status: 502, headers: jsonHeaders });
       }
-      // Stripe lookup failed — fall through to create new PI
     }
 
     // Look up the customer's Stripe customer ID and payment method from the original checkout
@@ -174,8 +179,9 @@ Deno.serve(async (req) => {
     if (paymentMethodId) {
       params.append('payment_method', paymentMethodId);
       params.append('confirm', 'true');
-      // Customer is present during tipping — use return_url for SCA redirects
-      params.append('return_url', `${supabaseUrl}/functions/v1/create-tip-intent`);
+      // Customer-present saved-card tip: no redirect-based methods needed
+      // SCA/3DS handled inline by Stripe.js confirmCardPayment in the browser
+      params.append('payment_method_types[]', 'card');
     }
 
     const stripeResponse = await fetch('https://api.stripe.com/v1/payment_intents', {

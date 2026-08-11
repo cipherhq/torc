@@ -1891,7 +1891,8 @@ describe('Provider Earnings ledger period filtering', () => {
 
   it('cancellation compensation is tracked separately from tips', () => {
     const src = fs.readFileSync(earningsPath, 'utf-8');
-    expect(src).toContain('totalCompensation');
+    expect(src).toContain('netCompensation');
+    expect(src).toContain('compensationGross');
     expect(src).toContain('Cancellation compensation');
   });
 });
@@ -2016,12 +2017,13 @@ describe('Tip SCA and idempotent continuation', () => {
     expect(src).toContain('TIP_ALREADY_COMPLETED');
   });
 
-  it('tipping flow does not use off_session for customer-present flow', () => {
+  it('tipping flow uses card-only, no off_session or redirect URL', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
     );
     expect(src).not.toContain('off_session');
-    expect(src).toContain('return_url');
+    expect(src).not.toContain('return_url');
+    expect(src).toContain("payment_method_types[]");
   });
 
   it('webhook finalization remains idempotent', () => {
@@ -2171,8 +2173,8 @@ describe('Provider earnings includes all finalized ledger money', () => {
 
   it('cancellation_compensation increases netEarnings and available balance', () => {
     const src = fs.readFileSync(earningsPath, 'utf-8');
-    expect(src).toContain('totalCompensation');
-    expect(src).toContain('+ totalTips + totalCompensation');
+    expect(src).toContain('compensationGross');
+    expect(src).toContain('serviceGross + compensationGross + totalTips');
   });
 
   it('paidOutTotal only subtracts paid payouts, not processing/pending', () => {
@@ -2271,5 +2273,117 @@ describe('Tip SCA/retry control flow', () => {
       src.indexOf("piStatus === 'succeeded'") + 200
     );
     expect(succeededBlock).not.toContain('confirmCardPayment');
+  });
+});
+
+// =============================================================================
+// CTO Gate 1: Provider ledger financial consistency
+// =============================================================================
+
+describe('Provider ledger financial consistency', () => {
+  const earningsPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx');
+
+  it('calcLedgerStats includes compensation base_earnings in grossEarnings', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('compensationGross = compEntries.reduce');
+    expect(src).toContain("e.base_earnings || 0");
+    expect(src).toContain('serviceGross + compensationGross + totalTips');
+  });
+
+  it('totalCommission includes fees from both service_earning and cancellation_compensation', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    // Must sum platform_fee from BOTH entry types
+    const fnBody = src.slice(src.indexOf('calcLedgerStats'), src.indexOf('jobCount:'));
+    const platformFeeReduces = (fnBody.match(/platform_fee/g) || []).length;
+    expect(platformFeeReduces).toBeGreaterThanOrEqual(2);
+    expect(fnBody).toContain('compEntries.reduce((s: number, e: any) => s + Number(e.platform_fee');
+  });
+
+  it('netEarnings sums provider_net across all entry types', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('filtered.reduce((s: number, e: any) => s + Number(e.provider_net');
+  });
+
+  it('grossEarnings - totalCommission = netEarnings relationship holds', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    // The code must compute netEarnings as sum of all provider_net
+    // and grossEarnings as serviceGross + compensationGross + totalTips
+    // These are consistent when tip platform_fee = 0
+    expect(src).toContain('grossEarnings = serviceGross + compensationGross + totalTips');
+    expect(src).toContain('netEarnings = filtered.reduce');
+  });
+
+  it('Tax Summary uses grossEarnings not grossBase + tips', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain('allTimeStats.grossEarnings');
+    expect(src).not.toContain('allTimeStats.grossBase');
+  });
+
+  it('finalized UI does not label fees with current commissionPct', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    // Earnings breakdown uses "Platform fees" not "Platform fee (15%)"
+    const breakdownSection = src.slice(src.indexOf('Earnings Breakdown'), src.indexOf('Net Earnings'));
+    expect(breakdownSection).toContain("Platform fees");
+    expect(breakdownSection).not.toContain('commissionPct');
+  });
+
+  it('per-job detail shows estimated label only for unfinalized jobs', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("isEstimated ? `Platform fee (est. ${commissionPct}%)` : 'Platform fees'");
+  });
+});
+
+// =============================================================================
+// CTO Gate 2A: Existing PI retrieval fail-closed
+// =============================================================================
+
+describe('Tip PI retrieval fail-closed', () => {
+  const tipIntentPath = path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts');
+
+  it('Stripe GET failure returns retryable error, not PI creation', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).toContain('Could not verify existing payment');
+    expect(src).toContain('retryable: true');
+    expect(src).toContain('status: 502');
+  });
+
+  it('does NOT fall through to create new PI on Stripe lookup failure', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).not.toContain('Stripe lookup failed — fall through');
+  });
+
+  it('only rotates after successful Stripe GET confirms dead status', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    // The rotation only happens inside the existingPiRes.ok branch
+    const okBranch = src.slice(src.indexOf('existingPiRes.ok'), src.indexOf('Could not verify'));
+    expect(okBranch).toContain('rotate_tip_idempotency_key');
+    // The else branch (GET failed) does NOT contain rotation
+    const elseBranch = src.slice(src.indexOf('Could not verify'));
+    expect(elseBranch).not.toContain('rotate_tip_idempotency_key');
+  });
+});
+
+// =============================================================================
+// CTO Gate 2B: SCA return URL
+// =============================================================================
+
+describe('Tip SCA return URL', () => {
+  const tipIntentPath = path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts');
+
+  it('does not use Edge Function URL as customer return destination', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).not.toContain('functions/v1/create-tip-intent');
+    expect(src).not.toContain('return_url');
+  });
+
+  it('uses card-only payment method types for saved-card flow', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).toContain("payment_method_types[]");
+    expect(src).toContain("'card'");
+  });
+
+  it('does not use off_session for customer-present flow', () => {
+    const src = fs.readFileSync(tipIntentPath, 'utf-8');
+    expect(src).not.toContain('off_session');
   });
 });
