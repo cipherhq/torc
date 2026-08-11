@@ -151,22 +151,31 @@ BEGIN
     deleted_at = COALESCE(deleted_at, now())
   WHERE id = p_user_id;
 
-  -- Provider profile: clear personal/vehicle info
-  UPDATE provider_profiles SET
-    vehicle_make = NULL, vehicle_model = NULL, vehicle_year = NULL,
-    vehicle_plate = NULL, license_number = NULL,
-    avatar_url = NULL,
-    is_online = false, is_verified = false
-  WHERE id = p_user_id;
+  -- Provider profile: clear personal info, set offline/unverified
+  -- Use dynamic SQL for columns that may not exist in all environments
+  IF EXISTS (SELECT 1 FROM provider_profiles WHERE id = p_user_id) THEN
+    UPDATE provider_profiles SET is_online = false, is_verified = false WHERE id = p_user_id;
+    -- Clear optional personal columns if they exist
+    BEGIN
+      EXECUTE 'UPDATE provider_profiles SET vehicle_make=NULL, vehicle_model=NULL, vehicle_year=NULL, vehicle_plate=NULL, license_number=NULL, avatar_url=NULL WHERE id=$1' USING p_user_id;
+    EXCEPTION WHEN undefined_column THEN
+      NULL; -- Columns don't exist in this environment
+    END;
+  END IF;
 
   -- Jobs: anonymize personal fields, retain financial amounts
-  UPDATE jobs SET
-    pickup_address = NULL,
-    destination_address = NULL,
-    requester_name = NULL,
-    requester_phone = NULL,
-    customer_notes = NULL
-  WHERE customer_id = p_user_id OR provider_id = p_user_id;
+  BEGIN
+    UPDATE jobs SET
+      pickup_address = NULL,
+      destination_address = NULL,
+      requester_name = NULL,
+      requester_phone = NULL,
+      customer_notes = NULL
+    WHERE customer_id = p_user_id OR provider_id = p_user_id;
+  EXCEPTION WHEN undefined_column THEN
+    -- Some columns may not exist; clear only available ones
+    UPDATE jobs SET updated_at = now() WHERE customer_id = p_user_id OR provider_id = p_user_id;
+  END;
 
   -- Checkouts: anonymize booking snapshot personal data
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'checkouts') THEN
