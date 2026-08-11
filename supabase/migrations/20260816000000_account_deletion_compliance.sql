@@ -49,6 +49,21 @@ DO $$ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
+-- profiles.id FK to auth.users: RESTRICT → no action on delete
+-- Profile row is retained (anonymized) after auth.users deletion
+DO $$ BEGIN
+  ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_id_fkey;
+  -- Re-add WITHOUT cascade/restrict — allows auth deletion while profile persists
+  -- The profile is already anonymized by _internal_process_deletion before auth removal
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- provider_profiles.id FK: may also reference auth.users
+DO $$ BEGIN
+  ALTER TABLE public.provider_profiles DROP CONSTRAINT IF EXISTS provider_profiles_id_fkey;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
 -- ============================================================
 -- 1) Add deletion_processing to allowed profile statuses
 -- ============================================================
