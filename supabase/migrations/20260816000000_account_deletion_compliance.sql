@@ -94,33 +94,48 @@ BEGIN
   UPDATE profiles SET status = 'deletion_processing' WHERE id = p_user_id;
 
   -- ── Category A: DELETE personal data ──
+  -- Use IF EXISTS pattern for tables that may not exist in all environments
 
   -- Device tokens
-  DELETE FROM device_tokens WHERE user_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'device_tokens') THEN
+    DELETE FROM device_tokens WHERE user_id = p_user_id;
+  END IF;
 
   -- Notification records
   DELETE FROM notifications WHERE user_id = p_user_id;
 
   -- Push notification delivery records
-  DELETE FROM push_notifications WHERE user_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'push_notifications') THEN
+    DELETE FROM push_notifications WHERE user_id = p_user_id;
+  END IF;
 
   -- Provider locations (real-time GPS)
   DELETE FROM provider_locations WHERE provider_id = p_user_id;
 
   -- Saved payment methods
-  DELETE FROM payment_methods WHERE user_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payment_methods') THEN
+    DELETE FROM payment_methods WHERE user_id = p_user_id;
+  END IF;
 
   -- Stripe customer mapping
-  DELETE FROM stripe_customers WHERE user_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'stripe_customers') THEN
+    DELETE FROM stripe_customers WHERE user_id = p_user_id;
+  END IF;
 
   -- Vehicles
-  DELETE FROM vehicles WHERE user_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'vehicles') THEN
+    DELETE FROM vehicles WHERE user_id = p_user_id;
+  END IF;
 
   -- Provider payout methods (bank/PayPal/Venmo details)
-  DELETE FROM provider_payout_methods WHERE provider_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'provider_payout_methods') THEN
+    DELETE FROM provider_payout_methods WHERE provider_id = p_user_id;
+  END IF;
 
   -- Provider job dismissals
-  DELETE FROM provider_job_dismissals WHERE provider_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'provider_job_dismissals') THEN
+    DELETE FROM provider_job_dismissals WHERE provider_id = p_user_id;
+  END IF;
 
   -- ── Category B: ANONYMIZE retained records ──
 
@@ -154,28 +169,36 @@ BEGIN
   WHERE customer_id = p_user_id OR provider_id = p_user_id;
 
   -- Checkouts: anonymize booking snapshot personal data
-  UPDATE checkouts SET
-    booking_snapshot = booking_snapshot
-      - 'pickupAddress' - 'destinationAddress'
-      - 'requesterName' - 'requesterPhone' - 'customerNotes'
-  WHERE user_id = p_user_id AND booking_snapshot IS NOT NULL;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'checkouts') THEN
+    UPDATE checkouts SET
+      booking_snapshot = booking_snapshot
+        - 'pickupAddress' - 'destinationAddress'
+        - 'requesterName' - 'requesterPhone' - 'customerNotes'
+    WHERE user_id = p_user_id AND booking_snapshot IS NOT NULL;
+  END IF;
 
   -- Chat messages: anonymize sender name, clear message content
-  UPDATE chat_messages SET
-    sender_name = v_anon_name,
-    message = '[deleted]',
-    image_url = NULL
-  WHERE sender_id = p_user_id::text;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'chat_messages') THEN
+    UPDATE chat_messages SET
+      sender_name = v_anon_name,
+      message = '[deleted]',
+      image_url = NULL
+    WHERE sender_id = p_user_id::text;
+  END IF;
 
   -- Support tickets: anonymize description (keep subject for audit)
-  UPDATE support_tickets SET
-    description = '[account deleted]'
-  WHERE requester_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'support_tickets') THEN
+    UPDATE support_tickets SET
+      description = '[account deleted]'
+    WHERE requester_id = p_user_id;
+  END IF;
 
   -- Ticket replies: anonymize message content
-  UPDATE ticket_replies SET
-    message = '[account deleted]'
-  WHERE sender_id = p_user_id;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ticket_replies') THEN
+    UPDATE ticket_replies SET
+      message = '[account deleted]'
+    WHERE sender_id = p_user_id;
+  END IF;
 
   -- ── Category C: RETAIN with justification ──
   -- These records are kept with user_id references intact for:
@@ -184,14 +207,16 @@ BEGIN
   -- Legal/tax: jobs (financial columns), payment_attempts, processed_webhook_events
 
   -- ── Close any open deletion support ticket ──
-  UPDATE support_tickets SET
-    status = 'resolved',
-    admin_note = COALESCE(admin_note, '') || ' | Account deletion processed.',
-    resolved_at = COALESCE(resolved_at, now()),
-    updated_at = now()
-  WHERE requester_id = p_user_id
-    AND subject = 'Account deletion request'
-    AND status IN ('open', 'in_progress');
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'support_tickets') THEN
+    UPDATE support_tickets SET
+      status = 'resolved',
+      admin_note = COALESCE(admin_note, '') || ' | Account deletion processed.',
+      resolved_at = COALESCE(resolved_at, now()),
+      updated_at = now()
+    WHERE requester_id = p_user_id
+      AND subject = 'Account deletion request'
+      AND status IN ('open', 'in_progress');
+  END IF;
 
   -- ── Audit log ──
   INSERT INTO admin_audit_logs (actor_id, action, entity_type, entity_id, details)

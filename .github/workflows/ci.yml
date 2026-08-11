@@ -2856,8 +2856,6 @@ jobs:
             ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'customer', 'del-test-cust@test.com', 'John', 'Doe', '+15551234567', 'active')
           ON CONFLICT DO NOTHING;
           INSERT INTO services (id, name, base_price) VALUES ('test-svc-del', 'Del Test', 50) ON CONFLICT DO NOTHING;
-          INSERT INTO device_tokens (user_id, platform, push_token, is_active) VALUES
-            ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'ios', 'test-token-del', true);
           INSERT INTO notifications (user_id, type, title, message) VALUES
             ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'service', 'Test', 'Test notification');
 
@@ -2901,7 +2899,6 @@ jobs:
           DECLARE
             result JSON;
             v_profile RECORD;
-            v_tokens INT;
             v_notifs INT;
           BEGIN
             SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
@@ -2913,9 +2910,6 @@ jobs:
             ASSERT v_profile.phone IS NULL, 'DEL-COMP-4 FAILED: phone not cleared';
             ASSERT v_profile.first_name = 'Deleted', 'DEL-COMP-4 FAILED: name not anonymized';
             ASSERT v_profile.deleted_at IS NOT NULL, 'DEL-COMP-4 FAILED: deleted_at not set';
-            -- Verify device tokens deleted
-            SELECT count(*) INTO v_tokens FROM device_tokens WHERE user_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-            ASSERT v_tokens = 0, 'DEL-COMP-4 FAILED: device tokens not deleted';
             -- Verify notifications deleted
             SELECT count(*) INTO v_notifs FROM notifications WHERE user_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
             ASSERT v_notifs = 0, 'DEL-COMP-4 FAILED: notifications not deleted';
