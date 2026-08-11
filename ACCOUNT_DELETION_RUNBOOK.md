@@ -92,32 +92,35 @@ This performs:
 - payment_attempts / processed_webhook_events
 
 ### Category D — REVIEW REQUIRED (needs business/legal decision)
-- `auth.users` row deletion (recommended after grace period; requires Supabase Admin API)
-- Provider uploaded documents in storage (may need fraud/dispute retention policy)
-- Job photos in storage (may need dispute retention policy)
-- Exact retention periods for financial records
+- `auth.users` deletion timing (REVIEW REQUIRED — no grace period invented)
+- Provider uploaded documents in storage (REVIEW REQUIRED — retention policy needed)
+- Job photos in storage (REVIEW REQUIRED — retention policy needed)
+- Financial record retention duration (REVIEW REQUIRED — business/legal decision)
+- Stripe external customer/payment-method cleanup timing (REVIEW REQUIRED)
 
 ## 5. Post-deletion: auth.users removal
 
-After the profile is `deleted` and personal data anonymized, the `auth.users` row should be deleted to prevent re-authentication:
+After DB anonymization (`deletion_processing`), the `auth.users` row must be deleted via Supabase Admin API from trusted server code:
 
-```sql
--- Via Supabase Admin API (not direct SQL in production)
--- DELETE FROM auth.users WHERE id = '<REQUESTER_USER_ID>';
+```bash
+# Via Supabase Admin API — NEVER from browser
+curl -X DELETE "https://<project>.supabase.co/auth/v1/admin/users/<USER_ID>" \
+  -H "Authorization: Bearer <SERVICE_ROLE_KEY>" \
+  -H "apikey: <ANON_KEY>"
 ```
 
-**REVIEW REQUIRED**: Determine appropriate grace period before auth deletion. Recommended: 30 days after deletion processing to allow support escalation.
+Then call `_internal_finalize_deletion(user_id, true)` to mark final `deleted` status.
+
+If auth deletion fails (timeout/5xx), keep `deletion_processing` and retry.
+
+**REVIEW REQUIRED**: Determine whether any grace period before auth deletion is needed. No period has been established — this is a business/legal decision.
 
 ## 6. Post-deletion: storage cleanup
 
-**REVIEW REQUIRED**: Determine retention policy for:
+**REVIEW REQUIRED**: Determine retention policy for uploaded files. No retention periods have been established:
 
-```sql
--- Provider documents
--- Storage path: provider-documents/<provider_id>/
--- Job photos
--- Storage path: job-photos/<job_id>/
-```
+- Provider documents: `provider-documents/<provider_id>/`
+- Job photos: `job-photos/<job_id>/`
 
 ## 7. Audit trail
 

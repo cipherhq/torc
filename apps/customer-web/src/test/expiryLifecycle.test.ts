@@ -2454,110 +2454,133 @@ describe('Per-job cancellation compensation breakdown', () => {
 describe('Account deletion store compliance', () => {
   const migrationPath = path.resolve(REPO_ROOT, 'supabase/migrations/20260816000000_account_deletion_compliance.sql');
 
-  it('migration exists with process_account_deletion RPC', () => {
+  // Architecture
+  it('has separate self-request, internal-process, and internal-finalize RPCs', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain('process_account_deletion');
-    expect(src).toContain('SECURITY DEFINER');
+    expect(src).toContain('request_account_deletion');
+    expect(src).toContain('_internal_process_deletion');
+    expect(src).toContain('_internal_finalize_deletion');
   });
 
-  it('deletion RPC requires admin or service role', () => {
+  it('does NOT use current_user for authorization', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain('ADMIN_REQUIRED');
-    expect(src).toContain('is_admin');
+    expect(src).not.toContain('current_user NOT IN');
+    expect(src).not.toContain("current_user IN ('postgres'");
   });
 
-  it('deletion fails closed on active jobs', () => {
+  // Blocker 1: Authorization
+  it('_internal_process_deletion revoked from authenticated/anon/PUBLIC', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const section = src.slice(src.indexOf('_internal_process_deletion'));
+    expect(section).toContain("REVOKE EXECUTE ON FUNCTION public._internal_process_deletion");
+    expect(section).toContain('FROM authenticated');
+  });
+
+  it('_internal_finalize_deletion revoked from authenticated/anon/PUBLIC', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const section = src.slice(src.indexOf('_internal_finalize_deletion'));
+    expect(section).toContain("REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion");
+    expect(section).toContain('FROM authenticated');
+  });
+
+  it('request_account_deletion is self-only via auth.uid()', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('request_account_deletion');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('auth.uid()');
+    expect(fnBody).not.toContain('p_user_id');
+  });
+
+  // Blocker 2: Cross-user eligibility
+  it('check_deletion_eligibility enforces self-or-admin', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('CREATE OR REPLACE FUNCTION public.check_deletion_eligibility');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('v_caller != p_user_id');
+    expect(fnBody).toContain('is_admin(v_caller)');
+    expect(fnBody).toContain("'UNAUTHORIZED'");
+  });
+
+  // Blocker 3: Two-stage deletion
+  it('_internal_process_deletion sets deletion_processing, not deleted', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('CREATE OR REPLACE FUNCTION public._internal_process_deletion');
+    const fnEnd = src.indexOf('$$;', fnStart);
+    const fnBody = src.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("'deletion_processing'");
+    // The UPDATE sets deletion_processing, NOT deleted
+    const updateLine = fnBody.match(/UPDATE profiles SET[\s\S]*?WHERE id = p_user_id/);
+    expect(updateLine).not.toBeNull();
+    expect(updateLine![0]).toContain('deletion_processing');
+    expect(updateLine![0]).not.toContain("= 'deleted'");
+  });
+
+  it('_internal_finalize_deletion requires auth_deleted=true', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('_internal_finalize_deletion');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('AUTH_NOT_DELETED');
+    expect(fnBody).toContain("NOT p_auth_deleted");
+  });
+
+  // Safety checks
+  it('fails closed on active jobs, pending refunds, pending payouts', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
     expect(src).toContain('ACTIVE_JOBS_EXIST');
-  });
-
-  it('deletion fails closed on pending refunds', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
     expect(src).toContain('PENDING_REFUNDS');
-  });
-
-  it('deletion fails closed on pending payouts for providers', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
     expect(src).toContain('PENDING_PAYOUTS');
   });
 
-  it('deletion is idempotent on already-deleted user', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain('already_deleted');
-  });
-
-  it('deletion anonymizes personal profile fields', () => {
+  // Data handling
+  it('anonymizes personal data and retains financial records', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
     expect(src).toContain("email = NULL");
     expect(src).toContain("phone = NULL");
-    expect(src).toContain("first_name = 'Deleted'");
-  });
-
-  it('deletion removes device tokens and notifications', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
     expect(src).toContain('DELETE FROM device_tokens');
-    expect(src).toContain('DELETE FROM notifications');
-  });
-
-  it('deletion removes payment methods and Stripe customer mapping', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain('DELETE FROM payment_methods');
-    expect(src).toContain('DELETE FROM stripe_customers');
-  });
-
-  it('deletion creates audit log', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain('account_deletion_processed');
-    expect(src).toContain('admin_audit_logs');
-  });
-
-  it('deletion retains financial records', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
-    // Should NOT delete provider_earnings, provider_payouts, etc.
     expect(src).not.toContain('DELETE FROM provider_earnings');
     expect(src).not.toContain('DELETE FROM provider_payouts');
-    expect(src).not.toContain('DELETE FROM job_cancellation_operations');
   });
 
-  it('external web deletion page exists', () => {
-    expect(fs.existsSync(
-      path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx')
-    )).toBe(true);
+  it('drops old process_account_deletion function', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('DROP FUNCTION IF EXISTS public.process_account_deletion');
+  });
+
+  // Blocker 4: External web
+  it('external web deletion page exists with identity verification', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8'
+    );
+    expect(src).toContain('magiclink');
+    expect(src).not.toContain('support_tickets');
+    expect(src).toContain('Check Your Email');
+  });
+
+  it('external page does not directly alter account state', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8'
+    );
+    expect(src).not.toContain('pending_deletion');
+    expect(src).not.toContain('deletion_processing');
+    expect(src).not.toContain('status');
+  });
+
+  it('reason is optional', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8'
+    );
+    expect(src).toContain('optional');
   });
 
   it('website routes include /account-deletion', () => {
-    const src = fs.readFileSync(
-      path.resolve(REPO_ROOT, 'apps/website/src/routes.jsx'), 'utf-8'
-    );
+    const src = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/website/src/routes.jsx'), 'utf-8');
     expect(src).toContain('/account-deletion');
-    expect(src).toContain('AccountDeletion');
   });
 
-  it('customer deletion UI explains data retention', () => {
-    const src = fs.readFileSync(
-      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
-    );
-    expect(src).toContain('Financial records may be retained');
-    expect(src).toContain('permanent deletion');
-  });
-
-  it('provider deletion UI explains data retention', () => {
-    const src = fs.readFileSync(
-      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
-    );
-    expect(src).toContain('Financial records may be retained');
-    expect(src).toContain('permanent deletion');
-  });
-
-  it('deletion_processing is an allowed profile status', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain("'deletion_processing'");
-    expect(src).toContain('profiles_status_check');
-  });
-
-  it('check_deletion_eligibility RPC exists', () => {
-    const src = fs.readFileSync(migrationPath, 'utf-8');
-    expect(src).toContain('check_deletion_eligibility');
-    expect(src).toContain('blockers');
+  it('customer/provider UI explains data retention', () => {
+    const cust = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8');
+    const prov = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8');
+    expect(cust).toContain('Financial records may be retained');
+    expect(prov).toContain('Financial records may be retained');
   });
 });

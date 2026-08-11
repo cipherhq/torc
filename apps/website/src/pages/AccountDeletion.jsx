@@ -8,6 +8,7 @@ export function AccountDeletion() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState("form"); // form → verify → submitted
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,15 +18,9 @@ export function AccountDeletion() {
       setError("Please enter a valid email address.");
       return;
     }
-    if (reason.trim().length < 10) {
-      setError("Please provide a brief reason (at least 10 characters).");
-      return;
-    }
 
     setLoading(true);
     try {
-      // Submit deletion request via Supabase Edge Function or public API
-      // For now, send via the contact/support mechanism
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -33,29 +28,26 @@ export function AccountDeletion() {
         throw new Error("Service temporarily unavailable.");
       }
 
-      // Insert a support ticket for the deletion request
-      const response = await fetch(`${supabaseUrl}/rest/v1/support_tickets`, {
+      // Send a magic link to verify ownership — the user must click
+      // the link and sign in before deletion can proceed.
+      // This prevents anonymous attackers from deleting another user's account.
+      const response = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           apikey: supabaseAnonKey,
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          Prefer: "return=minimal",
         },
         body: JSON.stringify({
-          requester_role: role,
-          subject: "Account deletion request (web)",
-          description: `External web deletion request.\nEmail: ${email}\nRole: ${role}\nReason: ${reason.trim()}`,
-          priority: "high",
-          status: "open",
+          email: email.trim().toLowerCase(),
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Could not submit request. Please try again or contact support@torcapp.com.");
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.msg || "Could not send verification email. Please try again.");
       }
 
-      setSubmitted(true);
+      setStep("verify");
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
     } finally {
@@ -74,17 +66,17 @@ export function AccountDeletion() {
             </p>
           </header>
 
-          {submitted ? (
-            <div style={{ marginTop: "2rem", padding: "2rem", backgroundColor: "#f0fdf4", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
-              <h2 style={{ color: "#166534", marginTop: 0 }}>Request Submitted</h2>
-              <p style={{ color: "#15803d" }}>
-                Your account deletion request has been received. Our team will verify your identity and process the request.
+          {step === "verify" ? (
+            <div style={{ marginTop: "2rem", padding: "2rem", backgroundColor: "#eff6ff", borderRadius: "12px", border: "1px solid #bfdbfe" }}>
+              <h2 style={{ color: "#1e40af", marginTop: 0 }}>Check Your Email</h2>
+              <p style={{ color: "#1d4ed8" }}>
+                We sent a verification link to <strong>{email}</strong>.
               </p>
-              <p style={{ color: "#15803d" }}>
-                You will receive a confirmation email at <strong>{email}</strong> once your account has been deleted.
+              <p style={{ color: "#1d4ed8" }}>
+                Click the link in the email to sign in and confirm your identity. Once signed in, go to <strong>Account Security</strong> in the app to complete the deletion request.
               </p>
               <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "1.5rem" }}>
-                If you have any questions, contact us at{" "}
+                If you don't receive the email within a few minutes, check your spam folder or contact{" "}
                 <a href="mailto:support@torcapp.com" style={{ color: "#008CE5" }}>support@torcapp.com</a>.
               </p>
             </div>
@@ -128,32 +120,13 @@ export function AccountDeletion() {
 
                 <div style={{ marginBottom: "1.5rem" }}>
                   <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem", color: "#374151" }}>
-                    Account type
-                  </label>
-                  <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    style={{
-                      width: "100%", padding: "0.75rem 1rem", borderRadius: "8px",
-                      border: "1px solid #d1d5db", fontSize: "1rem",
-                      backgroundColor: "#fff", boxSizing: "border-box",
-                    }}
-                  >
-                    <option value="customer">Customer</option>
-                    <option value="provider">Service Provider</option>
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: "1.5rem" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem", color: "#374151" }}>
-                    Reason for deletion
+                    Reason for deletion <span style={{ color: "#9ca3af", fontWeight: 400 }}>(optional)</span>
                   </label>
                   <textarea
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    placeholder="Please briefly explain why you want to delete your account"
-                    rows={4}
-                    required
+                    placeholder="Optional: let us know why you're leaving"
+                    rows={3}
                     style={{
                       width: "100%", padding: "0.75rem 1rem", borderRadius: "8px",
                       border: "1px solid #d1d5db", fontSize: "1rem", resize: "vertical",

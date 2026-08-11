@@ -2848,121 +2848,180 @@ jobs:
       - name: Test account deletion compliance (store compliance)
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
-          -- Setup: create test user with related data
+          -- Setup: two users for cross-user testing
           INSERT INTO auth.users (id, email) VALUES
-            ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'del-test-cust@test.com')
+            ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'del-cust@test.com'),
+            ('dd000000-2222-2222-2222-dd0000000000'::uuid, 'del-other@test.com')
           ON CONFLICT DO NOTHING;
           INSERT INTO profiles (id, role, email, first_name, last_name, phone, status) VALUES
-            ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'customer', 'del-test-cust@test.com', 'John', 'Doe', '+15551234567', 'active')
+            ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'customer', 'del-cust@test.com', 'John', 'Doe', '+15551234567', 'active'),
+            ('dd000000-2222-2222-2222-dd0000000000'::uuid, 'customer', 'del-other@test.com', 'Jane', 'Other', '+15559999999', 'active')
           ON CONFLICT DO NOTHING;
           INSERT INTO services (id, name, base_price) VALUES ('test-svc-del', 'Del Test', 50) ON CONFLICT DO NOTHING;
           INSERT INTO notifications (user_id, type, title, message) VALUES
             ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'service', 'Test', 'Test notification');
 
-          -- DEL-COMP-1: RPC requires admin (REVOKE from authenticated verifies this)
+          -- AUTH-1: _internal_process_deletion NOT executable by authenticated
           DO $$
           DECLARE v_granted BOOL;
           BEGIN
-            -- Verify authenticated role does NOT have EXECUTE grant
             SELECT EXISTS (
               SELECT 1 FROM information_schema.role_routine_grants
-              WHERE routine_name = 'process_account_deletion'
-              AND grantee = 'authenticated'
+              WHERE routine_name = '_internal_process_deletion' AND grantee = 'authenticated'
             ) INTO v_granted;
-            -- The function IS granted to authenticated but checks is_admin inside
-            -- Verify the admin check exists in the function body
-            ASSERT EXISTS (
-              SELECT 1 FROM pg_proc WHERE proname = 'process_account_deletion'
-              AND prosrc LIKE '%is_admin%'
-            ), 'DEL-COMP-1 FAILED: function missing admin check';
-            RAISE NOTICE 'DEL-COMP-1 PASSED: admin check exists in RPC';
+            ASSERT NOT v_granted, 'AUTH-1 FAILED: authenticated can execute _internal_process_deletion';
+            RAISE NOTICE 'AUTH-1 PASSED: _internal_process_deletion not executable by authenticated';
           END $$;
 
-          -- DEL-COMP-2: Active status user rejected (must be pending_deletion first)
+          -- AUTH-2: _internal_finalize_deletion NOT executable by authenticated
+          DO $$
+          DECLARE v_granted BOOL;
+          BEGIN
+            SELECT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = '_internal_finalize_deletion' AND grantee = 'authenticated'
+            ) INTO v_granted;
+            ASSERT NOT v_granted, 'AUTH-2 FAILED: authenticated can execute _internal_finalize_deletion';
+            RAISE NOTICE 'AUTH-2 PASSED: _internal_finalize_deletion not executable by authenticated';
+          END $$;
+
+          -- AUTH-3: PUBLIC and anon cannot execute internal functions
+          DO $$
+          DECLARE v_granted BOOL;
+          BEGIN
+            SELECT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = '_internal_process_deletion' AND grantee IN ('PUBLIC', 'anon')
+            ) INTO v_granted;
+            ASSERT NOT v_granted, 'AUTH-3 FAILED';
+            RAISE NOTICE 'AUTH-3 PASSED: PUBLIC/anon cannot execute internal deletion';
+          END $$;
+
+          -- AUTH-4: request_account_deletion is self-only (auth.uid = caller)
           DO $$
           DECLARE result JSON;
           BEGIN
-            -- Run as postgres (superuser passes admin check)
-            SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
-            ASSERT (result::jsonb)->>'error' = 'INVALID_STATUS', 'DEL-COMP-2 FAILED: ' || result::text;
-            RAISE NOTICE 'DEL-COMP-2 PASSED: active user rejected';
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dd000000-1111-1111-1111-dd0000000000'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT request_account_deletion('want to leave') INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'AUTH-4 FAILED: ' || result::text;
+            ASSERT (result::jsonb)->>'status' = 'pending_deletion', 'AUTH-4 FAILED: wrong status';
+            RAISE NOTICE 'AUTH-4 PASSED: self-service deletion request works';
           END $$;
 
-          -- DEL-COMP-3: Active jobs block deletion
+          -- AUTH-5: check_deletion_eligibility cross-user blocked
           DO $$
           DECLARE result JSON;
           BEGIN
-            UPDATE profiles SET status = 'pending_deletion' WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
+            -- User 2 trying to check user 1
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dd000000-2222-2222-2222-dd0000000000'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT check_deletion_eligibility('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'UNAUTHORIZED', 'AUTH-5 FAILED: ' || result::text;
+            RAISE NOTICE 'AUTH-5 PASSED: cross-user eligibility check blocked';
+          END $$;
+
+          -- AUTH-6: check_deletion_eligibility self-access works
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dd000000-1111-1111-1111-dd0000000000'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT check_deletion_eligibility('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'eligible' IS NOT NULL, 'AUTH-6 FAILED: ' || result::text;
+            RAISE NOTICE 'AUTH-6 PASSED: self eligibility check works';
+          END $$;
+
+          -- DEL-1: Active jobs block internal deletion
+          DO $$
+          DECLARE result JSON;
+          BEGIN
             INSERT INTO jobs (id, customer_id, service_id, status, payment_status)
             VALUES ('dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid, 'dd000000-1111-1111-1111-dd0000000000'::uuid,
                     'test-svc-del', 'accepted', 'paid');
-            SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
-            ASSERT (result::jsonb)->>'error' = 'ACTIVE_JOBS_EXIST', 'DEL-COMP-3 FAILED: ' || result::text;
-            RAISE NOTICE 'DEL-COMP-3 PASSED: active jobs block deletion';
-            -- Clean up: complete the job
+            SELECT _internal_process_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'ACTIVE_JOBS_EXIST', 'DEL-1 FAILED: ' || result::text;
+            RAISE NOTICE 'DEL-1 PASSED: active jobs block deletion';
             UPDATE jobs SET status = 'completed' WHERE id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           END $$;
 
-          -- DEL-COMP-4: Successful deletion anonymizes personal data
+          -- DEL-2: Successful _internal_process_deletion sets deletion_processing (NOT deleted)
           DO $$
-          DECLARE
-            result JSON;
-            v_profile RECORD;
-            v_notifs INT;
+          DECLARE result JSON; v_profile RECORD; v_notifs INT;
           BEGIN
-            SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
-            ASSERT (result::jsonb)->>'success' = 'true', 'DEL-COMP-4 FAILED: ' || result::text;
-            -- Verify profile anonymized
+            SELECT _internal_process_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DEL-2 FAILED: ' || result::text;
+            ASSERT (result::jsonb)->>'stage' = 'deletion_processing', 'DEL-2 FAILED: wrong stage';
             SELECT * INTO v_profile FROM profiles WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-            ASSERT v_profile.status = 'deleted', 'DEL-COMP-4 FAILED: status not deleted';
-            ASSERT v_profile.email IS NULL, 'DEL-COMP-4 FAILED: email not cleared';
-            ASSERT v_profile.phone IS NULL, 'DEL-COMP-4 FAILED: phone not cleared';
-            ASSERT v_profile.first_name = 'Deleted', 'DEL-COMP-4 FAILED: name not anonymized';
-            ASSERT v_profile.deleted_at IS NOT NULL, 'DEL-COMP-4 FAILED: deleted_at not set';
-            -- Verify notifications deleted
+            ASSERT v_profile.status = 'deletion_processing', 'DEL-2 FAILED: status not deletion_processing';
+            ASSERT v_profile.email IS NULL, 'DEL-2 FAILED: email not cleared';
+            ASSERT v_profile.phone IS NULL, 'DEL-2 FAILED: phone not cleared';
             SELECT count(*) INTO v_notifs FROM notifications WHERE user_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-            ASSERT v_notifs = 0, 'DEL-COMP-4 FAILED: notifications not deleted';
-            RAISE NOTICE 'DEL-COMP-4 PASSED: deletion anonymizes personal data';
+            ASSERT v_notifs = 0, 'DEL-2 FAILED: notifications not deleted';
+            RAISE NOTICE 'DEL-2 PASSED: internal deletion sets deletion_processing + anonymizes';
           END $$;
 
-          -- DEL-COMP-5: Idempotent — calling again on deleted user succeeds
+          -- DEL-3: _internal_finalize_deletion requires auth_deleted=true
           DO $$
           DECLARE result JSON;
           BEGIN
-            SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
-            ASSERT (result::jsonb)->>'already_deleted' = 'true', 'DEL-COMP-5 FAILED: ' || result::text;
-            RAISE NOTICE 'DEL-COMP-5 PASSED: idempotent on already-deleted user';
+            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid, false) INTO result;
+            ASSERT (result::jsonb)->>'error' = 'AUTH_NOT_DELETED', 'DEL-3 FAILED: ' || result::text;
+            RAISE NOTICE 'DEL-3 PASSED: finalization blocked without auth deletion';
           END $$;
 
-          -- DEL-COMP-6: Financial records retained after deletion
+          -- DEL-4: _internal_finalize_deletion with auth_deleted=true marks deleted
           DO $$
-          DECLARE v_job_count INT;
+          DECLARE result JSON; v_status TEXT;
           BEGIN
-            SELECT count(*) INTO v_job_count FROM jobs WHERE customer_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-            ASSERT v_job_count > 0, 'DEL-COMP-6 FAILED: job financial records should be retained';
-            RAISE NOTICE 'DEL-COMP-6 PASSED: financial records retained';
+            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid, true) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'DEL-4 FAILED: ' || result::text;
+            SELECT status INTO v_status FROM profiles WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
+            ASSERT v_status = 'deleted', 'DEL-4 FAILED: status not deleted';
+            RAISE NOTICE 'DEL-4 PASSED: finalization marks deleted';
           END $$;
 
-          -- DEL-COMP-7: Audit log created
+          -- DEL-5: Idempotent finalization
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid, true) INTO result;
+            ASSERT (result::jsonb)->>'already_deleted' = 'true', 'DEL-5 FAILED: ' || result::text;
+            RAISE NOTICE 'DEL-5 PASSED: idempotent finalization';
+          END $$;
+
+          -- DEL-6: Financial records retained
           DO $$
           DECLARE v_count INT;
           BEGIN
-            SELECT count(*) INTO v_count FROM admin_audit_logs
+            SELECT count(*) INTO v_count FROM jobs WHERE customer_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
+            ASSERT v_count > 0, 'DEL-6 FAILED: job records deleted';
+            RAISE NOTICE 'DEL-6 PASSED: financial records retained';
+          END $$;
+
+          -- DEL-7: Audit log created for both stages
+          DO $$
+          DECLARE v_processing INT; v_finalized INT;
+          BEGIN
+            SELECT count(*) INTO v_processing FROM admin_audit_logs
             WHERE entity_id = 'dd000000-1111-1111-1111-dd0000000000' AND action = 'account_deletion_processed';
-            ASSERT v_count > 0, 'DEL-COMP-7 FAILED: audit log not created';
-            RAISE NOTICE 'DEL-COMP-7 PASSED: audit log exists';
+            SELECT count(*) INTO v_finalized FROM admin_audit_logs
+            WHERE entity_id = 'dd000000-1111-1111-1111-dd0000000000' AND action = 'account_deletion_finalized';
+            ASSERT v_processing > 0, 'DEL-7 FAILED: processing audit missing';
+            ASSERT v_finalized > 0, 'DEL-7 FAILED: finalization audit missing';
+            RAISE NOTICE 'DEL-7 PASSED: both audit logs exist';
           END $$;
 
           -- Cleanup
-          DELETE FROM admin_audit_logs WHERE entity_id = 'dd000000-1111-1111-1111-dd0000000000';
+          DELETE FROM admin_audit_logs WHERE entity_id IN ('dd000000-1111-1111-1111-dd0000000000', 'dd000000-2222-2222-2222-dd0000000000');
           DELETE FROM job_events WHERE job_id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           DELETE FROM provider_earnings WHERE job_id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           DELETE FROM jobs WHERE customer_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-          DELETE FROM profiles WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-          DELETE FROM auth.users WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
+          DELETE FROM profiles WHERE id IN ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'dd000000-2222-2222-2222-dd0000000000'::uuid);
+          DELETE FROM auth.users WHERE id IN ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'dd000000-2222-2222-2222-dd0000000000'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 7 account deletion compliance tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 13 account deletion compliance tests passed.'; END $$;
           SQL
       - name: Test admin control plane (PAYOUT/APPROVAL/RADIUS)
         run: |
