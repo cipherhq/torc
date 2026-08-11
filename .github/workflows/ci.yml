@@ -2958,7 +2958,6 @@ jobs:
           DELETE FROM job_events WHERE job_id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           DELETE FROM provider_earnings WHERE job_id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           DELETE FROM jobs WHERE customer_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
-          DELETE FROM support_tickets WHERE requester_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
           DELETE FROM profiles WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
           DELETE FROM auth.users WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
