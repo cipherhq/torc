@@ -222,9 +222,13 @@ export function ProviderEarnings() {
 
   // Per-job breakdown — finalized from ledger, estimated for active jobs
   const jobLedgerMap = useMemo(() => {
-    const map = new Map<string, { base: number; tip: number; compensation: number; commission: number; net: number }>();
+    const map = new Map<string, {
+      base: number; tip: number;
+      compGross: number; compFee: number; compNet: number;
+      commission: number; net: number;
+    }>();
     ledgerEntries.forEach((e: any) => {
-      const cur = map.get(e.job_id) || { base: 0, tip: 0, compensation: 0, commission: 0, net: 0 };
+      const cur = map.get(e.job_id) || { base: 0, tip: 0, compGross: 0, compFee: 0, compNet: 0, commission: 0, net: 0 };
       if (e.entry_type === 'service_earning') {
         cur.base += Number(e.base_earnings || 0);
         cur.commission += Number(e.platform_fee || 0);
@@ -233,7 +237,10 @@ export function ProviderEarnings() {
         cur.tip += Number(e.provider_net || 0);
         cur.net += Number(e.provider_net || 0);
       } else if (e.entry_type === 'cancellation_compensation') {
-        cur.compensation += Number(e.provider_net || 0);
+        cur.compGross += Number(e.base_earnings || 0);
+        cur.compFee += Number(e.platform_fee || 0);
+        cur.compNet += Number(e.provider_net || 0);
+        cur.commission += Number(e.platform_fee || 0);
         cur.net += Number(e.provider_net || 0);
       }
       map.set(e.job_id, cur);
@@ -250,6 +257,9 @@ export function ProviderEarnings() {
       const tip = isFinalized ? ledger.tip : (Number(j.tip) || 0);
       const commission = isFinalized ? ledger.commission : (base * (commissionPct / 100));
       const net = isFinalized ? ledger.net : (base - commission + tip);
+      const compGross = isFinalized ? (ledger.compGross || 0) : 0;
+      const compFee = isFinalized ? (ledger.compFee || 0) : 0;
+      const compNet = isFinalized ? (ledger.compNet || 0) : 0;
       return {
         id: j.id,
         service: j.service?.name || 'Service',
@@ -259,6 +269,9 @@ export function ProviderEarnings() {
         basePrice: base,
         tip,
         commission,
+        compGross,
+        compFee,
+        compNet,
         net,
         status: j.status,
         paymentStatus: j.payment_status,
@@ -684,14 +697,27 @@ export function ProviderEarnings() {
                           <div className="rounded-xl p-3 space-y-2"
                             style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB' }}
                           >
+                            {/* Service earnings (if any) */}
+                            {job.basePrice > 0 && (
                             <div className="flex justify-between text-sm">
-                              <span style={{ color: textSecondary }}>Base price</span>
+                              <span style={{ color: textSecondary }}>Service earnings</span>
                               <span style={{ color: textPrimary }}>${fmt(job.basePrice)}</span>
                             </div>
+                            )}
+                            {/* Cancellation compensation (if any) */}
+                            {job.compGross > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span style={{ color: textSecondary }}>Cancellation compensation</span>
+                              <span style={{ color: '#F59E0B' }}>${fmt(job.compGross)}</span>
+                            </div>
+                            )}
+                            {/* Platform fees — from service and/or compensation */}
+                            {(job.commission > 0 || isEstimated) && (
                             <div className="flex justify-between text-sm">
                               <span style={{ color: textSecondary }}>{isEstimated ? `Platform fee (est. ${commissionPct}%)` : 'Platform fees'}</span>
                               <span className="text-red-500">−${fmt(job.commission)}</span>
                             </div>
+                            )}
                             {job.tip > 0 && (
                               <div className="flex justify-between text-sm">
                                 <span style={{ color: textSecondary }}>Tip</span>

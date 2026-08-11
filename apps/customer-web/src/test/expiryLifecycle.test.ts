@@ -2387,3 +2387,62 @@ describe('Tip SCA return URL', () => {
     expect(src).not.toContain('off_session');
   });
 });
+
+// =============================================================================
+// Per-job cancellation compensation breakdown
+// =============================================================================
+
+describe('Per-job cancellation compensation breakdown', () => {
+  const earningsPath = path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/Earnings.tsx');
+
+  it('jobLedgerMap tracks compGross, compFee, compNet for cancellation_compensation', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    const mapSection = src.slice(src.indexOf('jobLedgerMap'), src.indexOf('recentJobsDetailed'));
+    expect(mapSection).toContain('compGross');
+    expect(mapSection).toContain('compFee');
+    expect(mapSection).toContain('compNet');
+  });
+
+  it('cancellation_compensation adds base_earnings to compGross', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    const mapSection = src.slice(src.indexOf('jobLedgerMap'), src.indexOf('recentJobsDetailed'));
+    const compBlock = mapSection.slice(mapSection.indexOf("'cancellation_compensation'"));
+    expect(compBlock).toContain("cur.compGross += Number(e.base_earnings");
+  });
+
+  it('cancellation_compensation adds platform_fee to both compFee and commission', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    const mapSection = src.slice(src.indexOf('jobLedgerMap'), src.indexOf('recentJobsDetailed'));
+    const compBlock = mapSection.slice(mapSection.indexOf("'cancellation_compensation'"));
+    expect(compBlock).toContain("cur.compFee += Number(e.platform_fee");
+    expect(compBlock).toContain("cur.commission += Number(e.platform_fee");
+  });
+
+  it('recentJobsDetailed exposes compGross, compFee, compNet', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    const detailSection = src.slice(src.indexOf('recentJobsDetailed'), src.indexOf('payoutHistory'));
+    expect(detailSection).toContain('compGross');
+    expect(detailSection).toContain('compFee');
+    expect(detailSection).toContain('compNet');
+  });
+
+  it('expanded UI shows Cancellation compensation label for compGross > 0', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("job.compGross > 0");
+    expect(src).toContain("Cancellation compensation");
+    expect(src).toContain("fmt(job.compGross)");
+  });
+
+  it('expanded UI does NOT show Base price $0 for compensation-only jobs', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    // Service earnings line only renders when basePrice > 0
+    expect(src).toContain("job.basePrice > 0");
+    // Does NOT unconditionally render "Base price"
+    expect(src).not.toContain('>Base price<');
+  });
+
+  it('platform fees line renders when commission > 0 or estimated', () => {
+    const src = fs.readFileSync(earningsPath, 'utf-8');
+    expect(src).toContain("job.commission > 0 || isEstimated");
+  });
+});
