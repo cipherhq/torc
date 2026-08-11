@@ -291,7 +291,10 @@ export function AccountSecurity() {
             <h2 className="font-semibold" style={{ color: textColor }}>Request Account Deletion</h2>
           </div>
           <p className="text-sm" style={{ color: subColor }}>
-            Submit a request to permanently close your account. Our team will verify ownership before deletion.
+            Request permanent deletion of your account and personal data. Our team will verify your identity and check for any active jobs or pending payouts before processing.
+          </p>
+          <p className="text-xs" style={{ color: subColor, opacity: 0.7 }}>
+            Financial records may be retained in anonymized form as required by law.
           </p>
           <textarea
             value={deleteReason}
