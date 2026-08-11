@@ -2859,21 +2859,26 @@ jobs:
           INSERT INTO notifications (user_id, type, title, message) VALUES
             ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'service', 'Test', 'Test notification');
 
-          -- DEL-COMP-1: Non-admin cannot call process_account_deletion
+          -- DEL-COMP-1: Non-admin authenticated user cannot call process_account_deletion
           DO $$
           DECLARE result JSON;
           BEGIN
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dd000000-1111-1111-1111-dd0000000000'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
-            SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
-            ASSERT (result::jsonb)->>'error' = 'ADMIN_REQUIRED', 'DEL-COMP-1 FAILED: ' || result::text;
-            RAISE NOTICE 'DEL-COMP-1 PASSED: non-admin rejected';
+            BEGIN
+              SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
+              ASSERT (result::jsonb)->>'error' = 'ADMIN_REQUIRED', 'DEL-COMP-1 FAILED: ' || result::text;
+              RAISE NOTICE 'DEL-COMP-1 PASSED: non-admin rejected';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'DEL-COMP-1 PASSED: non-admin denied by RLS/permission';
+            END;
           END $$;
 
           -- DEL-COMP-2: Active status user rejected (must be pending_deletion first)
           DO $$
           DECLARE result JSON;
           BEGIN
+            -- Run as postgres (superuser passes admin check)
             SELECT process_account_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
             ASSERT (result::jsonb)->>'error' = 'INVALID_STATUS', 'DEL-COMP-2 FAILED: ' || result::text;
             RAISE NOTICE 'DEL-COMP-2 PASSED: active user rejected';
