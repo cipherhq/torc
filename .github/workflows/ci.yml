@@ -2961,33 +2961,93 @@ jobs:
             RAISE NOTICE 'DEL-2 PASSED: internal deletion sets deletion_processing + anonymizes';
           END $$;
 
-          -- DEL-3: _internal_finalize_deletion requires auth_deleted=true
+          -- DEL-3: finalizer rejects when auth.users still exists
           DO $$
           DECLARE result JSON;
           BEGIN
-            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid, false) INTO result;
+            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
             ASSERT (result::jsonb)->>'error' = 'AUTH_NOT_DELETED', 'DEL-3 FAILED: ' || result::text;
-            RAISE NOTICE 'DEL-3 PASSED: finalization blocked without auth deletion';
+            RAISE NOTICE 'DEL-3 PASSED: finalizer refuses while auth.users exists';
           END $$;
 
-          -- DEL-4: _internal_finalize_deletion with auth_deleted=true marks deleted
+          -- DEL-4: after auth.users deletion, finalizer marks deleted
           DO $$
           DECLARE result JSON; v_status TEXT;
           BEGIN
-            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid, true) INTO result;
+            -- Simulate auth.users deletion (remove the row)
+            DELETE FROM auth.users WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
+            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
             ASSERT (result::jsonb)->>'success' = 'true', 'DEL-4 FAILED: ' || result::text;
             SELECT status INTO v_status FROM profiles WHERE id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
             ASSERT v_status = 'deleted', 'DEL-4 FAILED: status not deleted';
-            RAISE NOTICE 'DEL-4 PASSED: finalization marks deleted';
+            RAISE NOTICE 'DEL-4 PASSED: finalizer marks deleted after auth removal';
           END $$;
 
           -- DEL-5: Idempotent finalization
           DO $$
           DECLARE result JSON;
           BEGIN
-            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid, true) INTO result;
+            SELECT _internal_finalize_deletion('dd000000-1111-1111-1111-dd0000000000'::uuid) INTO result;
             ASSERT (result::jsonb)->>'already_deleted' = 'true', 'DEL-5 FAILED: ' || result::text;
             RAISE NOTICE 'DEL-5 PASSED: idempotent finalization';
+          END $$;
+
+          -- ROLE-1: authenticated cannot call _internal_process_deletion
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              PERFORM _internal_process_deletion('dd000000-2222-2222-2222-dd0000000000'::uuid);
+              RAISE EXCEPTION 'ROLE-1 FAILED: authenticated should not execute';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'ROLE-1 PASSED: authenticated denied _internal_process_deletion';
+            END;
+          END $$;
+
+          -- ROLE-2: authenticated cannot call _internal_finalize_deletion
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'authenticated';
+            BEGIN
+              PERFORM _internal_finalize_deletion('dd000000-2222-2222-2222-dd0000000000'::uuid);
+              RAISE EXCEPTION 'ROLE-2 FAILED: authenticated should not execute';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'ROLE-2 PASSED: authenticated denied _internal_finalize_deletion';
+            END;
+          END $$;
+
+          -- ROLE-3: anon cannot call internal functions
+          DO $$
+          BEGIN
+            SET LOCAL role TO 'anon';
+            BEGIN
+              PERFORM _internal_process_deletion('dd000000-2222-2222-2222-dd0000000000'::uuid);
+              RAISE EXCEPTION 'ROLE-3 FAILED';
+            EXCEPTION WHEN insufficient_privilege THEN
+              RAISE NOTICE 'ROLE-3 PASSED: anon denied internal deletion';
+            END;
+          END $$;
+
+          -- ROLE-4: service_role can call _internal_process_deletion
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            SET LOCAL role TO 'service_role';
+            SELECT _internal_process_deletion('dd000000-2222-2222-2222-dd0000000000'::uuid) INTO result;
+            -- Should fail with INVALID_STATUS (user is active, not pending_deletion) but NOT permission denied
+            ASSERT (result::jsonb)->>'error' = 'INVALID_STATUS', 'ROLE-4 FAILED: service_role should be able to call: ' || result::text;
+            RAISE NOTICE 'ROLE-4 PASSED: service_role can execute _internal_process_deletion';
+          END $$;
+
+          -- ROLE-5: request_account_deletion works for authenticated self
+          DO $$
+          DECLARE result JSON;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'dd000000-2222-2222-2222-dd0000000000'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT request_account_deletion(NULL) INTO result;
+            ASSERT (result::jsonb)->>'success' = 'true', 'ROLE-5 FAILED: ' || result::text;
+            RAISE NOTICE 'ROLE-5 PASSED: authenticated self can request deletion';
           END $$;
 
           -- DEL-6: Financial records retained
@@ -3012,16 +3072,17 @@ jobs:
             RAISE NOTICE 'DEL-7 PASSED: both audit logs exist';
           END $$;
 
-          -- Cleanup
+          -- Cleanup (auth.users for user 1 already deleted by DEL-4)
           DELETE FROM admin_audit_logs WHERE entity_id IN ('dd000000-1111-1111-1111-dd0000000000', 'dd000000-2222-2222-2222-dd0000000000');
           DELETE FROM job_events WHERE job_id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           DELETE FROM provider_earnings WHERE job_id = 'dd000000-aaaa-aaaa-aaaa-dd0000000000'::uuid;
           DELETE FROM jobs WHERE customer_id = 'dd000000-1111-1111-1111-dd0000000000'::uuid;
+          DELETE FROM notifications WHERE user_id IN ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'dd000000-2222-2222-2222-dd0000000000'::uuid);
           DELETE FROM profiles WHERE id IN ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'dd000000-2222-2222-2222-dd0000000000'::uuid);
           DELETE FROM auth.users WHERE id IN ('dd000000-1111-1111-1111-dd0000000000'::uuid, 'dd000000-2222-2222-2222-dd0000000000'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 13 account deletion compliance tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 18 account deletion compliance tests passed.'; END $$;
           SQL
       - name: Test admin control plane (PAYOUT/APPROVAL/RADIUS)
         run: |
@@ -3772,3 +3833,5 @@ jobs:
         run: deno check supabase/functions/create-tip-intent/index.ts
       - name: Check process-cancellation-refunds compiles
         run: deno check supabase/functions/process-cancellation-refunds/index.ts
+      - name: Check process-account-deletion compiles
+        run: deno check supabase/functions/process-account-deletion/index.ts

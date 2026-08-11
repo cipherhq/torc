@@ -1,15 +1,17 @@
 # Account Deletion Runbook (Store Compliance)
 
-Use this process for customer/provider deletion requests submitted from:
-- **In-app**: Account Security (customer and provider apps)
-- **Web**: https://www.torcapp.com/account-deletion
+## Deletion Entry Points
 
-## Where requests come from
+- **In-app** (customer/provider): Account Security → "Request Account Deletion"
+  - Calls `request_account_deletion(p_reason)` RPC
+  - Sets `profiles.status = 'pending_deletion'`
+  - Creates a support ticket automatically
+  - Signs user out
 
-- Customer app: `apps/customer-web/src/pages/customer/AccountSecurity.tsx`
-- Provider app: `apps/provider-web/src/pages/provider/AccountSecurity.tsx`
-- Website: `apps/website/src/pages/AccountDeletion.jsx`
-- All stored as `support_tickets` rows with `subject LIKE 'Account deletion request%'`
+- **Website**: https://www.torcapp.com/account-deletion
+  - User enters email → receives magic link → verifies identity
+  - After verification, calls `request_account_deletion(p_reason)` RPC
+  - Same effect as in-app request
 
 ## Lifecycle
 
@@ -17,123 +19,99 @@ Use this process for customer/provider deletion requests submitted from:
 active → pending_deletion → deletion_processing → deleted
 ```
 
-- `pending_deletion`: User initiated request. Cannot create/accept new jobs.
-- `deletion_processing`: Admin triggered server-side deletion RPC. In progress.
-- `deleted`: Personal data removed/anonymized. Financial records retained anonymized.
+| Status | Meaning |
+|--------|---------|
+| `pending_deletion` | User requested deletion. Cannot create/accept jobs. Awaiting admin processing. |
+| `deletion_processing` | DB anonymization complete. Auth user deletion pending. |
+| `deleted` | Fully deleted. Auth user removed. Personal data anonymized. |
 
-## 1. Find open deletion requests
-
-```sql
-select id, requester_id, requester_role, subject, description, status, priority, created_at
-from support_tickets
-where subject like 'Account deletion request%'
-  and status in ('open', 'in_progress')
-order by created_at asc;
-```
-
-## 2. Verify requester identity
-
-- Email on ticket matches auth/profile email
-- For in-app requests: `requester_id` is the authenticated user
-- For web requests: verify email ownership before proceeding
-- If uncertain: require email verification reply
-
-## 3. Check eligibility
-
-Run the eligibility check before processing:
+## 1. Find pending deletion requests
 
 ```sql
-select process_account_deletion('<REQUESTER_USER_ID>'::uuid);
+SELECT id, email, role, status, deleted_at
+FROM profiles
+WHERE status = 'pending_deletion'
+ORDER BY deleted_at ASC;
 ```
 
-The RPC will fail closed if:
-- User has active (non-completed/cancelled) jobs
-- User has pending refunds
-- Provider has pending/processing payouts
-
-Resolve blockers before retrying.
-
-## 4. Process deletion (server-authoritative)
-
-The `process_account_deletion` RPC handles everything atomically:
-
-```sql
-select process_account_deletion('<REQUESTER_USER_ID>'::uuid);
-```
-
-This performs:
-
-### Category A — DELETE (personal data removed)
-- Device tokens
-- Notifications and push delivery records
-- Provider GPS locations
-- Saved payment methods and Stripe customer mapping
-- Vehicles
-- Provider payout method details (bank/PayPal/Venmo)
-- Provider job dismissals
-
-### Category B — ANONYMIZE (records retained with personal data removed)
-- Profile: name → "Deleted User", email/phone → NULL
-- Provider profile: vehicle info, license, avatar → NULL
-- Jobs: addresses, requester name/phone, notes → NULL
-- Checkouts: booking snapshot personal fields removed
-- Chat messages: sender name anonymized, message → "[deleted]"
-- Support tickets: description → "[account deleted]"
-
-### Category C — RETAIN (financial/audit records kept for legal compliance)
-- provider_earnings (amounts, commission snapshots)
-- provider_payouts (payout amounts and status)
-- job_cancellation_operations (refund amounts, Stripe references)
-- job_tips (tip amounts, payment references)
-- checkouts (financial amounts — personal fields anonymized)
-- refunds (amounts and status)
-- job_events / job_status_audit (audit trail)
-- admin_audit_logs
-- payment_attempts / processed_webhook_events
-
-### Category D — REVIEW REQUIRED (needs business/legal decision)
-- `auth.users` deletion timing (REVIEW REQUIRED — no grace period invented)
-- Provider uploaded documents in storage (REVIEW REQUIRED — retention policy needed)
-- Job photos in storage (REVIEW REQUIRED — retention policy needed)
-- Financial record retention duration (REVIEW REQUIRED — business/legal decision)
-- Stripe external customer/payment-method cleanup timing (REVIEW REQUIRED)
-
-## 5. Post-deletion: auth.users removal
-
-After DB anonymization (`deletion_processing`), the `auth.users` row must be deleted via Supabase Admin API from trusted server code:
+## 2. Process deletion via Edge Function (preferred)
 
 ```bash
-# Via Supabase Admin API — NEVER from browser
-curl -X DELETE "https://<project>.supabase.co/auth/v1/admin/users/<USER_ID>" \
-  -H "Authorization: Bearer <SERVICE_ROLE_KEY>" \
-  -H "apikey: <ANON_KEY>"
+curl -X POST "${SUPABASE_URL}/functions/v1/process-account-deletion" \
+  -H "Content-Type: application/json" \
+  -H "x-torc-cron-secret: ${CRON_SECRET}" \
+  -d '{"user_id": "<USER_ID>"}'
 ```
 
-Then call `_internal_finalize_deletion(user_id, true)` to mark final `deleted` status.
+The Edge Function performs three steps atomically:
 
-If auth deletion fails (timeout/5xx), keep `deletion_processing` and retry.
+1. **`_internal_process_deletion(user_id)`** — DB anonymization
+   - Deletes: device tokens, notifications, push records, GPS locations, payment methods, Stripe mapping, vehicles, payout methods
+   - Anonymizes: profile fields, provider profile, job addresses, checkout snapshots, chat messages, support tickets
+   - Retains: financial records (earnings, payouts, refunds, tips, cancellation ops, audit logs)
+   - Sets status: `deletion_processing`
 
-**REVIEW REQUIRED**: Determine whether any grace period before auth deletion is needed. No period has been established — this is a business/legal decision.
+2. **Supabase Admin Auth DELETE** — removes auth.users row
+   - On 404 (already absent): treats as success
+   - On timeout/5xx: returns error, stays `deletion_processing`, retryable
 
-## 6. Post-deletion: storage cleanup
+3. **`_internal_finalize_deletion(user_id)`** — marks `deleted`
+   - Independently verifies auth.users row is absent (not caller-trusted)
+   - Only sets `deleted` if auth row is actually gone
+   - Creates finalization audit log
 
-**REVIEW REQUIRED**: Determine retention policy for uploaded files. No retention periods have been established:
+## 3. Manual fallback (admin SQL)
 
-- Provider documents: `provider-documents/<provider_id>/`
-- Job photos: `job-photos/<job_id>/`
+If the Edge Function is unavailable:
 
-## 7. Audit trail
-
-Deletion creates an `admin_audit_logs` entry automatically:
 ```sql
-select * from admin_audit_logs
-where entity_id = '<USER_ID>' and action = 'account_deletion_processed';
+-- Step 1: DB anonymization
+SELECT _internal_process_deletion('<USER_ID>'::uuid);
+
+-- Step 2: Delete auth user via Admin API
+-- curl -X DELETE "${SUPABASE_URL}/auth/v1/admin/users/<USER_ID>" \
+--   -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
+--   -H "apikey: ${SERVICE_ROLE_KEY}"
+
+-- Step 3: Finalize (verifies auth.users absent)
+SELECT _internal_finalize_deletion('<USER_ID>'::uuid);
 ```
 
-## Notes
+## 4. Retry on failure
 
-- The `process_account_deletion` RPC is idempotent — safe to retry.
-- Only admin or service_role can execute it.
-- The RPC closes any open deletion support tickets automatically.
-- `auth.users` deletion requires a separate privileged step (Supabase Admin API).
-- Items marked REVIEW REQUIRED need business/legal policy decisions.
+- If auth deletion fails: profile stays `deletion_processing`. Re-run the Edge Function.
+- If auth user already deleted on retry: step 2 returns 404, treated as success.
+- If DB work already done on retry: `_internal_process_deletion` returns `stage: deletion_processing`.
+- If already fully deleted: returns `already_deleted: true`.
+
+## 5. Audit verification
+
+```sql
+SELECT * FROM admin_audit_logs
+WHERE entity_id = '<USER_ID>'
+  AND action IN ('account_deletion_processed', 'account_deletion_finalized')
+ORDER BY created_at;
+```
+
+## Authorization Model
+
+| Function | Who can call |
+|----------|-------------|
+| `request_account_deletion(reason)` | Authenticated user (self only via auth.uid) |
+| `check_deletion_eligibility(user_id)` | Self or admin |
+| `_internal_process_deletion(user_id)` | Service role only |
+| `_internal_finalize_deletion(user_id)` | Service role only |
+
+## Retention — REVIEW REQUIRED
+
+The following require business/legal policy decisions:
+
+| Category | Status |
+|----------|--------|
+| Auth deletion timing | REVIEW REQUIRED |
+| Provider document storage retention | REVIEW REQUIRED |
+| Job photo storage retention | REVIEW REQUIRED |
+| Financial record retention duration | REVIEW REQUIRED |
+| Stripe customer/payment-method cleanup | REVIEW REQUIRED |
+
+Records may be retained for legitimate legal, accounting, fraud, payment, dispute, security, or audit purposes. Exact durations are business/legal decisions not yet established.

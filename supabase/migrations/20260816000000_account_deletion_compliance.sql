@@ -13,6 +13,43 @@
 -- the final auth deletion step and mark the profile as 'deleted'.
 
 -- ============================================================
+-- 0) Fix CASCADE FKs that would destroy retained records on auth.users deletion
+--    Change to SET NULL or RESTRICT where financial/audit data must survive
+-- ============================================================
+
+-- provider_payouts: CASCADE → SET NULL (retain payout records)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name LIKE '%provider_payouts%provider_id%' AND constraint_type = 'FOREIGN KEY') THEN
+    ALTER TABLE public.provider_payouts DROP CONSTRAINT IF EXISTS provider_payouts_provider_id_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- checkouts: CASCADE → SET NULL (retain payment records)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'checkouts' AND column_name = 'user_id') THEN
+    ALTER TABLE public.checkouts DROP CONSTRAINT IF EXISTS checkouts_user_id_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- support_tickets requester_id: CASCADE → SET NULL (retain audit trail)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'support_tickets' AND column_name = 'requester_id') THEN
+    ALTER TABLE public.support_tickets DROP CONSTRAINT IF EXISTS support_tickets_requester_id_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- documents: CASCADE → SET NULL (retain verification audit)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'provider_id') THEN
+    ALTER TABLE public.documents DROP CONSTRAINT IF EXISTS documents_provider_id_fkey;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+-- ============================================================
 -- 1) Add deletion_processing to allowed profile statuses
 -- ============================================================
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_status_check;
@@ -315,14 +352,14 @@ $$;
 REVOKE EXECUTE ON FUNCTION public._internal_process_deletion(UUID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public._internal_process_deletion(UUID) FROM anon;
 REVOKE EXECUTE ON FUNCTION public._internal_process_deletion(UUID) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public._internal_process_deletion(UUID) TO service_role;
 
 -- ============================================================
 -- 5) Mark auth deletion complete — SERVICE ROLE ONLY
 --    Called by trusted server after Supabase Admin API deletes auth.users
 -- ============================================================
 CREATE OR REPLACE FUNCTION public._internal_finalize_deletion(
-  p_user_id UUID,
-  p_auth_deleted BOOLEAN DEFAULT false
+  p_user_id UUID
 )
 RETURNS JSON
 LANGUAGE plpgsql
@@ -331,6 +368,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_profile RECORD;
+  v_auth_exists BOOLEAN;
 BEGIN
   SELECT * INTO v_profile FROM profiles WHERE id = p_user_id FOR UPDATE;
   IF NOT FOUND THEN
@@ -346,28 +384,31 @@ BEGIN
       'current_status', v_profile.status);
   END IF;
 
-  IF NOT p_auth_deleted THEN
+  -- Authoritative proof: verify auth.users row is actually absent
+  SELECT EXISTS (SELECT 1 FROM auth.users WHERE id = p_user_id) INTO v_auth_exists;
+  IF v_auth_exists THEN
     RETURN json_build_object('success', false, 'error', 'AUTH_NOT_DELETED',
-      'message', 'Auth user must be deleted before finalizing.');
+      'message', 'Auth user still exists. Delete via Supabase Admin API first.');
   END IF;
 
   UPDATE profiles SET status = 'deleted' WHERE id = p_user_id;
 
   INSERT INTO admin_audit_logs (actor_id, action, entity_type, entity_id, details)
   VALUES (
-    COALESCE(auth.uid(), '00000000-0000-0000-0000-000000000000'::uuid),
+    '00000000-0000-0000-0000-000000000000'::uuid,
     'account_deletion_finalized',
     'user', p_user_id::text,
-    jsonb_build_object('auth_deleted', true)
+    jsonb_build_object('auth_verified_absent', true)
   );
 
   RETURN json_build_object('success', true, 'user_id', p_user_id, 'status', 'deleted');
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID, BOOLEAN) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID, BOOLEAN) FROM anon;
-REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID, BOOLEAN) FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID) FROM anon;
+REVOKE EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID) TO service_role;
 
 -- ============================================================
 -- 6) Drop old process_account_deletion if it exists

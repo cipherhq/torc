@@ -1408,57 +1408,28 @@ describe('Account deletion lifecycle (DEL-001)', () => {
     expect(src).toContain('profiles_status_check');
   });
 
-  it('customer deletion verifies row was updated and checks error', () => {
+  it('customer deletion uses RPC and handles errors', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
     );
-    // Must check database error
-    expect(src).toContain('if (statusError) throw statusError');
-    // Must verify returned row (zero-row protection)
-    expect(src).toContain('if (!updatedProfile)');
-    // Must use .select() to get returned data
-    expect(src).toContain(".select('id')");
-    // All checks before success message
-    const zeroRowCheck = src.indexOf('if (!updatedProfile)');
-    const successMsg = src.indexOf('pending review');
-    expect(zeroRowCheck).toBeLessThan(successMsg);
-  });
-
-  it('provider deletion verifies row was updated and checks error', () => {
-    const src = fs.readFileSync(
-      path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
-    );
-    expect(src).toContain('if (statusError) throw statusError');
-    expect(src).toContain('if (!updatedProfile)');
-    expect(src).toContain(".select('id')");
-    const zeroRowCheck = src.indexOf('if (!updatedProfile)');
-    const successMsg = src.indexOf('pending review');
-    expect(zeroRowCheck).toBeLessThan(successMsg);
-  });
-
-  it('customer deletion: database error prevents success and signout', () => {
-    const src = fs.readFileSync(
-      path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8'
-    );
-    // statusError throw is inside try block, catch sets error message
-    expect(src).toContain('throw statusError');
+    expect(src).toContain("supabase.rpc('request_account_deletion'");
     expect(src).toContain('setDeleteError');
-    // signOut is only reachable after success message
-    const throwLine = src.indexOf('throw statusError');
+    const rpcCall = src.indexOf('request_account_deletion');
     const signOut = src.indexOf('signOut');
     const successLine = src.indexOf('pending review');
-    expect(throwLine).toBeLessThan(successLine);
+    expect(rpcCall).toBeLessThan(successLine);
     expect(successLine).toBeLessThan(signOut);
   });
 
-  it('provider deletion: zero-row update prevents success and signout', () => {
+  it('provider deletion uses RPC and handles errors', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8'
     );
-    expect(src).toContain("throw new Error('Could not mark account for deletion.')");
-    const throwLine = src.indexOf('Could not mark account for deletion');
+    expect(src).toContain("supabase.rpc('request_account_deletion'");
+    expect(src).toContain('setDeleteError');
+    const rpcCall = src.indexOf('request_account_deletion');
     const signOut = src.indexOf('signOut');
-    expect(throwLine).toBeLessThan(signOut);
+    expect(rpcCall).toBeLessThan(signOut);
   });
 });
 
@@ -2485,9 +2456,11 @@ describe('Account deletion store compliance', () => {
 
   it('request_account_deletion is self-only via auth.uid()', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
-    const fnStart = src.indexOf('request_account_deletion');
-    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    const fnStart = src.indexOf('CREATE OR REPLACE FUNCTION public.request_account_deletion');
+    const fnEnd = src.indexOf('$$;', fnStart);
+    const fnBody = src.slice(fnStart, fnEnd);
     expect(fnBody).toContain('auth.uid()');
+    // Function takes only p_reason, not p_user_id — user determined internally
     expect(fnBody).not.toContain('p_user_id');
   });
 
@@ -2515,12 +2488,13 @@ describe('Account deletion store compliance', () => {
     expect(updateLine![0]).not.toContain("= 'deleted'");
   });
 
-  it('_internal_finalize_deletion requires auth_deleted=true', () => {
+  it('_internal_finalize_deletion verifies auth.users absence', () => {
     const src = fs.readFileSync(migrationPath, 'utf-8');
-    const fnStart = src.indexOf('_internal_finalize_deletion');
+    const fnStart = src.indexOf('CREATE OR REPLACE FUNCTION public._internal_finalize_deletion');
     const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
     expect(fnBody).toContain('AUTH_NOT_DELETED');
-    expect(fnBody).toContain("NOT p_auth_deleted");
+    expect(fnBody).toContain('auth.users');
+    expect(fnBody).toContain('v_auth_exists');
   });
 
   // Safety checks
@@ -2547,22 +2521,22 @@ describe('Account deletion store compliance', () => {
   });
 
   // Blocker 4: External web
-  it('external web deletion page exists with identity verification', () => {
+  it('external web deletion page uses Supabase auth for identity verification', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8'
     );
-    expect(src).toContain('magiclink');
-    expect(src).not.toContain('support_tickets');
+    expect(src).toContain('signInWithOtp');
+    expect(src).not.toContain("supabase.from('support_tickets')");
     expect(src).toContain('Check Your Email');
   });
 
-  it('external page does not directly alter account state', () => {
+  it('external page calls RPC only after authenticated session', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8'
     );
-    expect(src).not.toContain('pending_deletion');
-    expect(src).not.toContain('deletion_processing');
-    expect(src).not.toContain('status');
+    expect(src).toContain('request_account_deletion');
+    expect(src).toContain('getSession');
+    expect(src).toContain('onAuthStateChange');
   });
 
   it('reason is optional', () => {
@@ -2582,5 +2556,107 @@ describe('Account deletion store compliance', () => {
     const prov = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8');
     expect(cust).toContain('Financial records may be retained');
     expect(prov).toContain('Financial records may be retained');
+  });
+
+  // Item 1: In-app RPC wiring
+  it('customer uses request_account_deletion RPC, not direct DB mutations', () => {
+    const src = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8');
+    expect(src).toContain("supabase.rpc('request_account_deletion'");
+    expect(src).not.toContain("supabase.from('support_tickets').insert");
+    expect(src).not.toContain(".update({ status: 'pending_deletion' })");
+  });
+
+  it('provider uses request_account_deletion RPC, not direct DB mutations', () => {
+    const src = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8');
+    expect(src).toContain("supabase.rpc('request_account_deletion'");
+    expect(src).not.toContain("supabase.from('support_tickets').insert");
+    expect(src).not.toContain(".update({ status: 'pending_deletion' })");
+  });
+
+  it('blank reason is accepted (no minimum length requirement)', () => {
+    const cust = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/AccountSecurity.tsx'), 'utf-8');
+    const prov = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/AccountSecurity.tsx'), 'utf-8');
+    expect(cust).not.toContain('cleanReason.length < 10');
+    expect(prov).not.toContain('cleanReason.length < 10');
+    expect(cust).toContain('optional');
+    expect(prov).toContain('optional');
+  });
+
+  // Item 2: Web end-to-end flow
+  it('website uses authenticated RPC after magic link, not direct DB insert', () => {
+    const src = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8');
+    expect(src).toContain("supabase.rpc(\"request_account_deletion\"");
+    expect(src).not.toContain("support_tickets");
+    expect(src).not.toContain("pending_deletion");
+  });
+
+  it('website completes deletion on-site, does not require mobile app', () => {
+    const src = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8');
+    expect(src).toContain('redirected back to this page');
+    expect(src).toContain('Permanently Delete My Account');
+    expect(src).toContain("step === \"confirm\"");
+  });
+
+  it('website uses configured redirect URL, not hardcoded', () => {
+    const src = fs.readFileSync(path.resolve(REPO_ROOT, 'apps/website/src/pages/AccountDeletion.jsx'), 'utf-8');
+    expect(src).toContain('VITE_PUBLIC_URL');
+    expect(src).toContain('/account-deletion');
+  });
+
+  // Item 3: Trusted auth deletion
+  it('trusted Edge Function exists for account deletion', () => {
+    expect(fs.existsSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/process-account-deletion/index.ts')
+    )).toBe(true);
+  });
+
+  it('Edge Function uses cron secret auth, not JWT', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/process-account-deletion/index.ts'), 'utf-8'
+    );
+    expect(src).toContain('x-torc-cron-secret');
+    expect(src).toContain('CRON_SECRET');
+  });
+
+  it('Edge Function handles auth deletion failure as retryable', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/process-account-deletion/index.ts'), 'utf-8'
+    );
+    expect(src).toContain('AUTH_DELETION_FAILED');
+    expect(src).toContain("stage: 'deletion_processing'");
+    expect(src).toContain('retryable: true');
+  });
+
+  it('Edge Function handles already-absent auth user idempotently', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/process-account-deletion/index.ts'), 'utf-8'
+    );
+    expect(src).toContain('status === 404');
+    expect(src).toContain('authDeleted = true');
+  });
+
+  // Item 4: Explicit grants
+  it('internal functions have explicit GRANT to service_role', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('GRANT  EXECUTE ON FUNCTION public._internal_process_deletion(UUID) TO service_role');
+    expect(src).toContain('GRANT  EXECUTE ON FUNCTION public._internal_finalize_deletion(UUID) TO service_role');
+  });
+
+  it('finalizer verifies auth.users row absence, not caller claim', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    const fnStart = src.indexOf('CREATE OR REPLACE FUNCTION public._internal_finalize_deletion');
+    const fnBody = src.slice(fnStart, src.indexOf('$$;', fnStart));
+    expect(fnBody).toContain('SELECT EXISTS (SELECT 1 FROM auth.users WHERE id = p_user_id)');
+    expect(fnBody).toContain('v_auth_exists');
+    expect(fnBody).not.toContain('p_auth_deleted');
+  });
+
+  // Item 3 FK safety
+  it('migration drops CASCADE FKs on retained financial tables', () => {
+    const src = fs.readFileSync(migrationPath, 'utf-8');
+    expect(src).toContain('provider_payouts_provider_id_fkey');
+    expect(src).toContain('checkouts_user_id_fkey');
+    expect(src).toContain('support_tickets_requester_id_fkey');
+    expect(src).toContain('documents_provider_id_fkey');
   });
 });

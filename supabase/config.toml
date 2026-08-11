@@ -11,3 +11,7 @@ verify_jwt = false
 # process-cancellation-refunds authenticates using x-torc-cron-secret.
 [functions.process-cancellation-refunds]
 verify_jwt = false
+
+# process-account-deletion authenticates using x-torc-cron-secret.
+[functions.process-account-deletion]
+verify_jwt = false

@@ -1,55 +1,71 @@
 import { WebsiteLayout } from "../components/WebsiteLayout";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
 
 export function AccountDeletion() {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("customer");
   const [reason, setReason] = useState("");
-  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState("form"); // form → verify → submitted
+  const [step, setStep] = useState("form"); // form → verify → confirm → done
+  const [session, setSession] = useState(null);
 
-  const handleSubmit = async (e) => {
+  // Check for existing session (e.g., after magic link redirect)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (s) {
+        setSession(s);
+        setStep("confirm");
+      }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (s) {
+        setSession(s);
+        setStep("confirm");
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Step 1: Send magic link
+  const handleSendLink = async (e) => {
     e.preventDefault();
     setError("");
-
     if (!email || !email.includes("@")) {
       setError("Please enter a valid email address.");
       return;
     }
-
     setLoading(true);
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-      if (!supabaseUrl || !supabaseAnonKey) {
-        throw new Error("Service temporarily unavailable.");
-      }
-
-      // Send a magic link to verify ownership — the user must click
-      // the link and sign in before deletion can proceed.
-      // This prevents anonymous attackers from deleting another user's account.
-      const response = await fetch(`${supabaseUrl}/auth/v1/magiclink`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: supabaseAnonKey,
-        },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-        }),
+      const redirectUrl = (import.meta.env.VITE_PUBLIC_URL || window.location.origin) + "/account-deletion";
+      const { error: authError } = await supabase.auth.signInWithOtp({
+        email: email.trim().toLowerCase(),
+        options: { emailRedirectTo: redirectUrl },
       });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data?.msg || "Could not send verification email. Please try again.");
-      }
-
+      if (authError) throw authError;
       setStep("verify");
     } catch (err) {
-      setError(err.message || "Something went wrong. Please try again.");
+      setError(err.message || "Could not send verification email.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 3: Request deletion via RPC
+  const handleDelete = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const { data, error: rpcError } = await supabase.rpc("request_account_deletion", {
+        p_reason: reason.trim() || null,
+      });
+      if (rpcError) throw rpcError;
+      if (!data?.success) throw new Error(data?.message || data?.error || "Could not process request.");
+      setStep("done");
+      // Sign out after delay
+      setTimeout(() => supabase.auth.signOut(), 3000);
+    } catch (err) {
+      setError(err.message || "Could not process deletion request.");
     } finally {
       setLoading(false);
     }
@@ -66,21 +82,91 @@ export function AccountDeletion() {
             </p>
           </header>
 
-          {step === "verify" ? (
+          {/* Step 4: Done */}
+          {step === "done" && (
+            <div style={{ marginTop: "2rem", padding: "2rem", backgroundColor: "#f0fdf4", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+              <h2 style={{ color: "#166534", marginTop: 0 }}>Deletion Request Submitted</h2>
+              <p style={{ color: "#15803d" }}>
+                Your account is now pending deletion. Our team will verify eligibility and process your request. You will receive a confirmation email when deletion is complete.
+              </p>
+            </div>
+          )}
+
+          {/* Step 3: Authenticated — confirm deletion */}
+          {step === "confirm" && (
+            <div style={{ marginTop: "2rem" }}>
+              <div style={{ padding: "1.5rem", backgroundColor: "#f0fdf4", borderRadius: "12px", border: "1px solid #bbf7d0", marginBottom: "1.5rem" }}>
+                <p style={{ color: "#166534", margin: 0 }}>
+                  Identity verified. You are signed in as <strong>{session?.user?.email}</strong>.
+                </p>
+              </div>
+
+              <div style={{ padding: "1.5rem", backgroundColor: "#fef3c7", borderRadius: "12px", border: "1px solid #fcd34d", marginBottom: "1.5rem" }}>
+                <h3 style={{ color: "#92400e", marginTop: 0, fontSize: "1rem" }}>This action is permanent</h3>
+                <ul style={{ color: "#78350f", paddingLeft: "1.25rem", marginBottom: 0 }}>
+                  <li>Your personal information will be permanently removed.</li>
+                  <li>Active jobs or pending payments must be resolved first.</li>
+                  <li>Financial records may be retained in anonymized form as required by law.</li>
+                </ul>
+              </div>
+
+              {error && (
+                <div style={{ padding: "1rem", backgroundColor: "#fef2f2", borderRadius: "8px", border: "1px solid #fecaca", marginBottom: "1rem", color: "#dc2626" }}>
+                  {error}
+                </div>
+              )}
+
+              <div style={{ marginBottom: "1.5rem" }}>
+                <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem", color: "#374151" }}>
+                  Reason <span style={{ color: "#9ca3af", fontWeight: 400 }}>(optional)</span>
+                </label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Optional: let us know why you're leaving"
+                  rows={3}
+                  style={{
+                    width: "100%", padding: "0.75rem 1rem", borderRadius: "8px",
+                    border: "1px solid #d1d5db", fontSize: "1rem", resize: "vertical",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              <button
+                onClick={handleDelete}
+                disabled={loading}
+                style={{
+                  width: "100%", padding: "0.875rem", borderRadius: "8px",
+                  backgroundColor: "#dc2626", color: "#fff", fontWeight: 700,
+                  fontSize: "1rem", border: "none", cursor: loading ? "wait" : "pointer",
+                  opacity: loading ? 0.7 : 1,
+                }}
+              >
+                {loading ? "Processing..." : "Permanently Delete My Account"}
+              </button>
+            </div>
+          )}
+
+          {/* Step 2: Check email */}
+          {step === "verify" && (
             <div style={{ marginTop: "2rem", padding: "2rem", backgroundColor: "#eff6ff", borderRadius: "12px", border: "1px solid #bfdbfe" }}>
               <h2 style={{ color: "#1e40af", marginTop: 0 }}>Check Your Email</h2>
               <p style={{ color: "#1d4ed8" }}>
                 We sent a verification link to <strong>{email}</strong>.
               </p>
               <p style={{ color: "#1d4ed8" }}>
-                Click the link in the email to sign in and confirm your identity. Once signed in, go to <strong>Account Security</strong> in the app to complete the deletion request.
+                Click the link to verify your identity. You will be redirected back to this page to complete the deletion request.
               </p>
               <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "1.5rem" }}>
-                If you don't receive the email within a few minutes, check your spam folder or contact{" "}
+                If you don't receive the email, check your spam folder or contact{" "}
                 <a href="mailto:support@torcapp.com" style={{ color: "#008CE5" }}>support@torcapp.com</a>.
               </p>
             </div>
-          ) : (
+          )}
+
+          {/* Step 1: Email form */}
+          {step === "form" && (
             <div style={{ marginTop: "2rem" }}>
               <div style={{ padding: "1.5rem", backgroundColor: "#fef3c7", borderRadius: "12px", border: "1px solid #fcd34d", marginBottom: "2rem" }}>
                 <h3 style={{ color: "#92400e", marginTop: 0, fontSize: "1rem" }}>Before you proceed</h3>
@@ -99,7 +185,7 @@ export function AccountDeletion() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit}>
+              <form onSubmit={handleSendLink}>
                 <div style={{ marginBottom: "1.5rem" }}>
                   <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem", color: "#374151" }}>
                     Email address associated with your account
@@ -112,25 +198,7 @@ export function AccountDeletion() {
                     required
                     style={{
                       width: "100%", padding: "0.75rem 1rem", borderRadius: "8px",
-                      border: "1px solid #d1d5db", fontSize: "1rem",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-
-                <div style={{ marginBottom: "1.5rem" }}>
-                  <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem", color: "#374151" }}>
-                    Reason for deletion <span style={{ color: "#9ca3af", fontWeight: 400 }}>(optional)</span>
-                  </label>
-                  <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="Optional: let us know why you're leaving"
-                    rows={3}
-                    style={{
-                      width: "100%", padding: "0.75rem 1rem", borderRadius: "8px",
-                      border: "1px solid #d1d5db", fontSize: "1rem", resize: "vertical",
-                      boxSizing: "border-box",
+                      border: "1px solid #d1d5db", fontSize: "1rem", boxSizing: "border-box",
                     }}
                   />
                 </div>
@@ -145,23 +213,14 @@ export function AccountDeletion() {
                     opacity: loading ? 0.7 : 1,
                   }}
                 >
-                  {loading ? "Submitting..." : "Submit Deletion Request"}
+                  {loading ? "Sending verification..." : "Verify My Identity"}
                 </button>
               </form>
 
-              <div style={{ marginTop: "2rem", paddingTop: "1.5rem", borderTop: "1px solid #e5e7eb" }}>
-                <h3 style={{ color: "#374151", fontSize: "1rem" }}>What happens after you submit</h3>
-                <ol style={{ color: "#6b7280", paddingLeft: "1.25rem" }}>
-                  <li>Our team verifies your identity using the email address provided.</li>
-                  <li>We check for any active jobs, pending payments, or unresolved obligations.</li>
-                  <li>Once verified, your personal data is permanently removed and financial records are anonymized.</li>
-                  <li>You receive a confirmation email when deletion is complete.</li>
-                </ol>
-                <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>
-                  For more information, see our{" "}
-                  <a href="/privacy" style={{ color: "#008CE5" }}>Privacy Policy</a>.
-                </p>
-              </div>
+              <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "1.5rem", textAlign: "center" }}>
+                For more information, see our{" "}
+                <a href="/privacy" style={{ color: "#008CE5" }}>Privacy Policy</a>.
+              </p>
             </div>
           )}
         </div>
