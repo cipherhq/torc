@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSupabaseSecretKey } from '../_shared/supabaseKeys.ts';
 
 /**
  * Dedicated Stripe webhook handler.
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const serviceRoleKey = getSupabaseSecretKey();
     const stripeWebhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
 
     if (!supabaseUrl || !serviceRoleKey || !stripeWebhookSecret) {
@@ -137,10 +138,12 @@ Deno.serve(async (req) => {
     // Duplicate webhook delivery is safe because finalize_expiry_refund
     // is idempotent (claim_token check + status guard).
     // ================================================================
+    // Shared refund objects for both expiry and cancellation correlation
+    const refundObjects: Array<{ id: string; status: string; payment_intent?: string }> = [];
+
     if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
       // For charge.refunded: eventObject is the charge, refunds are in eventObject.refunds.data[]
       // For refund.updated: eventObject is the refund itself
-      const refundObjects: Array<{ id: string; status: string; payment_intent?: string }> = [];
 
       if (event.type === 'refund.updated') {
         // eventObject IS the refund
@@ -257,6 +260,114 @@ Deno.serve(async (req) => {
             `[stripe-webhook] CRITICAL: Exception processing refund correlation: ${refundErr?.message}. ` +
             `Event already processed — scheduled reconciliation will handle this.`
           );
+        }
+      }
+    }
+
+    // ================================================================
+    // TIP PAYMENT FINALIZATION
+    // When a tip PaymentIntent succeeds, finalize the tip earning.
+    // ================================================================
+    if (event.type === 'payment_intent.succeeded' && eventObject?.metadata?.type === 'tip') {
+      const tipId = eventObject?.metadata?.tip_id;
+      const tipJobId = eventObject?.metadata?.job_id;
+      const tipPiId = eventObject?.id;
+      const tipAmount = eventObject?.amount ? eventObject.amount / 100 : null;
+      const tipCurrency = eventObject?.currency;
+
+      if (tipId && tipJobId && tipPiId) {
+        try {
+          // Verify tip record exists and matches
+          const { data: tip } = await adminClient
+            .from('job_tips')
+            .select('id, job_id, customer_id, provider_id, amount, stripe_status')
+            .eq('id', tipId)
+            .single();
+
+          if (tip && tip.job_id === tipJobId && tip.stripe_status !== 'succeeded') {
+            // Verify amount and currency
+            if (tipAmount !== null && Math.abs(tipAmount - Number(tip.amount)) < 0.01 && tipCurrency === 'usd') {
+              const { error: finalizeErr } = await adminClient.rpc('finalize_tip_payment', {
+                p_tip_id: tipId,
+                p_payment_intent_id: tipPiId,
+                p_stripe_status: 'succeeded',
+              });
+              if (finalizeErr) {
+                console.error(`[stripe-webhook] Tip finalization error: ${finalizeErr.message}`);
+              } else {
+                console.log(`[stripe-webhook] Tip finalized: tip=${tipId}, job=${tipJobId}`);
+              }
+            } else {
+              console.error(`[stripe-webhook] Tip amount/currency mismatch: expected ${tip.amount} USD, got ${tipAmount} ${tipCurrency}`);
+            }
+          } else if (tip?.stripe_status === 'succeeded') {
+            console.log(`[stripe-webhook] Tip already finalized: ${tipId}`);
+          }
+        } catch (tipErr: any) {
+          console.error(`[stripe-webhook] Tip processing error: ${tipErr?.message}`);
+        }
+      }
+    }
+
+    // ================================================================
+    // CANCELLATION REFUND CORRELATION
+    // When charge.refunded for a cancellation, update the operation.
+    // ================================================================
+    if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
+      for (const refundObj of refundObjects) {
+        try {
+          // Check for cancellation operations in refund_pending state
+          const { data: cancelOp } = await adminClient
+            .from('job_cancellation_operations')
+            .select('id, status')
+            .eq('stripe_refund_id', refundObj.id)
+            .eq('status', 'refund_pending')
+            .maybeSingle();
+
+          if (cancelOp) {
+            const refundStatus = refundObj.status;
+            if (refundStatus === 'succeeded') {
+              // Finalize: mark completed, create provider compensation
+              await adminClient
+                .from('job_cancellation_operations')
+                .update({ status: 'completed', stripe_refund_status: 'succeeded', completed_at: new Date().toISOString() })
+                .eq('id', cancelOp.id);
+
+              // Get operation details for compensation
+              const { data: fullOp } = await adminClient
+                .from('job_cancellation_operations')
+                .select('*, jobs!inner(provider_id)')
+                .eq('id', cancelOp.id)
+                .single();
+
+              if (fullOp?.provider_compensation > 0 && fullOp?.jobs?.provider_id) {
+                await adminClient.from('provider_earnings').insert({
+                  job_id: fullOp.job_id,
+                  provider_id: fullOp.jobs.provider_id,
+                  base_earnings: fullOp.cancellation_fee,
+                  tip: 0,
+                  commission_pct: fullOp.platform_fee_on_cancel > 0 ? Math.round((fullOp.platform_fee_on_cancel / fullOp.cancellation_fee) * 10000) / 100 : 15,
+                  platform_fee: fullOp.platform_fee_on_cancel,
+                  provider_net: fullOp.provider_compensation,
+                  entry_type: 'cancellation_compensation',
+                }).then(() => {});
+              }
+
+              // Update job payment_status
+              await adminClient.from('jobs')
+                .update({ payment_status: 'refunded', updated_at: new Date().toISOString() })
+                .eq('id', fullOp.job_id);
+
+              console.log(`[stripe-webhook] Cancellation refund completed: op=${cancelOp.id}`);
+            } else if (refundStatus === 'failed') {
+              await adminClient
+                .from('job_cancellation_operations')
+                .update({ status: 'manual_review', stripe_refund_status: 'failed', last_error: 'Stripe refund failed' })
+                .eq('id', cancelOp.id);
+            }
+          }
+        } catch (cancelErr: any) {
+          console.error(`[stripe-webhook] Cancellation refund correlation error: ${cancelErr?.message}`);
         }
       }
     }

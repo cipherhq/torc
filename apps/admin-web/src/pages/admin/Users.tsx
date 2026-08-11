@@ -320,6 +320,7 @@ export function AdminUsers() {
       case 'active': return 'bg-green-100 text-green-700';
       case 'suspended': return 'bg-red-100 text-red-700';
       case 'pending': return 'bg-yellow-100 text-yellow-700';
+      case 'pending_deletion': return 'bg-orange-100 text-orange-700';
       default: return 'bg-gray-100 text-gray-600';
     }
   };

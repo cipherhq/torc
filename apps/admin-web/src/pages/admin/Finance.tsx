@@ -70,6 +70,9 @@ export function AdminFinance() {
   const [jobs, setJobs] = useState([] as JobFinancialRow[]);
   const [refunds, setRefunds] = useState([] as RefundRevenue[]);
   const [payouts, setPayouts] = useState([] as ProviderPayoutRow[]);
+  const [cancelOps, setCancelOps] = useState([] as any[]);
+  const [tips, setTips] = useState([] as any[]);
+  const [earnings, setEarnings] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null as string | null);
   const [platformFeePercent, setPlatformFeePercent] = useState(15);
@@ -106,6 +109,16 @@ export function AdminFinance() {
       setRefunds((refundsData || []) as RefundRevenue[]);
       setPayouts((payoutsData || []) as ProviderPayoutRow[]);
       setPlatformFeePercent(settings.platformFee);
+
+      // Load cancellation operations and tips for financial visibility
+      const [cancelOpsRes, tipsRes, earningsRes] = await Promise.all([
+        supabase.from('job_cancellation_operations').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('job_tips').select('*').eq('stripe_status', 'succeeded').order('created_at', { ascending: false }).limit(50),
+        supabase.from('provider_earnings').select('*').order('created_at', { ascending: false }).limit(100),
+      ]);
+      setCancelOps(cancelOpsRes?.data || []);
+      setTips(tipsRes?.data || []);
+      setEarnings(earningsRes?.data || []);
     } catch (error: any) {
       console.warn('Failed to load finance page:', error);
       setLoadError(error?.message || 'Failed to load finance data.');
@@ -513,6 +526,103 @@ export function AdminFinance() {
                   </table>
                 </div>
               )}
+            </div>
+
+            {/* Cancellation Operations */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+              <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">
+                <h2 className="text-gray-900 font-bold text-xl mb-4">Cancellation Refunds</h2>
+                {cancelOps.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No cancellation operations yet.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                        <p className="text-xs text-gray-500">Completed</p>
+                        <p className="text-xl font-bold text-green-600">{cancelOps.filter((o: any) => o.status === 'completed').length}</p>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                        <p className="text-xs text-gray-500">Pending</p>
+                        <p className="text-xl font-bold text-yellow-600">{cancelOps.filter((o: any) => ['pending', 'refund_requesting', 'refund_pending'].includes(o.status)).length}</p>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                        <p className="text-xs text-gray-500">Manual Review</p>
+                        <p className="text-xl font-bold text-orange-600">{cancelOps.filter((o: any) => o.status === 'manual_review').length}</p>
+                      </div>
+                      <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                        <p className="text-xs text-gray-500">Total Refunded</p>
+                        <p className="text-xl font-bold text-[#008CE5]">{money(cancelOps.filter((o: any) => o.status === 'completed').reduce((s: number, o: any) => s + num(o.refund_amount), 0))}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {cancelOps.slice(0, 10).map((op: any) => (
+                        <div key={op.id} className="rounded-lg bg-gray-50 border border-gray-100 p-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600 text-xs font-mono">{op.job_id?.slice(0, 8)}...</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              op.status === 'completed' ? 'bg-green-100 text-green-700' :
+                              op.status === 'manual_review' ? 'bg-orange-100 text-orange-700' :
+                              op.status === 'failed' ? 'bg-red-100 text-red-700' :
+                              'bg-yellow-100 text-yellow-700'
+                            }`}>{op.status}</span>
+                          </div>
+                          <div className="flex gap-4 mt-1 text-xs text-gray-500">
+                            <span>Fee: {money(num(op.cancellation_fee))}</span>
+                            <span>Refund: {money(num(op.refund_amount))}</span>
+                            <span>Provider: {money(num(op.provider_compensation))}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-400">
+                            {op.payment_intent_id && <span title="Stripe PaymentIntent">PI: {op.payment_intent_id.slice(0, 20)}...</span>}
+                            {op.stripe_refund_id && <span title="Stripe Refund">Refund: {op.stripe_refund_id.slice(0, 20)}...</span>}
+                            {op.checkout_id && <span title="Checkout">Checkout: {op.checkout_id.slice(0, 8)}...</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">
+                <h2 className="text-gray-900 font-bold text-xl mb-4">Tips & Provider Earnings</h2>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                    <p className="text-xs text-gray-500">Tips Collected</p>
+                    <p className="text-xl font-bold text-green-600">{tips.length}</p>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                    <p className="text-xs text-gray-500">Tips Total</p>
+                    <p className="text-xl font-bold text-[#008CE5]">{money(tips.reduce((s: number, t: any) => s + num(t.amount), 0))}</p>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                    <p className="text-xs text-gray-500">Service Earnings</p>
+                    <p className="text-xl font-bold text-gray-900">{earnings.filter((e: any) => e.entry_type === 'service_earning').length}</p>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-center">
+                    <p className="text-xs text-gray-500">Cancellation Comp.</p>
+                    <p className="text-xl font-bold text-orange-600">{money(earnings.filter((e: any) => e.entry_type === 'cancellation_compensation').reduce((s: number, e: any) => s + num(e.provider_net), 0))}</p>
+                  </div>
+                </div>
+                {tips.length > 0 && (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {tips.slice(0, 10).map((tip: any) => (
+                      <div key={tip.id} className="rounded-lg bg-gray-50 border border-gray-100 p-3 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600 text-xs font-mono">{tip.job_id?.slice(0, 8)}...</span>
+                          <span className="font-bold text-green-600">{money(num(tip.amount))}</span>
+                        </div>
+                        <div className="flex gap-3 text-xs text-gray-400 mt-1">
+                          <span>{new Date(tip.created_at).toLocaleDateString()}</span>
+                          {tip.payment_intent_id && <span title="Stripe PaymentIntent">PI: {tip.payment_intent_id.slice(0, 20)}...</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {tips.length === 0 && earnings.length === 0 && (
+                  <p className="text-gray-500 text-sm">No tips or earnings ledger entries yet.</p>
+                )}
+              </div>
             </div>
 
             <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">

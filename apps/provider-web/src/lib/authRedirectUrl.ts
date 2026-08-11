@@ -52,7 +52,7 @@ export function getAuthSiteUrl(): string {
   // Local/dev fallback.
   if (envUrl) return normalizeBaseUrl(envUrl);
   if (origin) return normalizeBaseUrl(origin);
-  return 'https://provider-web-zeta.vercel.app';
+  return import.meta.env.VITE_PUBLIC_URL || origin || 'http://localhost:5173';
 }
 
 export function getAuthCallbackUrl(): string {

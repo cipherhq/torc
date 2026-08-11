@@ -28,8 +28,15 @@ interface Job {
 }
 
 interface ProviderPayout {
+  id?: string;
   status: string;
   net_payout: number | null;
+  total_earnings?: number | null;
+  total_tips?: number | null;
+  platform_fee?: number | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  created_at?: string;
 }
 
 const FALLBACK_COMMISSION_PCT = 15;
@@ -46,6 +53,7 @@ export function ProviderEarnings() {
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [payoutMethods, setPayoutMethods] = useState<any[]>([]);
   const [payouts, setPayouts] = useState<ProviderPayout[]>([]);
+  const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
 
   // ── Fetch data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -57,7 +65,7 @@ export function ProviderEarnings() {
         setLoading(true);
 
         // Fetch in parallel: jobs, platform settings, payout methods, payout history
-        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes] = await Promise.all([
+        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes, earningsRes] = await Promise.all([
           supabase
             .from('jobs')
             .select('*, service:services(name)')
@@ -76,12 +84,21 @@ export function ProviderEarnings() {
             .then(r => r, () => ({ data: null, error: null })),
           supabase
             .from('provider_payouts')
-            .select('status, net_payout')
+            .select('id, status, net_payout, total_earnings, total_tips, platform_fee, period_start, period_end, created_at')
             .eq('provider_id', user!.id)
+            .order('created_at', { ascending: false })
+            .then(r => r, () => ({ data: null, error: null })),
+          supabase
+            .from('provider_earnings')
+            .select('*')
+            .eq('provider_id', user!.id)
+            .order('created_at', { ascending: false })
             .then(r => r, () => ({ data: null, error: null })),
         ]);
 
         const jobRows = jobsRes.data || [];
+        // Store ledger earnings in state for calcProviderEarnings
+        setLedgerEntries(earningsRes?.data || []);
         // Batch-fetch customer names
         const custIds = [...new Set(jobRows.map((j: any) => j.customer_id).filter(Boolean))] as string[];
         if (custIds.length > 0) {
@@ -110,35 +127,45 @@ export function ProviderEarnings() {
     [jobs]
   );
 
-  const calcProviderEarnings = (jobList: Job[]) => {
-    let grossBase = 0;
-    let totalTips = 0;
-    let totalCommission = 0;
+  // Authoritative provider_earnings ledger — filter by ledger created_at, not job status
+  // This ensures cancellation_compensation on cancelled jobs is included
+  // Accounting: grossEarnings - totalCommission = netEarnings (when tip fees are zero)
+  const calcLedgerStats = (since?: Date) => {
+    const filtered = since
+      ? ledgerEntries.filter((e: any) => new Date(e.created_at) >= since)
+      : ledgerEntries;
 
-    jobList.forEach(j => {
-      const base = deriveBasePrice(j);
-      const tip = Number(j.tip) || 0;
-      grossBase += base;
-      totalTips += tip;
-      totalCommission += base * (commissionPct / 100);
-    });
+    const serviceEntries = filtered.filter((e: any) => e.entry_type === 'service_earning');
+    const tipEntries = filtered.filter((e: any) => e.entry_type === 'tip');
+    const compEntries = filtered.filter((e: any) => e.entry_type === 'cancellation_compensation');
 
-    const grossEarnings = grossBase + totalTips;
-    const netEarnings = grossBase - totalCommission + totalTips;
+    const serviceGross = serviceEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
+    const compensationGross = compEntries.reduce((s: number, e: any) => s + Number(e.base_earnings || 0), 0);
+    const totalTips = tipEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+    const netCompensation = compEntries.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
 
-    return { grossBase, totalTips, totalCommission, grossEarnings, netEarnings, jobCount: jobList.length };
+    // Commission from both service earnings AND cancellation compensation
+    const totalCommission = serviceEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0)
+      + compEntries.reduce((s: number, e: any) => s + Number(e.platform_fee || 0), 0);
+
+    const grossEarnings = serviceGross + compensationGross + totalTips;
+    const netEarnings = filtered.reduce((s: number, e: any) => s + Number(e.provider_net || 0), 0);
+
+    return { serviceGross, compensationGross, totalTips, netCompensation, totalCommission,
+      grossEarnings, netEarnings, jobCount: serviceEntries.length };
   };
 
   const now = new Date();
   const weekStart = useMemo(() => {
     const d = new Date(now);
     const day = d.getDay();
-    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)); // Monday start
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
     d.setHours(0, 0, 0, 0);
     return d;
   }, []);
   const monthStart = useMemo(() => new Date(now.getFullYear(), now.getMonth(), 1), []);
 
+  // Job lists for chart/detail views (completed only)
   const weekJobs = useMemo(
     () => completedJobs.filter(j => new Date(j.completed_at || j.created_at) >= weekStart),
     [completedJobs, weekStart]
@@ -148,10 +175,17 @@ export function ProviderEarnings() {
     [completedJobs, monthStart]
   );
 
-  const allTimeStats = useMemo(() => calcProviderEarnings(completedJobs), [completedJobs, commissionPct]);
-  const weekStats = useMemo(() => calcProviderEarnings(weekJobs), [weekJobs, commissionPct]);
-  const monthStats = useMemo(() => calcProviderEarnings(monthJobs), [monthJobs, commissionPct]);
-  const pendingStats = useMemo(() => calcProviderEarnings(pendingJobs), [pendingJobs, commissionPct]);
+  // Financial stats — authoritative from ledger timestamps, not job status
+  const allTimeStats = useMemo(() => calcLedgerStats(), [ledgerEntries]);
+  const weekStats = useMemo(() => calcLedgerStats(weekStart), [ledgerEntries, weekStart]);
+  const monthStats = useMemo(() => calcLedgerStats(monthStart), [ledgerEntries, monthStart]);
+
+  // Pending estimate for active (unfinalized) jobs
+  const pendingStats = useMemo(() => {
+    const estimated = pendingJobs.reduce((s, j) => s + deriveBasePrice(j), 0);
+    const net = estimated * (1 - commissionPct / 100);
+    return { netEarnings: net };
+  }, [pendingJobs, commissionPct]);
   const paidOutTotal = useMemo(
     () => payouts
       .filter((p) => p.status === 'paid')
@@ -165,33 +199,67 @@ export function ProviderEarnings() {
 
   const activeStats = activeTab === 'week' ? weekStats : activeTab === 'month' ? monthStats : allTimeStats;
 
-  // Chart data
+  // Chart data — uses finalized ledger entry timestamps for the week
   const chartData = useMemo(() => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const dayMap = [1, 2, 3, 4, 5, 6, 0]; // JS getDay() mapping
+    const dayMap = [1, 2, 3, 4, 5, 6, 0];
     const totals: Record<string, number> = {};
     days.forEach(d => { totals[d] = 0; });
 
-    weekJobs.forEach(j => {
-      const jsDay = new Date(j.completed_at || j.created_at).getDay();
-      const idx = dayMap.indexOf(jsDay);
-      if (idx >= 0) {
-        const base = deriveBasePrice(j);
-        const tip = Number(j.tip) || 0;
-        totals[days[idx]] += base * (1 - commissionPct / 100) + tip;
-      }
-    });
+    // Use ledger entry created_at for day assignment — includes compensation on cancelled jobs
+    ledgerEntries
+      .filter((e: any) => new Date(e.created_at) >= weekStart)
+      .forEach((e: any) => {
+        const jsDay = new Date(e.created_at).getDay();
+        const idx = dayMap.indexOf(jsDay);
+        if (idx >= 0) {
+          totals[days[idx]] += Number(e.provider_net || 0);
+        }
+      });
 
     return days.map(d => ({ day: d, amount: Math.round(totals[d] * 100) / 100 }));
-  }, [weekJobs, commissionPct]);
+  }, [ledgerEntries, weekStart]);
 
-  // Per-job breakdown for recent jobs
+  // Per-job breakdown — finalized from ledger, estimated for active jobs
+  const jobLedgerMap = useMemo(() => {
+    const map = new Map<string, {
+      base: number; tip: number;
+      compGross: number; compFee: number; compNet: number;
+      commission: number; net: number;
+    }>();
+    ledgerEntries.forEach((e: any) => {
+      const cur = map.get(e.job_id) || { base: 0, tip: 0, compGross: 0, compFee: 0, compNet: 0, commission: 0, net: 0 };
+      if (e.entry_type === 'service_earning') {
+        cur.base += Number(e.base_earnings || 0);
+        cur.commission += Number(e.platform_fee || 0);
+        cur.net += Number(e.provider_net || 0);
+      } else if (e.entry_type === 'tip') {
+        cur.tip += Number(e.provider_net || 0);
+        cur.net += Number(e.provider_net || 0);
+      } else if (e.entry_type === 'cancellation_compensation') {
+        cur.compGross += Number(e.base_earnings || 0);
+        cur.compFee += Number(e.platform_fee || 0);
+        cur.compNet += Number(e.provider_net || 0);
+        cur.commission += Number(e.platform_fee || 0);
+        cur.net += Number(e.provider_net || 0);
+      }
+      map.set(e.job_id, cur);
+    });
+    return map;
+  }, [ledgerEntries]);
+
   const recentJobsDetailed = useMemo(() => {
     return jobs.slice(0, 20).map(j => {
-      const base = deriveBasePrice(j);
-      const tip = Number(j.tip) || 0;
-      const commission = base * (commissionPct / 100);
-      const net = base - commission + tip;
+      const ledger = jobLedgerMap.get(j.id);
+      const isFinalized = !!ledger;
+      // Finalized: use ledger. Active: estimate with current commission
+      const base = isFinalized ? ledger.base : deriveBasePrice(j);
+      const tip = isFinalized ? ledger.tip : (Number(j.tip) || 0);
+      const commission = isFinalized ? ledger.commission : (base * (commissionPct / 100));
+      const net = isFinalized ? ledger.net : (base - commission + tip);
+      const compGross = isFinalized ? (ledger.compGross || 0) : 0;
+      const compFee = isFinalized ? (ledger.compFee || 0) : 0;
+      const compNet = isFinalized ? (ledger.compNet || 0) : 0;
       return {
         id: j.id,
         service: j.service?.name || 'Service',
@@ -201,9 +269,13 @@ export function ProviderEarnings() {
         basePrice: base,
         tip,
         commission,
+        compGross,
+        compFee,
+        compNet,
         net,
         status: j.status,
         paymentStatus: j.payment_status,
+        isEstimated: !isFinalized,
         date: new Date(j.completed_at || j.created_at).toLocaleDateString('en-US', {
           month: 'short', day: 'numeric', year: 'numeric',
         }),
@@ -212,44 +284,36 @@ export function ProviderEarnings() {
         }),
       };
     });
-  }, [jobs, commissionPct]);
+  }, [jobs, jobLedgerMap, commissionPct]);
 
-  // Payout history — group completed+paid jobs by week
+  // Payout history — use authoritative provider_payouts records, not fabricated weekly groups
   const payoutHistory = useMemo(() => {
-    const paidJobs = completedJobs.filter(j => j.payment_status === 'paid');
-    if (paidJobs.length === 0) return [];
-
-    const weeks: Record<string, { start: Date; end: Date; jobs: Job[] }> = {};
-    paidJobs.forEach(j => {
-      const d = new Date(j.completed_at || j.created_at);
-      const weekKey = getWeekKey(d);
-      if (!weeks[weekKey]) {
-        const ws = getWeekStart(d);
-        const we = new Date(ws);
-        we.setDate(we.getDate() + 6);
-        weeks[weekKey] = { start: ws, end: we, jobs: [] };
-      }
-      weeks[weekKey].jobs.push(j);
-    });
-
-    return Object.entries(weeks)
-      .sort(([a], [b]) => b.localeCompare(a))
+    return payouts
+      .sort((a, b) => {
+        const da = (a as any).created_at || '';
+        const db = (b as any).created_at || '';
+        return db.localeCompare(da);
+      })
       .slice(0, 8)
-      .map(([key, week]) => {
-        const stats = calcProviderEarnings(week.jobs);
-        const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      .map((p: any, i: number) => {
+        const periodStart = p.period_start ? new Date(p.period_start) : null;
+        const periodEnd = p.period_end ? new Date(p.period_end) : null;
+        const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         return {
-          id: key,
-          period: `${fmt(week.start)} – ${fmt(week.end)}`,
-          jobCount: week.jobs.length,
-          gross: stats.grossEarnings,
-          commission: stats.totalCommission,
-          tips: stats.totalTips,
-          net: stats.netEarnings,
-          status: 'paid' as const,
+          id: p.id || `payout-${i}`,
+          period: periodStart && periodEnd
+            ? `${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`
+            : p.created_at
+              ? new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Payout',
+          net: Number(p.net_payout) || 0,
+          gross: Number(p.total_earnings) || 0,
+          tips: Number(p.total_tips) || 0,
+          commission: Number(p.platform_fee) || 0,
+          status: p.status as 'pending' | 'processing' | 'paid' | 'failed',
         };
       });
-  }, [completedJobs, commissionPct]);
+  }, [payouts]);
 
   const defaultPayout = payoutMethods.find(m => m.is_default) || payoutMethods[0];
 
@@ -317,7 +381,7 @@ export function ProviderEarnings() {
               <div className="absolute top-0 right-0 w-40 h-40 rounded-full" style={{ background: 'rgba(255,255,255,0.08)', filter: 'blur(40px)' }} />
               <p className="text-sm mb-1" style={{ color: 'rgba(255,255,255,0.85)' }}>Available Balance</p>
               <h2 className="font-bold text-4xl mb-1" style={{ color: '#FFFFFF' }}>${fmt(availableBalance)}</h2>
-              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after {commissionPct}% platform fee</p>
+              <p className="text-xs mb-5" style={{ color: 'rgba(255,255,255,0.75)' }}>Net after platform fees</p>
 
               <div className="flex items-center gap-3">
                 <motion.button
@@ -392,14 +456,14 @@ export function ProviderEarnings() {
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#008CE5' }} />
                     <span className="text-sm" style={{ color: textSecondary }}>Service earnings</span>
                   </div>
-                  <span className="font-semibold text-sm" style={{ color: textPrimary }}>${fmt(activeStats.grossBase)}</span>
+                  <span className="font-semibold text-sm" style={{ color: textPrimary }}>${fmt(activeStats.serviceGross)}</span>
                 </div>
 
                 {/* Platform fee */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#EF4444' }} />
-                    <span className="text-sm" style={{ color: textSecondary }}>Platform fee ({commissionPct}%)</span>
+                    <span className="text-sm" style={{ color: textSecondary }}>Platform fees</span>
                   </div>
                   <span className="font-semibold text-sm text-red-500">−${fmt(activeStats.totalCommission)}</span>
                 </div>
@@ -412,6 +476,17 @@ export function ProviderEarnings() {
                   </div>
                   <span className="font-semibold text-sm" style={{ color: '#10B981' }}>+${fmt(activeStats.totalTips)}</span>
                 </div>
+
+                {/* Cancellation compensation */}
+                {activeStats.netCompensation > 0 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#F59E0B' }} />
+                    <span className="text-sm" style={{ color: textSecondary }}>Cancellation compensation</span>
+                  </div>
+                  <span className="font-semibold text-sm" style={{ color: '#F59E0B' }}>+${fmt(activeStats.netCompensation)}</span>
+                </div>
+                )}
 
                 {/* Divider */}
                 <div className="border-t pt-3 mt-1" style={{ borderColor: cardBorder }}>
@@ -426,7 +501,7 @@ export function ProviderEarnings() {
               <div className="mt-4 flex items-start gap-2 rounded-xl p-3" style={{ backgroundColor: isDark ? 'rgba(0,140,229,0.08)' : 'rgba(0,140,229,0.05)' }}>
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#008CE5' }} />
                 <p className="text-xs" style={{ color: textSecondary }}>
-                  Torc charges a {commissionPct}% platform fee on service earnings. Tips are never deducted — you keep 100%.
+                  Torc deducts a platform fee from service earnings and cancellation compensation. Tips are never deducted — you keep 100%.
                 </p>
               </div>
             </motion.div>
@@ -569,6 +644,7 @@ export function ProviderEarnings() {
                   const statusLabel = job.status === 'completed'
                     ? 'Completed'
                     : job.status === 'cancelled' ? 'Cancelled' : 'In Progress';
+                  const isEstimated = (job as any).isEstimated;
 
                   return (
                     <motion.div
@@ -601,7 +677,7 @@ export function ProviderEarnings() {
                         </div>
                         <div className="text-right flex-shrink-0 flex items-center gap-2">
                           <div>
-                            <p className="font-bold text-sm" style={{ color: textPrimary }}>${fmt(job.net)}</p>
+                            <p className="font-bold text-sm" style={{ color: textPrimary }}>{isEstimated ? '~' : ''}${fmt(job.net)}</p>
                             {job.tip > 0 && <p className="text-xs" style={{ color: '#10B981' }}>+${fmt(job.tip)} tip</p>}
                           </div>
                           {isExpanded
@@ -621,14 +697,27 @@ export function ProviderEarnings() {
                           <div className="rounded-xl p-3 space-y-2"
                             style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F9FAFB' }}
                           >
+                            {/* Service earnings (if any) */}
+                            {job.basePrice > 0 && (
                             <div className="flex justify-between text-sm">
-                              <span style={{ color: textSecondary }}>Base price</span>
+                              <span style={{ color: textSecondary }}>Service earnings</span>
                               <span style={{ color: textPrimary }}>${fmt(job.basePrice)}</span>
                             </div>
+                            )}
+                            {/* Cancellation compensation (if any) */}
+                            {job.compGross > 0 && (
                             <div className="flex justify-between text-sm">
-                              <span style={{ color: textSecondary }}>Platform fee ({commissionPct}%)</span>
+                              <span style={{ color: textSecondary }}>Cancellation compensation</span>
+                              <span style={{ color: '#F59E0B' }}>${fmt(job.compGross)}</span>
+                            </div>
+                            )}
+                            {/* Platform fees — from service and/or compensation */}
+                            {(job.commission > 0 || isEstimated) && (
+                            <div className="flex justify-between text-sm">
+                              <span style={{ color: textSecondary }}>{isEstimated ? `Platform fee (est. ${commissionPct}%)` : 'Platform fees'}</span>
                               <span className="text-red-500">−${fmt(job.commission)}</span>
                             </div>
+                            )}
                             {job.tip > 0 && (
                               <div className="flex justify-between text-sm">
                                 <span style={{ color: textSecondary }}>Tip</span>
@@ -668,7 +757,16 @@ export function ProviderEarnings() {
               </div>
             ) : (
               <div className="space-y-3">
-                {payoutHistory.map((payout, index) => (
+                {payoutHistory.map((payout, index) => {
+                  const statusColor = payout.status === 'paid' ? '#10B981'
+                    : payout.status === 'failed' ? '#EF4444'
+                    : payout.status === 'processing' ? '#008CE5'
+                    : payout.status === 'pending' ? '#F59E0B' : '#9CA3AF';
+                  const statusLabel = payout.status === 'paid' ? 'Paid'
+                    : payout.status === 'processing' ? 'Processing'
+                    : payout.status === 'failed' ? 'Failed'
+                    : payout.status === 'pending' ? 'Pending' : payout.status;
+                  return (
                   <motion.div
                     key={payout.id}
                     initial={{ opacity: 0, y: 15 }}
@@ -680,14 +778,13 @@ export function ProviderEarnings() {
                     <div className="flex items-center justify-between mb-2">
                       <div>
                         <p className="font-semibold text-sm" style={{ color: textPrimary }}>{payout.period}</p>
-                        <p className="text-xs" style={{ color: textSecondary }}>{payout.jobCount} job{payout.jobCount !== 1 ? 's' : ''} completed</p>
                       </div>
                       <div className="text-right">
                         <p className="font-bold" style={{ color: '#008CE5' }}>${fmt(payout.net)}</p>
                         <span className="text-xs px-2 py-0.5 rounded-full"
-                          style={{ backgroundColor: 'rgba(16,185,129,0.1)', color: '#10B981' }}
+                          style={{ backgroundColor: `${statusColor}15`, color: statusColor }}
                         >
-                          Paid
+                          {statusLabel}
                         </span>
                       </div>
                     </div>
@@ -697,7 +794,8 @@ export function ProviderEarnings() {
                       <span>Tips: ${fmt(payout.tips)}</span>
                     </div>
                   </motion.div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -716,7 +814,7 @@ export function ProviderEarnings() {
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span style={{ color: textSecondary }}>Gross income (1099)</span>
-                  <span className="font-semibold" style={{ color: textPrimary }}>${fmt(allTimeStats.grossBase + allTimeStats.totalTips)}</span>
+                  <span className="font-semibold" style={{ color: textPrimary }}>${fmt(allTimeStats.grossEarnings)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span style={{ color: textSecondary }}>Platform fees (deductible)</span>

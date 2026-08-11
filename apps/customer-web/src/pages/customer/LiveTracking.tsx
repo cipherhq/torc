@@ -474,22 +474,32 @@ export function LiveTracking() {
     }
   };
 
-  // Determine if cancellation fee applies (provider already accepted)
-  const providerHasAccepted = hasProvider || status === 'accepted' || status === 'enroute' || status === 'arrived' || status === 'inprogress';
-  const cancellationFeePct = platformSettings?.cancellation_fee_pct ?? 25;
-  const totalAmount = currentJob?.total_amount ? Number(currentJob.total_amount) : (currentJob?.base_price ? Number(currentJob.base_price) : 0);
-  const cancellationFee = providerHasAccepted ? Math.round(totalAmount * (cancellationFeePct / 100) * 100) / 100 : 0;
+  // Server-authoritative cancellation quote
+  const [cancelQuote, setCancelQuote] = useState<any>(null);
 
-  const handleCancelRequest = () => {
-    // Always show reason modal first
+  const handleCancelRequest = async () => {
+    if (!jobId) return;
+    // Get server quote before showing confirmation
+    try {
+      const { data, error } = await supabase.rpc('get_cancellation_quote', { p_job_id: jobId });
+      if (error) throw error;
+      if (data?.success) {
+        setCancelQuote(data);
+      }
+    } catch (e) {
+      console.warn('Quote failed:', e);
+    }
     setShowCancelReason(true);
   };
+
+  const cancellationFee = cancelQuote?.cancellation_fee ?? 0;
+  const providerHasAccepted = cancelQuote?.has_provider ?? false;
 
   const handleReasonSelected = () => {
     const finalReason = cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason;
     if (!finalReason) return;
     setShowCancelReason(false);
-    if (providerHasAccepted && cancellationFee > 0) {
+    if (cancellationFee > 0) {
       setShowCancelConfirm(true);
     } else {
       handleCancelDirect(finalReason);
@@ -514,14 +524,7 @@ export function LiveTracking() {
     const finalReason = (cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason) || 'user_cancelled_with_fee';
     setCancelling(true);
     try {
-      // Store cancellation fee on the job
-      await supabase
-        .from('jobs')
-        .update({
-          cancellation_fee: cancellationFee,
-          cancellation_fee_pct: cancellationFeePct,
-        })
-        .eq('id', jobId);
+      // Server-authoritative cancellation (fee/refund calculated server-side)
 
       await cancelJob(jobId, finalReason);
     } catch (e) {
