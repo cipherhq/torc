@@ -10,7 +10,7 @@
  * - Service-role / secret keys
  */
 
-interface ValidationResult {
+export interface ValidationResult {
   valid: boolean;
   missing: string[];
 }
@@ -18,6 +18,11 @@ interface ValidationResult {
 const REQUIRED_VARS = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
+] as const;
+
+const PRODUCTION_REQUIRED_VARS = [
+  'VITE_APP_URL',
+  'VITE_GOOGLE_MAPS_API_KEY',
 ] as const;
 
 const PROHIBITED_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
@@ -30,26 +35,35 @@ const PROHIBITED_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /service.?role/i, label: 'Supabase service-role key' },
 ];
 
-export function validateConfig(): ValidationResult {
+/**
+ * Validate configuration.
+ * @param env - override for testing; defaults to import.meta.env at runtime.
+ */
+export function validateConfig(
+  env?: Record<string, string | boolean | undefined>,
+): ValidationResult {
+  const e = env ?? (import.meta.env as Record<string, string | boolean | undefined>);
   const missing: string[] = [];
 
   for (const key of REQUIRED_VARS) {
-    const value = import.meta.env[key];
+    const value = e[key];
     if (!value || typeof value !== 'string' || value.trim() === '') {
       missing.push(key);
     }
   }
 
-  // In production mode, reject unsafe configuration
-  const appEnv = String(import.meta.env.VITE_APP_ENV || '').trim().toLowerCase();
+  // In production mode, require additional keys and reject unsafe values
+  const appEnv = String(e.VITE_APP_ENV || '').trim().toLowerCase();
   if (appEnv === 'production') {
-    const appUrl = String(import.meta.env.VITE_APP_URL || '').trim();
-    if (!appUrl) {
-      missing.push('VITE_APP_URL (required in production)');
+    for (const key of PRODUCTION_REQUIRED_VARS) {
+      const value = e[key];
+      if (!value || typeof value !== 'string' || value.trim() === '') {
+        missing.push(`${key} (required in production)`);
+      }
     }
 
     // Scan all VITE_ env vars for prohibited patterns
-    const viteVars = Object.entries(import.meta.env).filter(([k]) => k.startsWith('VITE_'));
+    const viteVars = Object.entries(e).filter(([k]) => k.startsWith('VITE_'));
     for (const [key, value] of viteVars) {
       if (typeof value !== 'string') continue;
       for (const { pattern, label } of PROHIBITED_PATTERNS) {

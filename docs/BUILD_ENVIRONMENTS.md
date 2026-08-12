@@ -13,11 +13,14 @@
 
 When `VITE_APP_ENV=production`, `configValidation.ts` runs additional checks at app startup:
 
-**Required variables:**
+**Required variables (both apps):**
 - `VITE_APP_URL` — must be set
 - `VITE_SUPABASE_URL` — must be set
 - `VITE_SUPABASE_ANON_KEY` — must be set
-- `VITE_STRIPE_PUBLISHABLE_KEY` — must be set (customer app)
+- `VITE_GOOGLE_MAPS_API_KEY` — must be set
+
+**Additional required (customer app only):**
+- `VITE_STRIPE_PUBLISHABLE_KEY` — must be set
 
 **Prohibited patterns in any VITE_ variable:**
 - `localhost` or `127.0.0.1`
@@ -60,7 +63,9 @@ The web assets bundled into the native app contain the environment values baked 
 
 | Value | `.env` (dev) | `.env.internal` | `.env.production` |
 |---|---|---|---|
+| VITE_APP_ENV | development | internal | production |
 | VITE_APP_URL | localhost:7010 | Vercel preview URL | Production domain (injected) |
 | VITE_SUPABASE_URL | Dev project | Dev project | Production project (injected) |
-| VITE_STRIPE_PUBLISHABLE_KEY | pk_test_xxx | pk_test_xxx | pk_live_xxx (injected) |
-| VITE_APP_ENV | development | internal | production |
+| VITE_SUPABASE_ANON_KEY | Dev anon key | Dev anon key | Production anon key (injected) |
+| VITE_GOOGLE_MAPS_API_KEY | Dev Maps key | Dev Maps key | Production Maps key (injected) |
+| VITE_STRIPE_PUBLISHABLE_KEY | pk_test_xxx | pk_test_xxx | pk_live_xxx (injected, customer only) |
