@@ -7,7 +7,9 @@ export function callPhone(phoneNumber: string) {
 }
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-const DEFAULT_SHARE_BASE_URL = 'https://customer-web-rho-three.vercel.app';
+// Fallback only used when no public URL is available (local dev).
+// Production builds must set VITE_APP_URL to the real domain.
+const DEFAULT_SHARE_BASE_URL = '';
 
 function isPrivateHost(hostname: string): boolean {
   const host = (hostname || '').toLowerCase();

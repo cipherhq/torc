@@ -49,10 +49,10 @@ export function getAuthSiteUrl(): string {
     return normalizeBaseUrl(origin);
   }
 
-  // Local/dev fallback.
+  // Local/dev fallback — never returns a hardcoded URL.
   if (envUrl) return normalizeBaseUrl(envUrl);
   if (origin) return normalizeBaseUrl(origin);
-  return import.meta.env.VITE_PUBLIC_URL || origin || 'http://localhost:5173';
+  return '';
 }
 
 export function getAuthCallbackUrl(): string {
