@@ -7,6 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
+import { ensureProviderSetup } from '../../lib/ensureProviderSetup';
 
 interface DocumentRecord {
   id: string;
@@ -116,20 +117,7 @@ export function ProviderDocuments() {
   }
 
   async function ensureProviderRows() {
-    // Use SECURITY DEFINER RPC that bypasses RLS to guarantee rows exist.
-    // This is the authoritative path — no client-side fallback.
-    // The RPC returns JSONB { success, error?, user_id? }. A transport
-    // error lands in `error`; a business failure (wrong role, not
-    // authenticated) lands in `data.success === false`.
-    const { data, error } = await supabase.rpc('ensure_provider_setup');
-    if (error) {
-      console.warn('ensure_provider_setup transport error:', error.message);
-      throw new Error('Your provider account could not be prepared. Please try again or contact support.');
-    }
-    if (!data?.success) {
-      console.warn('ensure_provider_setup business failure:', data?.error);
-      throw new Error('Your provider account could not be prepared. Please try again or contact support.');
-    }
+    await ensureProviderSetup(supabase);
   }
 
   async function loadDocuments() {

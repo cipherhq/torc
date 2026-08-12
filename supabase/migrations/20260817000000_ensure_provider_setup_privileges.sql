@@ -1,17 +1,19 @@
--- Fix: ensure_provider_setup was replaced with a 3-arg signature in
--- 20260312000146 but no REVOKE/GRANT was issued for the new signature.
--- This left the function executable by PUBLIC (including anon).
+-- Fix: ensure_provider_setup privilege + overload cleanup.
 --
--- Restrict to authenticated only, matching the original 044 migration intent.
+-- Migration 044 created a zero-argument overload (RETURNS void, no role check).
+-- Migration 20260312000146 replaced it with a 3-arg overload (RETURNS JSONB,
+-- role-escalation protection) but:
+--   a) did not drop the old overload — both remain callable
+--   b) did not REVOKE/GRANT for the new signature — PUBLIC can execute
+--
+-- This migration:
+--   1. Drops the obsolete zero-arg overload (no role protection, no callers)
+--   2. Restricts the canonical 3-arg overload to authenticated only
 
--- Revoke from PUBLIC and anon for all overloaded signatures
-REVOKE EXECUTE ON FUNCTION public.ensure_provider_setup() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.ensure_provider_setup() FROM anon;
+-- 1. Drop the obsolete zero-arg overload
+DROP FUNCTION IF EXISTS public.ensure_provider_setup();
+
+-- 2. Restrict the canonical 3-arg version
 REVOKE EXECUTE ON FUNCTION public.ensure_provider_setup(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.ensure_provider_setup(TEXT, TEXT, TEXT) FROM anon;
-
--- Grant to authenticated only
-GRANT EXECUTE ON FUNCTION public.ensure_provider_setup() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.ensure_provider_setup(TEXT, TEXT, TEXT) TO authenticated;
-
--- service_role retains implicit superuser access; no explicit grant needed.

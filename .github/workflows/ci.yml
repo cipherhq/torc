@@ -413,7 +413,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -470,6 +470,135 @@ jobs:
           END $$;
 
           DO $$ BEGIN RAISE NOTICE 'All RLS and privilege assertions passed.'; END $$;
+          SQL
+      - name: Assert ensure_provider_setup privileges
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Only the 3-arg canonical version should exist
+          DO $$ BEGIN
+            ASSERT (
+              SELECT COUNT(*) FROM pg_proc p
+              JOIN pg_namespace n ON p.pronamespace = n.oid
+              WHERE n.nspname = 'public' AND p.proname = 'ensure_provider_setup'
+            ) = 1,
+            'exactly one ensure_provider_setup overload must exist (zero-arg should be dropped)';
+          END $$;
+
+          -- The remaining function must have 3 parameters
+          DO $$ BEGIN
+            ASSERT (
+              SELECT pronargs FROM pg_proc p
+              JOIN pg_namespace n ON p.pronamespace = n.oid
+              WHERE n.nspname = 'public' AND p.proname = 'ensure_provider_setup'
+            ) = 3,
+            'canonical ensure_provider_setup must have 3 parameters';
+          END $$;
+
+          -- PUBLIC must NOT have EXECUTE
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'ensure_provider_setup'
+              AND grantee = 'PUBLIC'
+            ), 'ensure_provider_setup must not be executable by PUBLIC';
+          END $$;
+
+          -- anon must NOT have EXECUTE
+          DO $$ BEGIN
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'ensure_provider_setup'
+              AND grantee = 'anon'
+            ), 'ensure_provider_setup must not be executable by anon';
+          END $$;
+
+          -- authenticated MUST have EXECUTE
+          DO $$ BEGIN
+            ASSERT EXISTS (
+              SELECT 1 FROM information_schema.role_routine_grants
+              WHERE routine_name = 'ensure_provider_setup'
+              AND grantee = 'authenticated'
+            ), 'ensure_provider_setup must be executable by authenticated';
+          END $$;
+
+          -- Behavioral: calling as provider creates rows and returns success
+          DO $$
+          DECLARE
+            v_uid UUID;
+            v_result JSONB;
+          BEGIN
+            -- Create a test auth user
+            v_uid := gen_random_uuid();
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'provider-test@example.com');
+
+            -- Simulate auth.uid() returning this user
+            PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+
+            -- Call the function
+            v_result := public.ensure_provider_setup(NULL, NULL, NULL);
+            ASSERT (v_result->>'success')::boolean,
+              'ensure_provider_setup must return success=true for new provider';
+
+            -- Verify rows were created
+            ASSERT EXISTS (SELECT 1 FROM profiles WHERE id = v_uid AND role = 'provider'),
+              'profiles row must exist with role=provider';
+            ASSERT EXISTS (SELECT 1 FROM provider_profiles WHERE id = v_uid),
+              'provider_profiles row must exist';
+
+            -- Idempotent: calling again must still succeed
+            v_result := public.ensure_provider_setup(NULL, NULL, NULL);
+            ASSERT (v_result->>'success')::boolean,
+              'double invocation must be idempotent';
+
+            -- Cleanup
+            DELETE FROM provider_profiles WHERE id = v_uid;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- Behavioral: existing customer cannot convert to provider
+          DO $$
+          DECLARE
+            v_uid UUID;
+            v_result JSONB;
+          BEGIN
+            v_uid := gen_random_uuid();
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'customer-test@example.com');
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'customer-test@example.com');
+
+            PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+            v_result := public.ensure_provider_setup(NULL, NULL, NULL);
+
+            ASSERT NOT (v_result->>'success')::boolean,
+              'customer must not be able to convert to provider';
+            ASSERT v_result->>'error' LIKE '%Cannot change role%',
+              'must return role-conflict error';
+
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- Behavioral: existing admin cannot convert to provider
+          DO $$
+          DECLARE
+            v_uid UUID;
+            v_result JSONB;
+          BEGIN
+            v_uid := gen_random_uuid();
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'admin-test@example.com');
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'admin', 'admin-test@example.com');
+
+            PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+            v_result := public.ensure_provider_setup(NULL, NULL, NULL);
+
+            ASSERT NOT (v_result->>'success')::boolean,
+              'admin must not be able to convert to provider';
+
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All ensure_provider_setup privilege and behavior assertions passed.'; END $$;
           SQL
       - name: Test expiry lifecycle RPCs
         run: |
