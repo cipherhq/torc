@@ -49,11 +49,10 @@ export function getAuthSiteUrl(): string {
     return normalizeBaseUrl(origin);
   }
 
-  // Local/dev fallback.
+  // Local/dev fallback — never returns a hardcoded URL.
   if (envUrl) return normalizeBaseUrl(envUrl);
   if (origin) return normalizeBaseUrl(origin);
-  // Use configured public URL or current origin — no hardcoded Vercel URL
-  return import.meta.env.VITE_PUBLIC_URL || origin || 'http://localhost:5173';
+  return '';
 }
 
 export function getAuthCallbackUrl(): string {

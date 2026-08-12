@@ -3872,39 +3872,47 @@ jobs:
             fi
           done
           echo "OK: no secrets in native configs"
-      - name: Verify Android targetSdk meets Play Store requirement
+      - name: Verify Android targetSdk meets release requirement (>= 36)
         run: |
           set -euo pipefail
           for app in customer-web provider-web; do
             TARGET=$(grep 'targetSdkVersion' "apps/$app/android/variables.gradle" | grep -o '[0-9]*')
-            if [ "$TARGET" -lt 35 ]; then
-              echo "FAIL: apps/$app targetSdkVersion=$TARGET (minimum 35 required)"
+            if [ "$TARGET" -lt 36 ]; then
+              echo "FAIL: apps/$app targetSdkVersion=$TARGET (minimum 36 required for release)"
               exit 1
             fi
             echo "OK: apps/$app targetSdkVersion=$TARGET"
           done
-      - name: Verify no debug/staging URLs in production env
+      - name: Verify production env rejects prohibited config
         run: |
           set -euo pipefail
+          PROHIBITED='localhost|127\.0\.0\.1|\.vercel\.app|pk_test_|sk_test_|sk_live_|service.role'
           for app in customer-web provider-web; do
             ENV_FILE="apps/$app/.env.production"
-            if [ -f "$ENV_FILE" ]; then
-              if grep -qi 'localhost\|127\.0\.0\.1' "$ENV_FILE"; then
-                echo "WARN: localhost reference in $ENV_FILE (review required)"
-              fi
+            if [ ! -f "$ENV_FILE" ]; then
+              echo "FAIL: apps/$app/.env.production missing"
+              exit 1
             fi
+            # Only check uncommented lines (active config)
+            ACTIVE_LINES=$(grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$' || true)
+            if echo "$ACTIVE_LINES" | grep -Eqi "$PROHIBITED"; then
+              echo "FAIL: apps/$app/.env.production contains prohibited values:"
+              echo "$ACTIVE_LINES" | grep -Ei "$PROHIBITED"
+              exit 1
+            fi
+            echo "OK: apps/$app/.env.production clean"
           done
-          echo "OK: production env files checked"
-      - name: Validate Capacitor sync (dry run)
+      - name: Validate Capacitor sync
         run: |
           set -euo pipefail
           for app in customer-web provider-web; do
             echo "Building apps/$app..."
             npm run build --workspace="apps/$app"
-            echo "Checking Capacitor config for apps/$app..."
+            echo "Running Capacitor sync for apps/$app..."
             cd "apps/$app"
-            npx cap sync --inline 2>&1 || true
+            npx cap sync
             cd ../..
+            echo "OK: apps/$app Capacitor sync succeeded"
           done
         env:
           VITE_SUPABASE_URL: https://placeholder.supabase.co

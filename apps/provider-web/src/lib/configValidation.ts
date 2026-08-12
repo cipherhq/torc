@@ -1,6 +1,13 @@
 /**
  * Validates required environment variables before app mount.
  * Called from main.jsx -- surfaces a clear error instead of a blank screen.
+ *
+ * In production mode (VITE_APP_ENV=production), additionally rejects
+ * unsafe configuration that should never ship in a release build:
+ * - localhost / 127.0.0.1 URLs
+ * - Vercel preview deployment hosts
+ * - Stripe test keys (pk_test_)
+ * - Service-role / secret keys
  */
 
 interface ValidationResult {
@@ -13,6 +20,16 @@ const REQUIRED_VARS = [
   'VITE_SUPABASE_ANON_KEY',
 ] as const;
 
+const PROHIBITED_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /localhost/i, label: 'localhost reference' },
+  { pattern: /127\.0\.0\.1/, label: '127.0.0.1 reference' },
+  { pattern: /\.vercel\.app/i, label: 'Vercel preview deployment host' },
+  { pattern: /pk_test_/i, label: 'Stripe test publishable key' },
+  { pattern: /sk_test_/i, label: 'Stripe test secret key' },
+  { pattern: /sk_live_/i, label: 'Stripe live secret key (must not be client-side)' },
+  { pattern: /service.?role/i, label: 'Supabase service-role key' },
+];
+
 export function validateConfig(): ValidationResult {
   const missing: string[] = [];
 
@@ -20,6 +37,26 @@ export function validateConfig(): ValidationResult {
     const value = import.meta.env[key];
     if (!value || typeof value !== 'string' || value.trim() === '') {
       missing.push(key);
+    }
+  }
+
+  // In production mode, reject unsafe configuration
+  const appEnv = String(import.meta.env.VITE_APP_ENV || '').trim().toLowerCase();
+  if (appEnv === 'production') {
+    const appUrl = String(import.meta.env.VITE_APP_URL || '').trim();
+    if (!appUrl) {
+      missing.push('VITE_APP_URL (required in production)');
+    }
+
+    // Scan all VITE_ env vars for prohibited patterns
+    const viteVars = Object.entries(import.meta.env).filter(([k]) => k.startsWith('VITE_'));
+    for (const [key, value] of viteVars) {
+      if (typeof value !== 'string') continue;
+      for (const { pattern, label } of PROHIBITED_PATTERNS) {
+        if (pattern.test(value)) {
+          missing.push(`${key} contains ${label}`);
+        }
+      }
     }
   }
 
