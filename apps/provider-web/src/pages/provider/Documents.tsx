@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { ensureProviderSetup } from '../../lib/ensureProviderSetup';
+import { cleanupStorageObject, getExistingDocumentPath } from '../../lib/documentStorage';
 
 interface DocumentRecord {
   id: string;
@@ -174,6 +175,10 @@ export function ProviderDocuments() {
 
       // Proactively ensure provider rows exist before upload to prevent FK errors
       await ensureProviderRows();
+
+      // Capture existing file path before replacement (for cleanup after successful DB write)
+      const oldFilePath = await getExistingDocumentPath(supabase, providerId, docId);
+
       const safeName = file.name.replace(/\s+/g, '-').replace(/[^\w.-]/g, '');
       const storagePath = `${providerId}/${docId}/${Date.now()}-${safeName}`;
 
@@ -277,7 +282,16 @@ export function ProviderDocuments() {
         }
       }
 
-      if (upsertError) throw upsertError;
+      if (upsertError) {
+        // DB persistence failed after all retries — clean up the orphaned Storage object
+        await cleanupStorageObject(supabase, storagePath, providerId);
+        throw upsertError;
+      }
+
+      // DB persistence succeeded — clean up old replaced file if different
+      if (oldFilePath && oldFilePath !== storagePath) {
+        await cleanupStorageObject(supabase, oldFilePath, providerId);
+      }
 
       await loadDocuments();
     } catch (error: any) {
@@ -316,6 +330,9 @@ export function ProviderDocuments() {
       const providerId = authUser.id;
       await ensureProviderRows();
 
+      // Capture existing file path before replacement
+      const oldFilePath = await getExistingDocumentPath(supabase, providerId, docId);
+
       // Convert data URL to blob
       const blob = await fetch(image.dataUrl).then(r => r.blob());
       const ext = image.format === 'png' ? 'png' : 'jpg';
@@ -352,7 +369,16 @@ export function ProviderDocuments() {
         upsertError = fallback.error;
       }
 
-      if (upsertError) throw upsertError;
+      if (upsertError) {
+        await cleanupStorageObject(supabase, storagePath, providerId);
+        throw upsertError;
+      }
+
+      // DB succeeded — clean up old replaced file if different
+      if (oldFilePath && oldFilePath !== storagePath) {
+        await cleanupStorageObject(supabase, oldFilePath, providerId);
+      }
+
       await loadDocuments();
     } catch (error: any) {
       // User cancelled camera — not an error
@@ -370,19 +396,23 @@ export function ProviderDocuments() {
     try {
       setSavingDocId(docId);
       const authUser = await getActiveProviderUser();
-      if (existing.file_path) {
-        const removeRes = await supabase.storage.from('provider-documents').remove([existing.file_path]);
-        if (removeRes.error) {
-          // We still try DB delete if file was already removed.
-          console.warn('Storage remove warning:', removeRes.error);
-        }
-      }
+      const pathToClean = existing.file_path;
+
+      // DB delete FIRST — ensures we never have a DB row pointing to a deleted file.
+      // If DB delete fails, we have not touched Storage and state is consistent.
       const { error } = await supabase
         .from('documents')
         .delete()
         .eq('provider_id', authUser.id)
         .eq('type', docId);
       if (error) throw error;
+
+      // DB row removed — now clean up Storage (best-effort).
+      // If this fails, the object is orphaned but the DB is consistent.
+      if (pathToClean) {
+        await cleanupStorageObject(supabase, pathToClean, authUser.id);
+      }
+
       await loadDocuments();
     } catch (error: any) {
       setPageError(error?.message || 'Could not remove this document.');
