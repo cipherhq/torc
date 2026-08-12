@@ -178,6 +178,7 @@ jobs:
             status TEXT DEFAULT 'active',
             suspended_at TIMESTAMPTZ,
             deleted_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ DEFAULT now(),
             CONSTRAINT profiles_status_check CHECK (status IN ('active', 'suspended', 'pending', 'deleted'))
           );
           CREATE TABLE IF NOT EXISTS public.services (
