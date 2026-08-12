@@ -142,14 +142,8 @@ export function AccountSecurity() {
 
   async function handleAccountDeletionRequest() {
     if (!user?.id) return;
-    const cleanReason = deleteReason.trim();
     setDeleteError(null);
     setDeleteMessage(null);
-
-    if (cleanReason.length < 10) {
-      setDeleteError('Please provide a short reason (at least 10 characters).');
-      return;
-    }
 
     if (!window.confirm('Are you sure you want to request account deletion? Our team will review and process your request. This cannot be undone once completed.')) {
       return;
@@ -157,30 +151,16 @@ export function AccountSecurity() {
 
     try {
       setDeleteSaving(true);
-      const { error } = await supabase.from('support_tickets').insert({
-        requester_id: user.id,
-        requester_role: 'provider',
-        subject: 'Account deletion request',
-        description: `Provider requested account deletion.\nEmail: ${user.email || '-'}\nReason: ${cleanReason}`,
-        priority: 'high',
-        status: 'open',
+      const reason = deleteReason.trim() || null;
+      const { data, error } = await supabase.rpc('request_account_deletion', {
+        p_reason: reason,
       });
       if (error) throw error;
-
-      // Mark profile as pending deletion — verify exactly one row was updated
-      const { data: updatedProfile, error: statusError } = await supabase
-        .from('profiles')
-        .update({ status: 'pending_deletion' })
-        .eq('id', user.id)
-        .select('id')
-        .maybeSingle();
-      if (statusError) throw statusError;
-      if (!updatedProfile) throw new Error('Could not mark account for deletion.');
+      if (!data?.success) throw new Error(data?.message || data?.error || 'Could not process deletion request.');
 
       setDeleteReason('');
       setDeleteMessage('Deletion request submitted. Your account is now pending review. You will be signed out.');
 
-      // Sign out after short delay so user sees the message
       setTimeout(async () => {
         await supabase.auth.signOut();
       }, 2000);
@@ -291,12 +271,15 @@ export function AccountSecurity() {
             <h2 className="font-semibold" style={{ color: textColor }}>Request Account Deletion</h2>
           </div>
           <p className="text-sm" style={{ color: subColor }}>
-            Submit a request to permanently close your account. Our team will verify ownership before deletion.
+            Request permanent deletion of your account and personal data. Our team will verify your identity and check for any active jobs or pending payouts before processing.
+          </p>
+          <p className="text-xs" style={{ color: subColor, opacity: 0.7 }}>
+            Financial records may be retained in anonymized form as required by law.
           </p>
           <textarea
             value={deleteReason}
             onChange={(e) => setDeleteReason(e.target.value)}
-            placeholder="Reason for deleting your account"
+            placeholder="Reason for deleting your account (optional)"
             rows={4}
             className="w-full rounded-xl px-4 py-3 text-sm outline-none"
             style={{ backgroundColor: inputBg, border: `1px solid ${inputBorder}`, color: textColor }}
