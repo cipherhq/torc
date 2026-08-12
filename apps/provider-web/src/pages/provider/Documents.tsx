@@ -7,6 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
+import { ensureProviderSetup } from '../../lib/ensureProviderSetup';
 
 interface DocumentRecord {
   id: string;
@@ -115,30 +116,8 @@ export function ProviderDocuments() {
     return data.user;
   }
 
-  async function ensureProviderRows(providerId: string, email: string | null | undefined) {
-    // Use SECURITY DEFINER RPC that bypasses RLS to guarantee rows exist
-    const { error: rpcError } = await supabase.rpc('ensure_provider_setup');
-    if (!rpcError) return; // Success — rows are guaranteed
-
-    console.warn('ensure_provider_setup RPC failed, falling back to client upserts:', rpcError.message);
-
-    // Fallback: client-side upserts (may fail under certain RLS configs)
-    let meta: any = {};
-    try {
-      const { data } = await supabase.auth.getUser();
-      meta = data?.user?.user_metadata || {};
-    } catch {}
-
-    const profilePayload: any = {
-      id: providerId,
-      role: 'provider',
-      first_name: meta.first_name || '',
-      last_name: meta.last_name || '',
-    };
-    if (email) profilePayload.email = email;
-
-    await supabase.from('profiles').upsert(profilePayload, { onConflict: 'id', ignoreDuplicates: true }).catch(() => {});
-    await supabase.from('provider_profiles').upsert({ id: providerId }, { onConflict: 'id', ignoreDuplicates: true }).catch(() => {});
+  async function ensureProviderRows() {
+    await ensureProviderSetup(supabase);
   }
 
   async function loadDocuments() {
@@ -148,7 +127,7 @@ export function ProviderDocuments() {
       setPageError(null);
       const authUser = await getActiveProviderUser();
       // Proactively ensure provider rows exist so uploads won't fail
-      await ensureProviderRows(authUser.id, authUser.email);
+      await ensureProviderRows();
       const { data, error } = await supabase
         .from('documents')
         .select('*')
@@ -194,7 +173,7 @@ export function ProviderDocuments() {
       const providerId = authUser.id;
 
       // Proactively ensure provider rows exist before upload to prevent FK errors
-      await ensureProviderRows(providerId, authUser.email);
+      await ensureProviderRows();
       const safeName = file.name.replace(/\s+/g, '-').replace(/[^\w.-]/g, '');
       const storagePath = `${providerId}/${docId}/${Date.now()}-${safeName}`;
 
@@ -270,7 +249,7 @@ export function ProviderDocuments() {
 
       // Session/profile mismatch recovery: ensure provider rows exist, then retry once.
       if (upsertError && upsertMsg.includes('documents_provider_id_fkey')) {
-        await ensureProviderRows(providerId, authUser.email);
+        await ensureProviderRows();
         const retry = await supabase
           .from('documents')
           .upsert(withPathPayload, { onConflict: 'provider_id,type' });
@@ -283,7 +262,7 @@ export function ProviderDocuments() {
         try {
           await supabase.auth.refreshSession();
           const freshUser = await getActiveProviderUser();
-          await ensureProviderRows(freshUser.id, freshUser.email);
+          await ensureProviderRows();
           const lastRetry = await supabase
             .from('documents')
             .upsert({ ...withPathPayload, provider_id: freshUser.id }, { onConflict: 'provider_id,type' });
@@ -335,7 +314,7 @@ export function ProviderDocuments() {
 
       const authUser = await getActiveProviderUser();
       const providerId = authUser.id;
-      await ensureProviderRows(providerId, authUser.email);
+      await ensureProviderRows();
 
       // Convert data URL to blob
       const blob = await fetch(image.dataUrl).then(r => r.blob());
