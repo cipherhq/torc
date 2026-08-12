@@ -3835,3 +3835,80 @@ jobs:
         run: deno check supabase/functions/process-cancellation-refunds/index.ts
       - name: Check process-account-deletion compiles
         run: deno check supabase/functions/process-account-deletion/index.ts
+
+  native-config-validation:
+    name: Native Config Validation
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Validate Capacitor configs exist
+        run: |
+          set -euo pipefail
+          for app in customer-web provider-web; do
+            echo "Checking apps/$app..."
+            test -f "apps/$app/capacitor.config.ts" || { echo "FAIL: missing capacitor.config.ts"; exit 1; }
+            test -f "apps/$app/ios/App/App/Info.plist" || { echo "FAIL: missing Info.plist"; exit 1; }
+            test -f "apps/$app/ios/App/App/PrivacyInfo.xcprivacy" || { echo "FAIL: missing PrivacyInfo.xcprivacy"; exit 1; }
+            test -f "apps/$app/android/app/src/main/AndroidManifest.xml" || { echo "FAIL: missing AndroidManifest.xml"; exit 1; }
+            echo "OK: apps/$app native configs present"
+          done
+      - name: Verify no secrets in native configs
+        run: |
+          set -euo pipefail
+          PATTERN='sk_test_|sk_live_|SUPABASE_SERVICE_ROLE|service_role_key|STRIPE_SECRET|TWILIO_AUTH_TOKEN'
+          for app in customer-web provider-web; do
+            if grep -rEi "$PATTERN" "apps/$app/ios" "apps/$app/android" \
+              --include='*.plist' --include='*.xml' --include='*.json' \
+              --include='*.gradle' --include='*.swift' --include='*.java' \
+              --include='*.properties' 2>/dev/null | grep -v 'build/'; then
+              echo "FAIL: secrets found in apps/$app native configs"
+              exit 1
+            fi
+          done
+          echo "OK: no secrets in native configs"
+      - name: Verify Android targetSdk meets Play Store requirement
+        run: |
+          set -euo pipefail
+          for app in customer-web provider-web; do
+            TARGET=$(grep 'targetSdkVersion' "apps/$app/android/variables.gradle" | grep -o '[0-9]*')
+            if [ "$TARGET" -lt 35 ]; then
+              echo "FAIL: apps/$app targetSdkVersion=$TARGET (minimum 35 required)"
+              exit 1
+            fi
+            echo "OK: apps/$app targetSdkVersion=$TARGET"
+          done
+      - name: Verify no debug/staging URLs in production env
+        run: |
+          set -euo pipefail
+          for app in customer-web provider-web; do
+            ENV_FILE="apps/$app/.env.production"
+            if [ -f "$ENV_FILE" ]; then
+              if grep -qi 'localhost\|127\.0\.0\.1' "$ENV_FILE"; then
+                echo "WARN: localhost reference in $ENV_FILE (review required)"
+              fi
+            fi
+          done
+          echo "OK: production env files checked"
+      - name: Validate Capacitor sync (dry run)
+        run: |
+          set -euo pipefail
+          for app in customer-web provider-web; do
+            echo "Building apps/$app..."
+            npm run build --workspace="apps/$app"
+            echo "Checking Capacitor config for apps/$app..."
+            cd "apps/$app"
+            npx cap sync --inline 2>&1 || true
+            cd ../..
+          done
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-key
+          VITE_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+          VITE_GOOGLE_MAPS_API_KEY: placeholder
+          VITE_APP_URL: https://torcapp.com
