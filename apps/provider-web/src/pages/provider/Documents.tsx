@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
 import { ensureProviderSetup } from '../../lib/ensureProviderSetup';
+import { cleanupStorageObject, getExistingDocumentPath } from '../../lib/documentStorage';
 
 interface DocumentRecord {
   id: string;
@@ -160,6 +161,12 @@ export function ProviderDocuments() {
     if (!validTypes.includes(file.type)) { setPageError('Please upload a JPG, PNG, or PDF file'); return; }
     if (file.size > 10 * 1024 * 1024) { setPageError('File size must be less than 10MB'); return; }
 
+    // Track uploaded object for centralized cleanup on any DB failure
+    let uploadedPath: string | null = null;
+    let uploadProviderId: string | null = null;
+    let dbPersisted = false;
+    let oldReplacedPath: string | null = null;
+
     try {
       setSavingDocId(docId);
 
@@ -171,14 +178,25 @@ export function ProviderDocuments() {
 
       const authUser = await getActiveProviderUser();
       const providerId = authUser.id;
+      uploadProviderId = providerId;
 
       // Proactively ensure provider rows exist before upload to prevent FK errors
       await ensureProviderRows();
+
+      // Capture existing file path before replacement
+      const existingPath = await getExistingDocumentPath(supabase, providerId, docId);
+      if (existingPath.queryFailed) {
+        throw new Error('Could not verify existing document status. Please try again.');
+      }
+
       const safeName = file.name.replace(/\s+/g, '-').replace(/[^\w.-]/g, '');
       const storagePath = `${providerId}/${docId}/${Date.now()}-${safeName}`;
 
       const upload = await supabase.storage.from('provider-documents').upload(storagePath, file, { upsert: false });
       if (upload.error) throw upload.error;
+
+      // From this point, any failure must attempt cleanup of storagePath
+      uploadedPath = storagePath;
 
       const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
       const fileUrl = publicData?.publicUrl || null;
@@ -212,7 +230,6 @@ export function ProviderDocuments() {
       }
 
       // Legacy DB fallback: if (provider_id,type) unique constraint is missing, upsert fails.
-      // In that case do an UPDATE-first then INSERT flow.
       if (upsertError && upsertMsg.includes('no unique or exclusion constraint matching the on conflict specification')) {
         let updatePayload: any = withPathPayload;
         let { data: updatedRows, error: updateErr } = await supabase
@@ -247,7 +264,7 @@ export function ProviderDocuments() {
         upsertError = null;
       }
 
-      // Session/profile mismatch recovery: ensure provider rows exist, then retry once.
+      // Session/profile mismatch recovery
       if (upsertError && upsertMsg.includes('documents_provider_id_fkey')) {
         await ensureProviderRows();
         const retry = await supabase
@@ -258,7 +275,6 @@ export function ProviderDocuments() {
       }
 
       if (upsertError && upsertMsg.includes('documents_provider_id_fkey')) {
-        // Try one more time - force session refresh and re-ensure rows
         try {
           await supabase.auth.refreshSession();
           const freshUser = await getActiveProviderUser();
@@ -279,16 +295,33 @@ export function ProviderDocuments() {
 
       if (upsertError) throw upsertError;
 
+      // DB persistence confirmed successful
+      dbPersisted = true;
+      oldReplacedPath = existingPath.path;
+
       await loadDocuments();
     } catch (error: any) {
+      // Centralized cleanup: if we uploaded a new object but DB persistence failed,
+      // clean up exactly the newly uploaded object.
+      if (uploadedPath && !dbPersisted && uploadProviderId) {
+        await cleanupStorageObject(supabase, uploadedPath, uploadProviderId);
+      }
       setPageError(error?.message || 'Could not upload this document.');
     } finally {
+      // After DB success: clean up the old replaced file (best-effort, non-blocking)
+      if (dbPersisted && oldReplacedPath && oldReplacedPath !== uploadedPath && uploadProviderId) {
+        await cleanupStorageObject(supabase, oldReplacedPath, uploadProviderId);
+      }
       setSavingDocId(null);
     }
   }
 
   async function handleCameraUpload(docId: string) {
     if (!user) return;
+
+    // Step 1: Capture image (separate try — camera cancel is not an upload error)
+    let imageDataUrl: string;
+    let imageFormat: string;
     try {
       const perms = await CapCamera.requestPermissions({ permissions: ['camera', 'photos'] });
       if (perms.camera === 'denied' && perms.photos === 'denied') {
@@ -296,17 +329,26 @@ export function ProviderDocuments() {
         return;
       }
       const image = await CapCamera.getPhoto({
-        quality: 85,
-        allowEditing: false,
-        resultType: CameraResultType.DataUrl,
-        source: CameraSource.Camera,
-        width: 1600,
-        height: 1600,
-        promptLabelHeader: 'Upload Document',
-        promptLabelPicture: 'Take Photo',
+        quality: 85, allowEditing: false, resultType: CameraResultType.DataUrl,
+        source: CameraSource.Camera, width: 1600, height: 1600,
+        promptLabelHeader: 'Upload Document', promptLabelPicture: 'Take Photo',
       });
       if (!image.dataUrl) return;
+      imageDataUrl = image.dataUrl;
+      imageFormat = image.format || 'jpeg';
+    } catch (camErr: any) {
+      if (camErr?.message?.includes('User cancelled') || camErr?.message?.includes('canceled')) return;
+      setPageError(camErr?.message || 'Could not access camera.');
+      return;
+    }
 
+    // Step 2: Upload + DB persistence with centralized cleanup
+    let uploadedPath: string | null = null;
+    let uploadProviderId: string | null = null;
+    let dbPersisted = false;
+    let oldReplacedPath: string | null = null;
+
+    try {
       setSavingDocId(docId);
 
       const { error: refreshError } = await supabase.auth.refreshSession();
@@ -314,38 +356,38 @@ export function ProviderDocuments() {
 
       const authUser = await getActiveProviderUser();
       const providerId = authUser.id;
+      uploadProviderId = providerId;
       await ensureProviderRows();
 
-      // Convert data URL to blob
-      const blob = await fetch(image.dataUrl).then(r => r.blob());
-      const ext = image.format === 'png' ? 'png' : 'jpg';
-      const mimeType = image.format === 'png' ? 'image/png' : 'image/jpeg';
+      const existingPath = await getExistingDocumentPath(supabase, providerId, docId);
+      if (existingPath.queryFailed) {
+        throw new Error('Could not verify existing document status. Please try again.');
+      }
+
+      const blob = await fetch(imageDataUrl).then(r => r.blob());
+      const ext = imageFormat === 'png' ? 'png' : 'jpg';
+      const mimeType = imageFormat === 'png' ? 'image/png' : 'image/jpeg';
       const fileName = `${docId}-${Date.now()}.${ext}`;
       const storagePath = `${providerId}/${docId}/${fileName}`;
 
       const uploadRes = await supabase.storage.from('provider-documents').upload(storagePath, blob, { upsert: false, contentType: mimeType });
       if (uploadRes.error) throw uploadRes.error;
 
+      uploadedPath = storagePath;
+
       const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
       const fileUrl = publicData?.publicUrl || null;
 
       const payload = {
-        provider_id: providerId,
-        type: docId,
-        file_name: fileName,
-        file_url: fileUrl,
-        file_path: storagePath,
-        mime_type: mimeType,
-        file_size: blob.size,
-        status: 'pending',
-        rejection_reason: null,
+        provider_id: providerId, type: docId, file_name: fileName,
+        file_url: fileUrl, file_path: storagePath, mime_type: mimeType,
+        file_size: blob.size, status: 'pending', rejection_reason: null,
       };
 
       let { error: upsertError } = await supabase
         .from('documents')
         .upsert(payload, { onConflict: 'provider_id,type' });
 
-      // Legacy fallback if file_path column doesn't exist
       if (upsertError && String(upsertError.message || '').toLowerCase().includes('file_path')) {
         const { file_path, ...base } = payload;
         const fallback = await supabase.from('documents').upsert(base, { onConflict: 'provider_id,type' });
@@ -353,12 +395,20 @@ export function ProviderDocuments() {
       }
 
       if (upsertError) throw upsertError;
+
+      dbPersisted = true;
+      oldReplacedPath = existingPath.path;
+
       await loadDocuments();
     } catch (error: any) {
-      // User cancelled camera — not an error
-      if (error?.message?.includes('User cancelled') || error?.message?.includes('canceled')) return;
+      if (uploadedPath && !dbPersisted && uploadProviderId) {
+        await cleanupStorageObject(supabase, uploadedPath, uploadProviderId);
+      }
       setPageError(error?.message || 'Could not upload photo.');
     } finally {
+      if (dbPersisted && oldReplacedPath && oldReplacedPath !== uploadedPath && uploadProviderId) {
+        await cleanupStorageObject(supabase, oldReplacedPath, uploadProviderId);
+      }
       setSavingDocId(null);
     }
   }
@@ -370,19 +420,23 @@ export function ProviderDocuments() {
     try {
       setSavingDocId(docId);
       const authUser = await getActiveProviderUser();
-      if (existing.file_path) {
-        const removeRes = await supabase.storage.from('provider-documents').remove([existing.file_path]);
-        if (removeRes.error) {
-          // We still try DB delete if file was already removed.
-          console.warn('Storage remove warning:', removeRes.error);
-        }
-      }
+      const pathToClean = existing.file_path;
+
+      // DB delete FIRST — ensures we never have a DB row pointing to a deleted file.
+      // If DB delete fails, we have not touched Storage and state is consistent.
       const { error } = await supabase
         .from('documents')
         .delete()
         .eq('provider_id', authUser.id)
         .eq('type', docId);
       if (error) throw error;
+
+      // DB row removed — now clean up Storage (best-effort).
+      // If this fails, the object is orphaned but the DB is consistent.
+      if (pathToClean) {
+        await cleanupStorageObject(supabase, pathToClean, authUser.id);
+      }
+
       await loadDocuments();
     } catch (error: any) {
       setPageError(error?.message || 'Could not remove this document.');
