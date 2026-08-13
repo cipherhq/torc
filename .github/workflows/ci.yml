@@ -4017,6 +4017,9 @@ jobs:
               VALUES (v_checkout_id, v_uid, 'tire', 'payment_processing', 55.00, 55.00, 'usd') ON CONFLICT DO NOTHING;
 
             PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+            -- Debug: verify auth.uid() returns the expected value
+            ASSERT auth.uid() = v_uid,
+              'auth.uid() must match set_config value, got: ' || COALESCE(auth.uid()::text, 'NULL');
             v_result := cancel_checkout(v_checkout_id);
             ASSERT (v_result->>'success')::boolean,
               'cancel_checkout must succeed, got: ' || v_result::text;
