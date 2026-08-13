@@ -4304,6 +4304,9 @@ jobs:
             DELETE FROM auth.users WHERE id = v_uid;
           END $$;
 
+          -- Seed tire service for job creation tests
+          INSERT INTO services (id, name, base_price) VALUES ('tire', 'Tire Change', 55.00) ON CONFLICT DO NOTHING;
+
           -- 10. Normal non-cancelled webhook creates job (camelCase snapshot)
           DO $$
           DECLARE
