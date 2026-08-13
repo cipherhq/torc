@@ -430,7 +430,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql supabase/migrations/20260818*.sql supabase/migrations/20260819*.sql supabase/migrations/20260820*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql supabase/migrations/20260818*.sql supabase/migrations/20260819*.sql supabase/migrations/20260820*.sql supabase/migrations/20260821*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -4369,6 +4369,174 @@ jobs:
               SELECT 1 FROM information_schema.tables
               WHERE table_name = 'job_cancellation_operations' AND table_schema = 'public'
             ), 'job_cancellation_operations table must still exist';
+          END $$;
+
+          -- 11. Legacy snake_case booking snapshot creates job
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000110';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000110';
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'snake-case@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'snake-case@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'payment_processing', 55.00, 55.00, 'usd',
+              'pi_snake_110', 'cus_snake_110',
+              '{"pickup_address":"456 Legacy St","pickup_latitude":40.72,"pickup_longitude":-74.02,"destination_address":"789 Dest","requester_type":"self","requester_name":"Legacy","requester_phone":"555-0000","customer_notes":"snake_case test"}'::jsonb)
+            ON CONFLICT DO NOTHING;
+            v_result := process_stripe_webhook('evt_snake_110', 'payment_intent.succeeded',
+              'pi_snake_110', v_checkout_id::text, 5500, 'usd', 'cus_snake_110');
+            ASSERT (v_result->>'success')::boolean, 'snake_case webhook must succeed';
+            ASSERT v_result->>'job_id' IS NOT NULL, 'snake_case job must be created';
+            ASSERT EXISTS (SELECT 1 FROM jobs WHERE checkout_id = v_checkout_id AND pickup_address = '456 Legacy St'),
+              'snake_case pickup_address must be read';
+            DELETE FROM jobs WHERE checkout_id = v_checkout_id;
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_snake_110';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 12. Null event Stripe customer = rejected
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000120';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000120';
+            v_raised BOOLEAN := false;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'null-evt-cus@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'null-evt-cus@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'payment_processing', 55.00, 55.00, 'usd',
+              'pi_evt_cus_120', 'cus_checkout_120',
+              '{"pickupAddress":"Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
+            ON CONFLICT DO NOTHING;
+            BEGIN
+              PERFORM process_stripe_webhook('evt_null_evt_120', 'payment_intent.succeeded',
+                'pi_evt_cus_120', v_checkout_id::text, 5500, 'usd', NULL);
+            EXCEPTION WHEN OTHERS THEN v_raised := true;
+            END;
+            ASSERT v_raised, 'null event Stripe customer must raise';
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_null_evt_120';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 13. Atomic finalizer privileges
+          DO $$ BEGIN
+            ASSERT NOT has_function_privilege('anon', 'public.finalize_checkout_refund(uuid, text, text, text)', 'EXECUTE'),
+              'anon must NOT execute finalize_checkout_refund';
+            ASSERT NOT has_function_privilege('authenticated', 'public.finalize_checkout_refund(uuid, text, text, text)', 'EXECUTE'),
+              'authenticated must NOT execute finalize_checkout_refund';
+            ASSERT has_function_privilege('service_role', 'public.finalize_checkout_refund(uuid, text, text, text)', 'EXECUTE'),
+              'service_role must execute finalize_checkout_refund';
+          END $$;
+
+          -- 14. Atomic finalizer: succeeded -> completed + checkout refunded
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000140';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000140';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'finalizer@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'finalizer@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_fin_140')
+            ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, stripe_refund_id)
+            VALUES (v_checkout_id, v_uid, 'pi_fin_140', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'refund_pending', 're_fin_140')
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            v_result := finalize_checkout_refund(v_op_id, 're_fin_140', 'succeeded', NULL);
+            ASSERT (v_result->>'success')::boolean, 'finalizer must succeed';
+            ASSERT (v_result->>'status') = 'completed', 'must be completed';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE id = v_op_id) = 'completed';
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'refunded',
+              'checkout must be atomically refunded';
+
+            -- 15. Duplicate finalization is idempotent
+            v_result := finalize_checkout_refund(v_op_id, 're_fin_140', 'succeeded', NULL);
+            ASSERT (v_result->>'success')::boolean, 'duplicate must succeed';
+            ASSERT (v_result->>'already_completed')::boolean, 'must indicate already_completed';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 16. Atomic finalizer: failed -> manual_review
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000160';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000160';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'fail-fin@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'fail-fin@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_fail_160')
+            ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, stripe_refund_id)
+            VALUES (v_checkout_id, v_uid, 'pi_fail_160', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'refund_pending', 're_fail_160')
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            v_result := finalize_checkout_refund(v_op_id, 're_fail_160', 'failed', 'Stripe declined');
+            ASSERT (v_result->>'success')::boolean;
+            ASSERT (v_result->>'status') = 'manual_review';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE id = v_op_id) = 'manual_review';
+            -- Checkout should NOT become refunded on failure
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'customer_cancelled',
+              'checkout must remain customer_cancelled on refund failure';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 17. Stripe refund ID mismatch -> rejected
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000170';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000170';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'mismatch-fin@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'mismatch-fin@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_mm_170')
+            ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, stripe_refund_id)
+            VALUES (v_checkout_id, v_uid, 'pi_mm_170', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'refund_pending', 're_correct_170')
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            v_result := finalize_checkout_refund(v_op_id, 're_WRONG_170', 'succeeded', NULL);
+            ASSERT NOT (v_result->>'success')::boolean, 'mismatched refund ID must fail';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE id = v_op_id) = 'refund_pending',
+              'op must remain refund_pending on mismatch';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
           END $$;
 
           DO $$ BEGIN RAISE NOTICE 'All checkout refund operation tests passed.'; END $$;

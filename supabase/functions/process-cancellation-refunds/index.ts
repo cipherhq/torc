@@ -45,6 +45,34 @@ async function stripePost(path: string, body: URLSearchParams, secretKey: string
   }
 }
 
+async function stripeGet(path: string, secretKey: string): Promise<any> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STRIPE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`https://api.stripe.com${path}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${secretKey}` },
+      signal: controller.signal,
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const error = new Error(payload?.error?.message || 'Stripe GET request failed');
+      (error as any).stripeError = payload?.error;
+      throw error;
+    }
+    return payload;
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      const timeoutErr = new Error('Stripe request timed out');
+      (timeoutErr as any).isTimeout = true;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 Deno.serve(async (req) => {
   const jsonHeaders = { 'Content-Type': 'application/json' };
 
@@ -209,7 +237,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // --- Process checkout-level refund operations (pre-job cancellations) ---
+    // --- Phase A: Process pending checkout refund operations (issue Stripe refund) ---
     const { data: checkoutOps, error: checkoutOpsErr } = await adminClient
       .from('checkout_refund_operations')
       .select('*')
@@ -223,11 +251,18 @@ Deno.serve(async (req) => {
 
     for (const op of (checkoutOps || [])) {
       try {
-        await adminClient
+        // Atomic claim: only proceed if this worker actually claimed the row
+        const { data: claimed, error: claimErr } = await adminClient
           .from('checkout_refund_operations')
           .update({ status: 'refund_requesting' })
           .eq('id', op.id)
-          .eq('status', 'pending');
+          .eq('status', 'pending')
+          .select('id');
+
+        if (claimErr || !claimed || claimed.length === 0) {
+          console.log(`[checkout-refund] Op ${op.id}: not claimed (already taken or error)`);
+          continue;
+        }
 
         const refundBody = new URLSearchParams();
         refundBody.append('payment_intent', op.payment_intent_id);
@@ -239,45 +274,22 @@ Deno.serve(async (req) => {
 
         const refund = await stripePost('/v1/refunds', refundBody, stripeSecretKey, op.idempotency_key);
 
-        if (refund.status === 'succeeded') {
-          await adminClient
-            .from('checkout_refund_operations')
-            .update({
-              status: 'completed',
-              stripe_refund_id: refund.id,
-              stripe_refund_status: 'succeeded',
-              completed_at: new Date().toISOString(),
-            })
-            .eq('id', op.id);
+        // Use atomic finalizer for succeeded — both op and checkout in one transaction
+        const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
+          p_operation_id: op.id,
+          p_stripe_refund_id: refund.id,
+          p_stripe_refund_status: refund.status,
+          p_error_message: refund.status === 'failed' ? 'Stripe refund failed' : null,
+        });
 
-          // Update checkout to refunded
-          await adminClient
-            .from('checkouts')
-            .update({ status: 'refunded' })
-            .eq('id', op.checkout_id);
-
-          // No job updates, no provider compensation — no job/provider exists
+        if (finErr) {
+          console.error(`[checkout-refund] Op ${op.id}: finalizer error: ${finErr.message}`);
+          failed++;
+        } else if (finResult?.status === 'completed') {
           succeeded++;
-        } else if (refund.status === 'pending') {
-          await adminClient
-            .from('checkout_refund_operations')
-            .update({
-              status: 'refund_pending',
-              stripe_refund_id: refund.id,
-              stripe_refund_status: 'pending',
-            })
-            .eq('id', op.id);
+        } else if (finResult?.status === 'refund_pending') {
           pending++;
-        } else {
-          await adminClient
-            .from('checkout_refund_operations')
-            .update({
-              status: 'manual_review',
-              stripe_refund_id: refund.id,
-              stripe_refund_status: refund.status,
-              last_error: 'Stripe refund status: ' + refund.status,
-            })
-            .eq('id', op.id);
+        } else if (finResult?.status === 'manual_review') {
           failed++;
         }
       } catch (err: any) {
@@ -285,7 +297,7 @@ Deno.serve(async (req) => {
         const isNetworkError = !err?.stripeError;
 
         if (isTimeout || isNetworkError) {
-          console.error(`[checkout-refund] Op ${op.id} timeout/network error (will retry): ${err?.message}`);
+          console.error(`[checkout-refund] Op ${op.id} timeout/network (will retry): ${err?.message}`);
           await adminClient
             .from('checkout_refund_operations')
             .update({ status: 'pending', last_error: err?.message || 'Stripe timeout — will retry' })
@@ -302,7 +314,77 @@ Deno.serve(async (req) => {
       }
     }
 
-    const totalProcessed = (ops || []).length + (checkoutOps || []).length;
+    // --- Phase B: Reconcile refund_pending checkout operations ---
+    // For operations where Stripe refund was issued but webhook finalization may have failed.
+    const { data: pendingCheckoutOps, error: pendingCheckoutErr } = await adminClient
+      .from('checkout_refund_operations')
+      .select('id, checkout_id, payment_intent_id, stripe_refund_id, refund_amount, currency')
+      .eq('status', 'refund_pending')
+      .not('stripe_refund_id', 'is', null)
+      .order('created_at', { ascending: true })
+      .limit(10);
+
+    if (pendingCheckoutErr) {
+      console.error('[checkout-refund] Reconciliation fetch error:', pendingCheckoutErr.message);
+    }
+
+    let reconciled = 0;
+    for (const op of (pendingCheckoutOps || [])) {
+      try {
+        // Retrieve existing refund from Stripe — NEVER create a new one
+        const refund = await stripeGet(`/v1/refunds/${op.stripe_refund_id}`, stripeSecretKey);
+
+        // Validate refund belongs to the expected payment
+        if (refund.id !== op.stripe_refund_id) {
+          console.error(`[checkout-refund] Reconciliation: refund ID mismatch for op ${op.id}`);
+          await adminClient.from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: 'Stripe refund ID mismatch during reconciliation' })
+            .eq('id', op.id);
+          failed++;
+          continue;
+        }
+        if (refund.payment_intent && op.payment_intent_id && refund.payment_intent !== op.payment_intent_id) {
+          console.error(`[checkout-refund] Reconciliation: PI mismatch for op ${op.id}`);
+          await adminClient.from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: 'Payment intent mismatch during reconciliation' })
+            .eq('id', op.id);
+          failed++;
+          continue;
+        }
+        // Validate amount
+        const expectedCents = Math.round(Number(op.refund_amount) * 100);
+        if (refund.amount && refund.amount !== expectedCents) {
+          console.error(`[checkout-refund] Reconciliation: amount mismatch for op ${op.id}: expected ${expectedCents}, got ${refund.amount}`);
+          await adminClient.from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: `Refund amount mismatch: expected ${expectedCents}, got ${refund.amount}` })
+            .eq('id', op.id);
+          failed++;
+          continue;
+        }
+
+        // Use atomic finalizer — same path as webhook
+        const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
+          p_operation_id: op.id,
+          p_stripe_refund_id: refund.id,
+          p_stripe_refund_status: refund.status,
+          p_error_message: refund.status === 'failed' ? 'Refund failed (reconciliation)' : null,
+        });
+
+        if (finErr) {
+          console.error(`[checkout-refund] Reconciliation finalize error for op ${op.id}: ${finErr.message}`);
+        } else {
+          console.log(`[checkout-refund] Reconciled op ${op.id}: ${refund.status}`);
+          if (refund.status === 'succeeded') succeeded++;
+          else if (refund.status === 'pending') pending++;
+          reconciled++;
+        }
+      } catch (err: any) {
+        // Timeout/network: leave as refund_pending for next run
+        console.error(`[checkout-refund] Reconciliation error for op ${op.id}: ${err?.message}`);
+      }
+    }
+
+    const totalProcessed = (ops || []).length + (checkoutOps || []).length + (pendingCheckoutOps || []).length;
     return new Response(JSON.stringify({ processed: totalProcessed, succeeded, pending, failed }), {
       status: 200, headers: jsonHeaders,
     });

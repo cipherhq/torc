@@ -305,52 +305,22 @@ Deno.serve(async (req) => {
             continue; // Still pending — leave as refund_pending
           }
 
-          if (refundStatus === 'succeeded') {
-            const { error: updateErr } = await adminClient
-              .from('checkout_refund_operations')
-              .update({
-                status: 'completed',
-                stripe_refund_status: 'succeeded',
-                completed_at: new Date().toISOString(),
-              })
-              .eq('id', checkoutOp.id);
+          // Use atomic finalizer — same path as scheduled reconciliation
+          const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
+            p_operation_id: checkoutOp.id,
+            p_stripe_refund_id: refundObj.id,
+            p_stripe_refund_status: refundStatus,
+            p_error_message: refundStatus === 'failed' ? 'Stripe refund failed asynchronously' : null,
+          });
 
-            if (updateErr) {
-              console.error(
-                `[stripe-webhook] CRITICAL: Failed to mark checkout refund op ${checkoutOp.id} as completed: ${updateErr.message}. ` +
-                `Scheduled reconciliation will handle this.`
-              );
-              continue;
-            }
-
-            const { error: checkoutErr } = await adminClient
-              .from('checkouts')
-              .update({ status: 'refunded' })
-              .eq('id', checkoutOp.checkout_id);
-
-            if (checkoutErr) {
-              console.error(
-                `[stripe-webhook] CRITICAL: Failed to mark checkout ${checkoutOp.checkout_id} as refunded: ${checkoutErr.message}. ` +
-                `Refund op is completed but checkout status may be stale.`
-              );
-            }
-
+          if (finErr) {
+            console.error(
+              `[stripe-webhook] CRITICAL: Checkout refund finalization failed for op ${checkoutOp.id}: ${finErr.message}. ` +
+              `Scheduled reconciliation will handle this.`
+            );
+          } else if (finResult?.status === 'completed') {
             console.log(`[stripe-webhook] Checkout refund completed: op=${checkoutOp.id}`);
-          } else if (refundStatus === 'failed') {
-            const { error: failErr } = await adminClient
-              .from('checkout_refund_operations')
-              .update({
-                status: 'manual_review',
-                stripe_refund_status: 'failed',
-                last_error: 'Stripe refund failed asynchronously',
-              })
-              .eq('id', checkoutOp.id);
-
-            if (failErr) {
-              console.error(
-                `[stripe-webhook] CRITICAL: Failed to mark checkout refund op ${checkoutOp.id} as manual_review: ${failErr.message}`
-              );
-            }
+          } else if (finResult?.status === 'manual_review') {
             console.error(`[stripe-webhook] Checkout refund failed: op=${checkoutOp.id}`);
           }
         } catch (err: any) {
