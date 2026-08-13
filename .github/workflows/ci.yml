@@ -4005,7 +4005,7 @@ jobs:
           END $$;
 
           -- C. Cancel own checkout before job (uses session-level GUC for auth.uid)
-          SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000001', false);
+          SET request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000001';
           INSERT INTO auth.users (id, email) VALUES ('a0000000-0000-0000-0000-000000000001', 'cancel-test@example.com')
             ON CONFLICT DO NOTHING;
           INSERT INTO profiles (id, role, email) VALUES ('a0000000-0000-0000-0000-000000000001', 'customer', 'cancel-test@example.com')
@@ -4039,7 +4039,7 @@ jobs:
           INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
             VALUES ('c0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 'tire', 'payment_processing', 55.00, 55.00, 'usd')
             ON CONFLICT DO NOTHING;
-          SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-0000-0000-000000000003', false);
+          SET request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000003';
           DO $$
           DECLARE v_result JSONB;
           BEGIN
