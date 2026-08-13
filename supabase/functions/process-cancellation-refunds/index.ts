@@ -312,45 +312,65 @@ Deno.serve(async (req) => {
       console.error('[checkout-refund] Reconciliation fetch error:', pendingCheckoutErr.message);
     }
 
+    // Helper: guarded manual_review transition — only if still refund_pending with expected stripe_refund_id.
+    // Prevents stale reconciliation from overwriting a concurrently completed operation.
+    async function guardedManualReview(opId: string, stripeRefundId: string, reason: string): Promise<boolean> {
+      const { data: updated, error: updateErr } = await adminClient
+        .from('checkout_refund_operations')
+        .update({ status: 'manual_review', last_error: reason })
+        .eq('id', opId)
+        .eq('status', 'refund_pending')
+        .eq('stripe_refund_id', stripeRefundId)
+        .select('id');
+
+      if (updateErr) {
+        console.error(`[checkout-refund] Reconciliation manual_review DB error for op ${opId}: ${updateErr.message}`);
+        return false;
+      }
+      if (!updated || updated.length === 0) {
+        // Concurrent state change — re-read to log actual state
+        const { data: current } = await adminClient
+          .from('checkout_refund_operations')
+          .select('status')
+          .eq('id', opId)
+          .maybeSingle();
+        console.log(`[checkout-refund] Op ${opId}: manual_review skipped — current status is ${current?.status || 'unknown'} (concurrent transition)`);
+        return false;
+      }
+      return true;
+    }
+
     let reconciled = 0;
     for (const op of (pendingCheckoutOps || [])) {
       try {
         const refund = await stripeGet(`/v1/refunds/${op.stripe_refund_id}`, stripeSecretKey);
 
-        // Strict validation: refund ID must match exactly
+        // Strict validation with guarded transitions
         if (refund.id !== op.stripe_refund_id) {
           console.error(`[checkout-refund] Reconciliation: refund ID mismatch for op ${op.id}`);
-          await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: 'Stripe refund ID mismatch' }).eq('id', op.id);
-          failed++; continue;
+          if (await guardedManualReview(op.id, op.stripe_refund_id, 'Stripe refund ID mismatch')) failed++;
+          continue;
         }
-        // Strict: require PI and match exactly
         if (!refund.payment_intent || refund.payment_intent !== op.payment_intent_id) {
           console.error(`[checkout-refund] Reconciliation: PI mismatch for op ${op.id}`);
-          await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: 'Payment intent mismatch' }).eq('id', op.id);
-          failed++; continue;
+          if (await guardedManualReview(op.id, op.stripe_refund_id, 'Payment intent mismatch')) failed++;
+          continue;
         }
-        // Strict: require numeric amount and exact match
         const expectedCents = Math.round(Number(op.refund_amount) * 100);
         if (typeof refund.amount !== 'number' || refund.amount !== expectedCents) {
-          console.error(`[checkout-refund] Reconciliation: amount mismatch for op ${op.id}: expected ${expectedCents}, got ${refund.amount}`);
-          await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: `Amount mismatch: expected ${expectedCents}, got ${refund.amount}` }).eq('id', op.id);
-          failed++; continue;
+          console.error(`[checkout-refund] Reconciliation: amount mismatch for op ${op.id}`);
+          if (await guardedManualReview(op.id, op.stripe_refund_id, `Amount mismatch: expected ${expectedCents}, got ${refund.amount}`)) failed++;
+          continue;
         }
-        // Strict: validate currency — fail closed if absent or mismatched
         if (!refund.currency || typeof refund.currency !== 'string') {
           console.error(`[checkout-refund] Reconciliation: missing currency for op ${op.id}`);
-          await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: 'Stripe refund missing currency' }).eq('id', op.id);
-          failed++; continue;
+          if (await guardedManualReview(op.id, op.stripe_refund_id, 'Stripe refund missing currency')) failed++;
+          continue;
         }
         if (refund.currency.toLowerCase() !== (op.currency || '').toLowerCase()) {
-          console.error(`[checkout-refund] Reconciliation: currency mismatch for op ${op.id}: expected ${op.currency}, got ${refund.currency}`);
-          await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: `Currency mismatch: expected ${op.currency}, got ${refund.currency}` }).eq('id', op.id);
-          failed++; continue;
+          console.error(`[checkout-refund] Reconciliation: currency mismatch for op ${op.id}`);
+          if (await guardedManualReview(op.id, op.stripe_refund_id, `Currency mismatch: expected ${op.currency}, got ${refund.currency}`)) failed++;
+          continue;
         }
 
         // Use atomic finalizer — claim_token is null for refund_pending (no active claim)
@@ -366,8 +386,11 @@ Deno.serve(async (req) => {
           console.error(`[checkout-refund] Reconciliation finalize error for op ${op.id}: ${finErr.message}`);
         } else {
           console.log(`[checkout-refund] Reconciled op ${op.id}: ${refund.status}`);
-          if (refund.status === 'succeeded') succeeded++;
-          else if (refund.status === 'pending') pending++;
+          if (finResult?.status === 'completed') succeeded++;
+          else if (finResult?.status === 'refund_pending') pending++;
+          else if (finResult?.already_completed) {
+            console.log(`[checkout-refund] Op ${op.id} already completed by concurrent webhook`);
+          }
           reconciled++;
         }
       } catch (err: any) {

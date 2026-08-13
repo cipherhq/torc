@@ -4724,7 +4724,52 @@ jobs:
             DELETE FROM auth.users WHERE id = v_uid;
           END $$;
 
-          -- 26. Migration 20260819 does NOT contain process_stripe_webhook
+          -- 26. Completed operation cannot be overwritten to manual_review
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000260';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000260';
+            v_op_id UUID;
+            v_updated_count INTEGER;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'race-test@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'race-test@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'refunded', 55.00, 55.00, 'usd', 'pi_race_260') ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, stripe_refund_id, stripe_refund_status, completed_at)
+            VALUES (v_checkout_id, v_uid, 'pi_race_260', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'completed', 're_race_260', 'succeeded', now())
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            -- Simulate stale reconciliation trying to overwrite completed -> manual_review
+            -- This must change ZERO rows because status != refund_pending
+            UPDATE checkout_refund_operations
+            SET status = 'manual_review', last_error = 'stale overwrite attempt'
+            WHERE id = v_op_id AND status = 'refund_pending' AND stripe_refund_id = 're_race_260';
+            GET DIAGNOSTICS v_updated_count = ROW_COUNT;
+
+            ASSERT v_updated_count = 0, 'stale update must change zero rows';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE id = v_op_id) = 'completed',
+              'completed op must remain completed';
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'refunded',
+              'refunded checkout must remain refunded';
+
+            -- Also verify finalizer rejects completed -> manual_review
+            DECLARE v_result JSON;
+            BEGIN
+              v_result := finalize_checkout_refund(v_op_id, NULL, 're_race_260', 'failed', 'stale attempt');
+              ASSERT (v_result->>'already_completed')::boolean, 'finalizer must return already_completed';
+            END;
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 27. Migration 20260819 does NOT contain process_stripe_webhook
           DO $$
           DECLARE v_migration TEXT;
           BEGIN
