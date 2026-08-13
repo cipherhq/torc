@@ -3961,8 +3961,8 @@ jobs:
             INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'payment-test@example.com');
 
             v_checkout_id := gen_random_uuid();
-            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, currency)
-            VALUES (v_checkout_id, v_uid, 'tire', 'pending', 55.00, 'usd');
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
+            VALUES (v_checkout_id, v_uid, 'tire', 'pending', 55.00, 55.00, 'usd');
 
             -- Call claim_payment_attempt — must NOT raise "Unauthorized"
             v_key := claim_payment_attempt(v_checkout_id, 1);
