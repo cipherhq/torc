@@ -9,6 +9,7 @@ import { GoogleMap, MarkerF, CircleF } from '@react-google-maps/api';
 import { useCallback, useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../lib/supabase';
+import { startNewBooking } from '../../data/bookingDraftStore';
 
 const mapContainerStyle = {
   width: '100%',
@@ -265,7 +266,7 @@ export function HomeMap() {
       {!activeJob && (
         <div className="relative z-10 px-4 mb-2 flex-shrink-0" style={{ paddingBottom: 'calc(70px + var(--safe-bottom, 0px))' }}>
           <button
-            onClick={() => navigate('/who-needs-help')}
+            onClick={() => { startNewBooking(); navigate('/who-needs-help'); }}
             className="torc-btn-primary"
           >
             Request Assistance

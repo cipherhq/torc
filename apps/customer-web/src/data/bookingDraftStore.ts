@@ -124,3 +124,22 @@ export const resetRequestContext = (): void => {
     // ignore
   }
 };
+
+/**
+ * Begin a new booking transaction.
+ *
+ * Clears all payment/checkout state from the previous booking while
+ * preserving the full draft. This ensures a genuinely new service request
+ * cannot reuse the previous request's checkoutId or paymentIntentId.
+ *
+ * Call this when the customer explicitly taps "Request Assistance" from Home.
+ */
+export const startNewBooking = (): void => {
+  requestContext = {
+    ...getDefaults(),
+    // Do NOT carry over any transaction-specific state:
+    // checkoutId, paymentIntentId, paymentStatus, paymentMethodId,
+    // estimatedPrice, paymentCurrency are all reset to defaults.
+  };
+  saveToStorage(requestContext);
+};
