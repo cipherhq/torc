@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS public.checkout_refund_operations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  checkout_id UUID NOT NULL REFERENCES public.checkouts(id),
+  checkout_id UUID NOT NULL REFERENCES public.checkouts(id) ON DELETE CASCADE,
   user_id UUID NOT NULL,
   payment_intent_id TEXT NOT NULL,
   refund_amount NUMERIC(10,2) NOT NULL,
