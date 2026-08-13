@@ -268,16 +268,26 @@ Deno.serve(async (req) => {
     // CHECKOUT REFUND FINALIZATION (async refunds from pre-job cancellations)
     // Correlate charge.refunded/refund.updated with checkout_refund_operations
     // in refund_pending state. Same safe pattern as expiry refund correlation.
+    // DB errors are logged as CRITICAL — the scheduled refund worker
+    // reconciliation is the safety net (same convergence strategy as expiry).
     // ================================================================
     if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
       for (const refundObj of refundObjects) {
         try {
-          const { data: checkoutOp } = await adminClient
+          const { data: checkoutOp, error: lookupErr } = await adminClient
             .from('checkout_refund_operations')
             .select('id, checkout_id, payment_intent_id, status')
             .eq('stripe_refund_id', refundObj.id)
             .eq('status', 'refund_pending')
             .maybeSingle();
+
+          if (lookupErr) {
+            console.error(
+              `[stripe-webhook] CRITICAL: Checkout refund lookup error for refund ${refundObj.id}: ${lookupErr.message}. ` +
+              `Scheduled reconciliation will retry.`
+            );
+            continue;
+          }
 
           if (!checkoutOp) continue;
 
@@ -291,8 +301,12 @@ Deno.serve(async (req) => {
           }
 
           const refundStatus = refundObj.status;
+          if (!refundStatus || (refundStatus !== 'succeeded' && refundStatus !== 'failed')) {
+            continue; // Still pending — leave as refund_pending
+          }
+
           if (refundStatus === 'succeeded') {
-            await adminClient
+            const { error: updateErr } = await adminClient
               .from('checkout_refund_operations')
               .update({
                 status: 'completed',
@@ -301,15 +315,29 @@ Deno.serve(async (req) => {
               })
               .eq('id', checkoutOp.id);
 
-            // Mark checkout as refunded — no job mutation, no provider earnings
-            await adminClient
+            if (updateErr) {
+              console.error(
+                `[stripe-webhook] CRITICAL: Failed to mark checkout refund op ${checkoutOp.id} as completed: ${updateErr.message}. ` +
+                `Scheduled reconciliation will handle this.`
+              );
+              continue;
+            }
+
+            const { error: checkoutErr } = await adminClient
               .from('checkouts')
               .update({ status: 'refunded' })
               .eq('id', checkoutOp.checkout_id);
 
+            if (checkoutErr) {
+              console.error(
+                `[stripe-webhook] CRITICAL: Failed to mark checkout ${checkoutOp.checkout_id} as refunded: ${checkoutErr.message}. ` +
+                `Refund op is completed but checkout status may be stale.`
+              );
+            }
+
             console.log(`[stripe-webhook] Checkout refund completed: op=${checkoutOp.id}`);
           } else if (refundStatus === 'failed') {
-            await adminClient
+            const { error: failErr } = await adminClient
               .from('checkout_refund_operations')
               .update({
                 status: 'manual_review',
@@ -317,11 +345,19 @@ Deno.serve(async (req) => {
                 last_error: 'Stripe refund failed asynchronously',
               })
               .eq('id', checkoutOp.id);
+
+            if (failErr) {
+              console.error(
+                `[stripe-webhook] CRITICAL: Failed to mark checkout refund op ${checkoutOp.id} as manual_review: ${failErr.message}`
+              );
+            }
             console.error(`[stripe-webhook] Checkout refund failed: op=${checkoutOp.id}`);
           }
-          // pending/other statuses: leave as refund_pending
         } catch (err: any) {
-          console.error(`[stripe-webhook] Checkout refund correlation error: ${err?.message}`);
+          console.error(
+            `[stripe-webhook] CRITICAL: Checkout refund correlation exception: ${err?.message}. ` +
+            `Event already processed — scheduled reconciliation will handle this.`
+          );
         }
       }
     }

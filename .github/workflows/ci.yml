@@ -4152,7 +4152,36 @@ jobs:
             DELETE FROM auth.users WHERE id = v_uid;
           END $$;
 
-          -- 4. Wrong PI on cancelled checkout = rejected, no refund op
+          -- 3. Null checkout.stripe_customer_id = rejected, no refund op, no job
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000030';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000030';
+            v_raised BOOLEAN := false;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'null-cus@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'null-cus@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd',
+              'pi_null_cus_30', NULL,
+              '{"pickupAddress":"Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
+            ON CONFLICT DO NOTHING;
+            BEGIN
+              PERFORM process_stripe_webhook('evt_null_cus_30', 'payment_intent.succeeded',
+                'pi_null_cus_30', v_checkout_id::text, 5500, 'usd', 'cus_test_30');
+            EXCEPTION WHEN OTHERS THEN v_raised := true;
+            END;
+            ASSERT v_raised, 'null checkout stripe_customer must raise';
+            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id);
+            ASSERT NOT EXISTS (SELECT 1 FROM jobs WHERE checkout_id = v_checkout_id);
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_null_cus_30';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 4. Wrong PI on cancelled checkout = rejected before refund
           DO $$
           DECLARE
             v_uid UUID := 'a0000000-0000-0000-0000-000000000040';
@@ -4167,27 +4196,21 @@ jobs:
               'pi_correct_40', 'cus_test_40',
               '{"pickupAddress":"Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
             ON CONFLICT DO NOTHING;
-
             BEGIN
-              PERFORM process_stripe_webhook(
-                'evt_wrong_pi_40', 'payment_intent.succeeded',
-                'pi_WRONG_40', v_checkout_id::text, 5500, 'usd', 'cus_test_40'
-              );
+              PERFORM process_stripe_webhook('evt_wrong_pi_40', 'payment_intent.succeeded',
+                'pi_WRONG_40', v_checkout_id::text, 5500, 'usd', 'cus_test_40');
             EXCEPTION WHEN OTHERS THEN v_raised := true;
             END;
-            ASSERT v_raised, 'wrong PI must raise exception';
-            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id),
-              'no refund op for wrong PI';
-            ASSERT NOT EXISTS (SELECT 1 FROM jobs WHERE checkout_id = v_checkout_id),
-              'no job for wrong PI';
-
+            ASSERT v_raised, 'wrong PI must raise';
+            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id);
+            ASSERT NOT EXISTS (SELECT 1 FROM jobs WHERE checkout_id = v_checkout_id);
             DELETE FROM processed_webhook_events WHERE event_id = 'evt_wrong_pi_40';
             DELETE FROM checkouts WHERE id = v_checkout_id;
             DELETE FROM profiles WHERE id = v_uid;
             DELETE FROM auth.users WHERE id = v_uid;
           END $$;
 
-          -- 5. Wrong amount = rejected, no refund op
+          -- 5. Wrong amount = rejected before refund
           DO $$
           DECLARE
             v_uid UUID := 'a0000000-0000-0000-0000-000000000050';
@@ -4202,19 +4225,100 @@ jobs:
               'pi_amt_50', 'cus_test_50',
               '{"pickupAddress":"Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
             ON CONFLICT DO NOTHING;
-
             BEGIN
-              PERFORM process_stripe_webhook(
-                'evt_amt_50', 'payment_intent.succeeded',
-                'pi_amt_50', v_checkout_id::text, 9999, 'usd', 'cus_test_50'
-              );
+              PERFORM process_stripe_webhook('evt_amt_50', 'payment_intent.succeeded',
+                'pi_amt_50', v_checkout_id::text, 9999, 'usd', 'cus_test_50');
             EXCEPTION WHEN OTHERS THEN v_raised := true;
             END;
-            ASSERT v_raised, 'wrong amount must raise exception';
-            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id),
-              'no refund op for wrong amount';
-
+            ASSERT v_raised, 'wrong amount must raise';
+            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id);
             DELETE FROM processed_webhook_events WHERE event_id = 'evt_amt_50';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 6. Wrong currency = rejected
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000060';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000060';
+            v_raised BOOLEAN := false;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'wrong-cur@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'wrong-cur@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd',
+              'pi_cur_60', 'cus_test_60',
+              '{"pickupAddress":"Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
+            ON CONFLICT DO NOTHING;
+            BEGIN
+              PERFORM process_stripe_webhook('evt_cur_60', 'payment_intent.succeeded',
+                'pi_cur_60', v_checkout_id::text, 5500, 'eur', 'cus_test_60');
+            EXCEPTION WHEN OTHERS THEN v_raised := true;
+            END;
+            ASSERT v_raised, 'wrong currency must raise';
+            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id);
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_cur_60';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 7. Wrong Stripe customer = rejected
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000070';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000070';
+            v_raised BOOLEAN := false;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'wrong-scus@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'wrong-scus@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd',
+              'pi_scus_70', 'cus_correct_70',
+              '{"pickupAddress":"Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
+            ON CONFLICT DO NOTHING;
+            BEGIN
+              PERFORM process_stripe_webhook('evt_scus_70', 'payment_intent.succeeded',
+                'pi_scus_70', v_checkout_id::text, 5500, 'usd', 'cus_WRONG_70');
+            EXCEPTION WHEN OTHERS THEN v_raised := true;
+            END;
+            ASSERT v_raised, 'wrong Stripe customer must raise';
+            ASSERT NOT EXISTS (SELECT 1 FROM checkout_refund_operations WHERE checkout_id = v_checkout_id);
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_scus_70';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 10. Normal non-cancelled webhook creates job (camelCase snapshot)
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000100';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000100';
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'normal-job@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'normal-job@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'payment_processing', 55.00, 55.00, 'usd',
+              'pi_normal_100', 'cus_normal_100',
+              '{"pickupAddress":"123 Normal St","pickupLocation":{"latitude":40.71,"longitude":-74.01},"destinationAddress":"456 Dest","requesterType":"self","requesterName":"Test","requesterPhone":"555-1234","customerNotes":"camelCase test"}'::jsonb)
+            ON CONFLICT DO NOTHING;
+
+            v_result := process_stripe_webhook('evt_normal_100', 'payment_intent.succeeded',
+              'pi_normal_100', v_checkout_id::text, 5500, 'usd', 'cus_normal_100');
+            ASSERT (v_result->>'success')::boolean, 'normal webhook must succeed';
+            ASSERT v_result->>'job_id' IS NOT NULL, 'job must be created';
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'paid';
+            ASSERT EXISTS (SELECT 1 FROM jobs WHERE checkout_id = v_checkout_id AND pickup_address = '123 Normal St');
+
+            DELETE FROM jobs WHERE checkout_id = v_checkout_id;
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_normal_100';
             DELETE FROM checkouts WHERE id = v_checkout_id;
             DELETE FROM profiles WHERE id = v_uid;
             DELETE FROM auth.users WHERE id = v_uid;
