@@ -4004,53 +4004,60 @@ jobs:
               'authenticated must have EXECUTE on cancel_checkout';
           END $$;
 
-          -- C. Cancel own checkout before job (uses session-level GUC for auth.uid)
-          SET request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000001';
-          INSERT INTO auth.users (id, email) VALUES ('a0000000-0000-0000-0000-000000000001', 'cancel-test@example.com')
-            ON CONFLICT DO NOTHING;
-          INSERT INTO profiles (id, role, email) VALUES ('a0000000-0000-0000-0000-000000000001', 'customer', 'cancel-test@example.com')
-            ON CONFLICT DO NOTHING;
-          INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
-            VALUES ('c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'tire', 'payment_processing', 55.00, 55.00, 'usd')
-            ON CONFLICT DO NOTHING;
+          -- C. Cancel own checkout before job
           DO $$
-          DECLARE v_result JSONB;
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000001';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000001';
+            v_result JSONB;
           BEGIN
-            v_result := cancel_checkout('c0000000-0000-0000-0000-000000000001'::uuid);
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'cancel-test@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'cancel-test@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
+              VALUES (v_checkout_id, v_uid, 'tire', 'payment_processing', 55.00, 55.00, 'usd') ON CONFLICT DO NOTHING;
+
+            PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+            v_result := cancel_checkout(v_checkout_id);
             ASSERT (v_result->>'success')::boolean,
               'cancel_checkout must succeed, got: ' || v_result::text;
-            ASSERT (SELECT status FROM checkouts WHERE id = 'c0000000-0000-0000-0000-000000000001') = 'customer_cancelled',
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'customer_cancelled',
               'checkout must be customer_cancelled';
 
             -- D. Idempotent
-            v_result := cancel_checkout('c0000000-0000-0000-0000-000000000001'::uuid);
+            v_result := cancel_checkout(v_checkout_id);
             ASSERT (v_result->>'success')::boolean, 'repeat cancel must be idempotent';
             ASSERT (v_result->>'already_cancelled')::boolean, 'must indicate already_cancelled';
+
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
           END $$;
-          DELETE FROM checkouts WHERE id = 'c0000000-0000-0000-0000-000000000001';
-          DELETE FROM profiles WHERE id = 'a0000000-0000-0000-0000-000000000001';
-          DELETE FROM auth.users WHERE id = 'a0000000-0000-0000-0000-000000000001';
 
           -- E. Cannot cancel another user's checkout
-          INSERT INTO auth.users (id, email) VALUES ('a0000000-0000-0000-0000-000000000002', 'owner@example.com') ON CONFLICT DO NOTHING;
-          INSERT INTO auth.users (id, email) VALUES ('a0000000-0000-0000-0000-000000000003', 'attacker@example.com') ON CONFLICT DO NOTHING;
-          INSERT INTO profiles (id, role, email) VALUES ('a0000000-0000-0000-0000-000000000002', 'customer', 'owner@example.com') ON CONFLICT DO NOTHING;
-          INSERT INTO profiles (id, role, email) VALUES ('a0000000-0000-0000-0000-000000000003', 'customer', 'attacker@example.com') ON CONFLICT DO NOTHING;
-          INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
-            VALUES ('c0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 'tire', 'payment_processing', 55.00, 55.00, 'usd')
-            ON CONFLICT DO NOTHING;
-          SET request.jwt.claim.sub = 'a0000000-0000-0000-0000-000000000003';
           DO $$
-          DECLARE v_result JSONB;
+          DECLARE
+            v_owner UUID := 'a0000000-0000-0000-0000-000000000002';
+            v_attacker UUID := 'a0000000-0000-0000-0000-000000000003';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000002';
+            v_result JSONB;
           BEGIN
-            v_result := cancel_checkout('c0000000-0000-0000-0000-000000000002'::uuid);
+            INSERT INTO auth.users (id, email) VALUES (v_owner, 'owner@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO auth.users (id, email) VALUES (v_attacker, 'attacker@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_owner, 'customer', 'owner@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_attacker, 'customer', 'attacker@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
+              VALUES (v_checkout_id, v_owner, 'tire', 'payment_processing', 55.00, 55.00, 'usd') ON CONFLICT DO NOTHING;
+
+            PERFORM set_config('request.jwt.claim.sub', v_attacker::text, true);
+            v_result := cancel_checkout(v_checkout_id);
             ASSERT NOT (v_result->>'success')::boolean, 'attacker must not cancel others checkout';
-            ASSERT (SELECT status FROM checkouts WHERE id = 'c0000000-0000-0000-0000-000000000002') = 'payment_processing',
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'payment_processing',
               'checkout must remain unchanged';
+
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id IN (v_owner, v_attacker);
+            DELETE FROM auth.users WHERE id IN (v_owner, v_attacker);
           END $$;
-          DELETE FROM checkouts WHERE id = 'c0000000-0000-0000-0000-000000000002';
-          DELETE FROM profiles WHERE id IN ('a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000003');
-          DELETE FROM auth.users WHERE id IN ('a0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000003');
 
           -- F. Webhook after cancel does NOT create job
           DO $$
