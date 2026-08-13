@@ -4016,10 +4016,9 @@ jobs:
             INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
               VALUES (v_checkout_id, v_uid, 'tire', 'payment_processing', 55.00, 55.00, 'usd') ON CONFLICT DO NOTHING;
 
-            PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
-            -- Debug: verify auth.uid() returns the expected value
+            PERFORM set_config('request.jwt.claim.sub', v_uid::text, false);
             ASSERT auth.uid() = v_uid,
-              'auth.uid() must match set_config value, got: ' || COALESCE(auth.uid()::text, 'NULL');
+              'auth.uid() must match, got: ' || COALESCE(auth.uid()::text, 'NULL');
             v_result := cancel_checkout(v_checkout_id);
             ASSERT (v_result->>'success')::boolean,
               'cancel_checkout must succeed, got: ' || v_result::text;
@@ -4051,7 +4050,7 @@ jobs:
             INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
               VALUES (v_checkout_id, v_owner, 'tire', 'payment_processing', 55.00, 55.00, 'usd') ON CONFLICT DO NOTHING;
 
-            PERFORM set_config('request.jwt.claim.sub', v_attacker::text, true);
+            PERFORM set_config('request.jwt.claim.sub', v_attacker::text, false);
             v_result := cancel_checkout(v_checkout_id);
             ASSERT NOT (v_result->>'success')::boolean, 'attacker must not cancel others checkout';
             ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'payment_processing',
