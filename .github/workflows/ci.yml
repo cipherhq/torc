@@ -420,7 +420,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql supabase/migrations/20260818*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -3916,6 +3916,78 @@ jobs:
             RAISE NOTICE 'All claim-token ownership tests passed.';
           END;
           $$;
+          SQL
+      - name: Assert claim_payment_attempt authorization
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- A. anon cannot execute claim_payment_attempt
+          DO $$ BEGIN
+            ASSERT NOT has_function_privilege(
+              'anon',
+              'public.claim_payment_attempt(uuid, integer)',
+              'EXECUTE'
+            ), 'anon must NOT have EXECUTE on claim_payment_attempt';
+          END $$;
+
+          -- B. authenticated cannot execute claim_payment_attempt
+          DO $$ BEGIN
+            ASSERT NOT has_function_privilege(
+              'authenticated',
+              'public.claim_payment_attempt(uuid, integer)',
+              'EXECUTE'
+            ), 'authenticated must NOT have EXECUTE on claim_payment_attempt';
+          END $$;
+
+          -- C. service_role CAN execute claim_payment_attempt
+          DO $$ BEGIN
+            ASSERT has_function_privilege(
+              'service_role',
+              'public.claim_payment_attempt(uuid, integer)',
+              'EXECUTE'
+            ), 'service_role must have EXECUTE on claim_payment_attempt';
+          END $$;
+
+          -- D. Backend call reaches DB validation (not "Unauthorized")
+          -- Create a test checkout so FK succeeds, then verify idempotency key returned
+          DO $$
+          DECLARE
+            v_uid UUID;
+            v_checkout_id UUID;
+            v_key TEXT;
+            v_key2 TEXT;
+          BEGIN
+            v_uid := gen_random_uuid();
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'payment-test@example.com');
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'payment-test@example.com');
+
+            v_checkout_id := gen_random_uuid();
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, currency)
+            VALUES (v_checkout_id, v_uid, 'tire', 'pending', 55.00, 'usd');
+
+            -- Call claim_payment_attempt — must NOT raise "Unauthorized"
+            v_key := claim_payment_attempt(v_checkout_id, 1);
+            ASSERT v_key IS NOT NULL, 'claim_payment_attempt must return an idempotency key';
+            ASSERT v_key = v_checkout_id::text || ':1', 'key format must be checkout_id:attempt_number';
+
+            -- E. Duplicate attempt returns same key (idempotent)
+            v_key2 := claim_payment_attempt(v_checkout_id, 1);
+            ASSERT v_key2 = v_key, 'duplicate attempt must return same idempotency key';
+
+            -- F. Different attempt number creates new key
+            DECLARE v_key3 TEXT;
+            BEGIN
+              v_key3 := claim_payment_attempt(v_checkout_id, 2);
+              ASSERT v_key3 = v_checkout_id::text || ':2', 'new attempt must get new key';
+            END;
+
+            -- Cleanup
+            DELETE FROM payment_attempts WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All claim_payment_attempt authorization tests passed.'; END $$;
           SQL
 
   security-scan:
