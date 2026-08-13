@@ -7,15 +7,19 @@ import { useTheme } from '../../context/ThemeContext';
 
 export function ProviderLogin() {
   const navigate = useNavigate();
-  const { signIn, isAuthenticated, loading: authLoading } = useAuth();
+  const { signIn, profile, isAuthenticated, loading: authLoading } = useAuth();
   const { isDark } = useTheme();
 
-  // Redirect if already authenticated
+  // Redirect only when both authenticated AND confirmed as a provider.
+  // This prevents a redirect race where Supabase emits SIGNED_IN before
+  // signIn() completes its role validation — a customer account would
+  // briefly set isAuthenticated=true, but profile.role would not be 'provider'.
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (!authLoading && isAuthenticated && profile?.role === 'provider') {
       navigate('/home', { replace: true });
     }
-  }, [authLoading, isAuthenticated, navigate]);
+  }, [authLoading, isAuthenticated, profile?.role, navigate]);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
