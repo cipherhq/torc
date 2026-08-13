@@ -20,7 +20,7 @@ CREATE OR REPLACE FUNCTION public.cancel_checkout(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public
 AS $$
 DECLARE
   v_checkout RECORD;
