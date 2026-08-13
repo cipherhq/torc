@@ -265,6 +265,68 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
+    // CHECKOUT REFUND FINALIZATION (async refunds from pre-job cancellations)
+    // Correlate charge.refunded/refund.updated with checkout_refund_operations
+    // in refund_pending state. Same safe pattern as expiry refund correlation.
+    // ================================================================
+    if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
+      for (const refundObj of refundObjects) {
+        try {
+          const { data: checkoutOp } = await adminClient
+            .from('checkout_refund_operations')
+            .select('id, checkout_id, payment_intent_id, status')
+            .eq('stripe_refund_id', refundObj.id)
+            .eq('status', 'refund_pending')
+            .maybeSingle();
+
+          if (!checkoutOp) continue;
+
+          // Verify payment_intent matches
+          if (refundObj.payment_intent && checkoutOp.payment_intent_id
+              && refundObj.payment_intent !== checkoutOp.payment_intent_id) {
+            console.error(
+              `[stripe-webhook] Checkout refund PI mismatch: expected ${checkoutOp.payment_intent_id}, got ${refundObj.payment_intent}`
+            );
+            continue;
+          }
+
+          const refundStatus = refundObj.status;
+          if (refundStatus === 'succeeded') {
+            await adminClient
+              .from('checkout_refund_operations')
+              .update({
+                status: 'completed',
+                stripe_refund_status: 'succeeded',
+                completed_at: new Date().toISOString(),
+              })
+              .eq('id', checkoutOp.id);
+
+            // Mark checkout as refunded — no job mutation, no provider earnings
+            await adminClient
+              .from('checkouts')
+              .update({ status: 'refunded' })
+              .eq('id', checkoutOp.checkout_id);
+
+            console.log(`[stripe-webhook] Checkout refund completed: op=${checkoutOp.id}`);
+          } else if (refundStatus === 'failed') {
+            await adminClient
+              .from('checkout_refund_operations')
+              .update({
+                status: 'manual_review',
+                stripe_refund_status: 'failed',
+                last_error: 'Stripe refund failed asynchronously',
+              })
+              .eq('id', checkoutOp.id);
+            console.error(`[stripe-webhook] Checkout refund failed: op=${checkoutOp.id}`);
+          }
+          // pending/other statuses: leave as refund_pending
+        } catch (err: any) {
+          console.error(`[stripe-webhook] Checkout refund correlation error: ${err?.message}`);
+        }
+      }
+    }
+
+    // ================================================================
     // TIP PAYMENT FINALIZATION
     // When a tip PaymentIntent succeeds, finalize the tip earning.
     // ================================================================

@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS public.checkout_refund_operations (
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ,
-  -- Exactly one refund operation per checkout
   CONSTRAINT checkout_refund_ops_unique UNIQUE (checkout_id)
 );
 
@@ -28,7 +27,10 @@ CREATE POLICY "Service role only checkout refund ops" ON public.checkout_refund_
 CREATE POLICY "Admin can read checkout refund ops" ON public.checkout_refund_operations
   FOR SELECT USING (is_admin(auth.uid()));
 
--- Update cancel_checkout to create refund operation when payment exists
+-- cancel_checkout: mark cancelled but do NOT create refund op.
+-- Refund op is created only by the payment_intent.succeeded webhook AFTER
+-- validating the Stripe event. cancel_checkout from payment_processing
+-- does not prove payment succeeded — PI may still be processing/failed.
 CREATE OR REPLACE FUNCTION public.cancel_checkout(
   p_checkout_id UUID
 )
@@ -65,37 +67,24 @@ BEGIN
   END IF;
 
   IF v_checkout.job_id IS NOT NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Job already created. Use job cancellation instead.', 'job_id', v_checkout.job_id);
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Job already created. Use job cancellation instead.',
+      'job_id', v_checkout.job_id
+    );
   END IF;
 
   IF v_checkout.status IN ('refunded', 'expired') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Checkout is already in terminal state: ' || v_checkout.status);
+    RETURN jsonb_build_object('success', false, 'error', 'Checkout is already terminal: ' || v_checkout.status);
   END IF;
 
+  -- Mark cancelled. Do NOT create refund op here — the webhook will do it
+  -- after validating that Stripe payment actually succeeded.
   UPDATE checkouts
-  SET status = 'customer_cancelled',
-      cancelled_at = now()
+  SET status = 'customer_cancelled', cancelled_at = now()
   WHERE id = p_checkout_id;
 
-  -- If payment was made, create a durable refund operation
-  IF v_checkout.payment_intent_id IS NOT NULL AND v_checkout.status IN ('payment_processing', 'paid') THEN
-    INSERT INTO checkout_refund_operations (
-      checkout_id, user_id, payment_intent_id,
-      refund_amount, currency,
-      idempotency_key, status
-    ) VALUES (
-      p_checkout_id, v_user_id, v_checkout.payment_intent_id,
-      v_checkout.total_amount, COALESCE(v_checkout.currency, 'usd'),
-      'checkout_refund_' || p_checkout_id::text, 'pending'
-    ) ON CONFLICT (checkout_id) DO NOTHING;
-  END IF;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'checkout_id', p_checkout_id,
-    'payment_intent_id', v_checkout.payment_intent_id,
-    'refund_initiated', v_checkout.payment_intent_id IS NOT NULL
-  );
+  RETURN jsonb_build_object('success', true, 'checkout_id', p_checkout_id);
 END;
 $$;
 
@@ -103,8 +92,8 @@ REVOKE EXECUTE ON FUNCTION public.cancel_checkout(UUID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.cancel_checkout(UUID) FROM anon;
 GRANT EXECUTE ON FUNCTION public.cancel_checkout(UUID) TO authenticated;
 
--- Update process_stripe_webhook: when cancelled checkout receives payment_intent.succeeded,
--- create the refund operation atomically
+-- process_stripe_webhook: validate BEFORE checking cancelled status.
+-- For cancelled checkouts, create refund op with validated Stripe amount.
 DROP FUNCTION IF EXISTS public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION public.process_stripe_webhook(
   p_event_id TEXT,
@@ -143,22 +132,7 @@ BEGIN
       RETURN json_build_object('success', true, 'already_paid', true);
     END IF;
 
-    -- Customer cancelled before webhook — create refund operation, no job
-    IF v_checkout.status = 'customer_cancelled' THEN
-      INSERT INTO checkout_refund_operations (
-        checkout_id, user_id, payment_intent_id,
-        refund_amount, currency,
-        idempotency_key, status
-      ) VALUES (
-        v_checkout.id, v_checkout.user_id, p_payment_intent_id,
-        v_checkout.total_amount, COALESCE(v_checkout.currency, 'usd'),
-        'checkout_refund_' || v_checkout.id::text, 'pending'
-      ) ON CONFLICT (checkout_id) DO NOTHING;
-
-      RETURN json_build_object('success', true, 'cancelled', true, 'refund_created', true);
-    END IF;
-
-    -- Validate PaymentIntent ID
+    -- === VALIDATE event data BEFORE any financial decision ===
     IF v_checkout.payment_intent_id IS NULL OR v_checkout.payment_intent_id != p_payment_intent_id THEN
       RAISE EXCEPTION 'PaymentIntent ID mismatch: checkout has %, event has %',
         v_checkout.payment_intent_id, p_payment_intent_id;
@@ -188,6 +162,24 @@ BEGIN
         v_checkout.stripe_customer_id, p_stripe_customer_id;
     END IF;
 
+    -- === Event validated. Now check for cancellation. ===
+    IF v_checkout.status = 'customer_cancelled' THEN
+      -- Payment succeeded but customer already cancelled.
+      -- Create refund op with VALIDATED Stripe amount (100% refund).
+      INSERT INTO checkout_refund_operations (
+        checkout_id, user_id, payment_intent_id,
+        refund_amount, currency,
+        idempotency_key, status
+      ) VALUES (
+        v_checkout.id, v_checkout.user_id, p_payment_intent_id,
+        v_checkout.total_amount, COALESCE(v_checkout.currency, 'usd'),
+        'checkout_refund_' || v_checkout.id::text, 'pending'
+      ) ON CONFLICT (checkout_id) DO NOTHING;
+
+      RETURN json_build_object('success', true, 'cancelled', true, 'refund_created', true);
+    END IF;
+
+    -- === Normal payment path — create job ===
     v_snapshot := v_checkout.booking_snapshot;
     IF v_snapshot IS NULL THEN
       RAISE EXCEPTION 'payment_intent.succeeded: booking_snapshot is NULL';
@@ -230,13 +222,15 @@ BEGIN
     RETURN json_build_object('success', true, 'duplicate', false, 'job_id', v_job_id);
 
   ELSIF p_event_type = 'payment_intent.payment_failed' THEN
-    -- Do NOT overwrite customer_cancelled
+    -- Do NOT overwrite customer_cancelled or paid
     UPDATE checkouts SET status = 'failed'
     WHERE id = p_checkout_id::uuid
     AND status NOT IN ('paid', 'customer_cancelled', 'refunded');
     RETURN json_build_object('success', true, 'event', 'payment_failed');
 
   ELSIF p_event_type = 'charge.refunded' THEN
+    -- Correlate with checkout_refund_operations for async refund finalization
+    -- The Edge Function handles this correlation (see stripe-webhook/index.ts)
     RETURN json_build_object('success', true, 'event', 'charge_refunded');
 
   ELSE
