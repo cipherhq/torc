@@ -54,7 +54,8 @@ REVOKE EXECUTE ON FUNCTION public.claim_checkout_refund(INTEGER) FROM authentica
 GRANT  EXECUTE ON FUNCTION public.claim_checkout_refund(INTEGER) TO service_role;
 
 -- 2. finalize_checkout_refund: atomic op + checkout transition
--- Verifies claim_token for request-phase mutations.
+-- NULL-SAFE claim token verification for refund_requesting.
+-- refund_pending does not require claim token (webhook/reconciliation path).
 CREATE OR REPLACE FUNCTION public.finalize_checkout_refund(
   p_operation_id UUID,
   p_claim_token UUID,
@@ -76,21 +77,28 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'Operation not found');
   END IF;
 
+  -- Terminal states are idempotent
   IF v_op.status = 'completed' THEN
     RETURN json_build_object('success', true, 'already_completed', true);
   END IF;
-
   IF v_op.status = 'manual_review' THEN
     RETURN json_build_object('success', true, 'already_manual_review', true);
   END IF;
 
-  IF v_op.status NOT IN ('refund_pending', 'refund_requesting', 'pending') THEN
+  -- Only finalize from refund_requesting or refund_pending
+  IF v_op.status NOT IN ('refund_pending', 'refund_requesting') THEN
     RETURN json_build_object('success', false, 'error', 'Cannot finalize from status: ' || v_op.status);
   END IF;
 
-  -- Verify claim ownership for refund_requesting (not needed for refund_pending reconciliation)
-  IF v_op.status = 'refund_requesting' AND v_op.claim_token IS NOT NULL AND v_op.claim_token != p_claim_token THEN
-    RETURN json_build_object('success', false, 'error', 'Claim token mismatch — another worker owns this operation');
+  -- NULL-SAFE claim ownership for refund_requesting:
+  -- BOTH tokens must be non-null and match exactly.
+  IF v_op.status = 'refund_requesting' THEN
+    IF v_op.claim_token IS NULL
+       OR p_claim_token IS NULL
+       OR v_op.claim_token IS DISTINCT FROM p_claim_token
+    THEN
+      RETURN json_build_object('success', false, 'error', 'Claim token mismatch or missing');
+    END IF;
   END IF;
 
   -- Verify stripe_refund_id matches if already set
@@ -99,6 +107,7 @@ BEGIN
   END IF;
 
   IF p_stripe_refund_status = 'succeeded' THEN
+    -- ATOMIC: both operation and checkout in one transaction
     UPDATE checkout_refund_operations SET
       status = 'completed', stripe_refund_id = p_stripe_refund_id,
       stripe_refund_status = 'succeeded', completed_at = now(),
@@ -115,6 +124,7 @@ BEGIN
     RETURN json_build_object('success', true, 'status', 'refund_pending');
 
   ELSE
+    -- Failed or unknown — manual_review
     UPDATE checkout_refund_operations SET
       status = 'manual_review', stripe_refund_id = p_stripe_refund_id,
       stripe_refund_status = p_stripe_refund_status,

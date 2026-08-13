@@ -4603,7 +4603,128 @@ jobs:
             DELETE FROM auth.users WHERE id = v_uid;
           END $$;
 
-          -- 22. Migration 20260819 does NOT contain process_stripe_webhook
+          -- 22. NULL claim_token cannot finalize refund_requesting
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000220';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000220';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'null-token@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'null-token@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_null_220') ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, claim_token, lease_expires_at)
+            VALUES (v_checkout_id, v_uid, 'pi_null_220', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'refund_requesting', gen_random_uuid(), now() + interval '5 minutes')
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            -- NULL p_claim_token must be rejected
+            v_result := finalize_checkout_refund(v_op_id, NULL, 're_null_220', 'succeeded', NULL);
+            ASSERT NOT (v_result->>'success')::boolean, 'NULL claim_token must be rejected for refund_requesting';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE id = v_op_id) = 'refund_requesting',
+              'op must remain refund_requesting';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 23. NULL stored claim_token fails closed
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000230';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000230';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'null-stored@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'null-stored@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_nulls_230') ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, claim_token)
+            VALUES (v_checkout_id, v_uid, 'pi_nulls_230', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'refund_requesting', NULL)
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            -- Even with a valid-looking p_claim_token, NULL stored token must reject
+            v_result := finalize_checkout_refund(v_op_id, gen_random_uuid(), 're_nulls_230', 'succeeded', NULL);
+            ASSERT NOT (v_result->>'success')::boolean, 'NULL stored claim_token must reject';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 24. pending status cannot be directly finalized (must claim first)
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000240';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000240';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'pending-fin@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'pending-fin@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_pend_240') ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status)
+            VALUES (v_checkout_id, v_uid, 'pi_pend_240', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'pending')
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            v_result := finalize_checkout_refund(v_op_id, NULL, 're_pend_240', 'succeeded', NULL);
+            ASSERT NOT (v_result->>'success')::boolean, 'pending cannot be directly finalized';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE id = v_op_id) = 'pending',
+              'op must remain pending';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 25. refund_pending with null claim_token can be finalized (webhook/reconciliation)
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000250';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000250';
+            v_op_id UUID;
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'rp-null@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'rp-null@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_rp_250') ON CONFLICT DO NOTHING;
+            INSERT INTO checkout_refund_operations (checkout_id, user_id, payment_intent_id, refund_amount, currency,
+              idempotency_key, status, stripe_refund_id, claim_token)
+            VALUES (v_checkout_id, v_uid, 'pi_rp_250', 55.00, 'usd',
+              'checkout_refund_' || v_checkout_id::text, 'refund_pending', 're_rp_250', NULL)
+            ON CONFLICT DO NOTHING
+            RETURNING id INTO v_op_id;
+
+            -- refund_pending + null claim_token → allowed (reconciliation path)
+            v_result := finalize_checkout_refund(v_op_id, NULL, 're_rp_250', 'succeeded', NULL);
+            ASSERT (v_result->>'success')::boolean, 'refund_pending with null token must succeed';
+            ASSERT (v_result->>'status') = 'completed';
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'refunded';
+
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- 26. Migration 20260819 does NOT contain process_stripe_webhook
           DO $$
           DECLARE v_migration TEXT;
           BEGIN

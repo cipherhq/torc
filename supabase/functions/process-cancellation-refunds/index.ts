@@ -282,11 +282,18 @@ Deno.serve(async (req) => {
           console.error(`[checkout-refund] Op ${op.id} timeout/network — lease will expire for retry: ${err?.message}`);
           pending++;
         } else {
-          // Definitive Stripe error
+          // Definitive Stripe error — use finalizer RPC (claim-owner aware)
           console.error(`[checkout-refund] Op ${op.id} Stripe error: ${err?.message}`);
-          await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: err?.message || 'Stripe error', claim_token: null, lease_expires_at: null })
-            .eq('id', op.id);
+          const { error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
+            p_operation_id: op.id,
+            p_claim_token: op.claim_token,
+            p_stripe_refund_id: '',
+            p_stripe_refund_status: 'failed',
+            p_error_message: err?.message || 'Stripe error',
+          });
+          if (finErr) {
+            console.error(`[checkout-refund] Op ${op.id}: manual_review finalizer error: ${finErr.message}`);
+          }
           failed++;
         }
       }
@@ -332,8 +339,14 @@ Deno.serve(async (req) => {
             .update({ status: 'manual_review', last_error: `Amount mismatch: expected ${expectedCents}, got ${refund.amount}` }).eq('id', op.id);
           failed++; continue;
         }
-        // Strict: validate currency when available
-        if (refund.currency && op.currency && refund.currency.toLowerCase() !== op.currency.toLowerCase()) {
+        // Strict: validate currency — fail closed if absent or mismatched
+        if (!refund.currency || typeof refund.currency !== 'string') {
+          console.error(`[checkout-refund] Reconciliation: missing currency for op ${op.id}`);
+          await adminClient.from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: 'Stripe refund missing currency' }).eq('id', op.id);
+          failed++; continue;
+        }
+        if (refund.currency.toLowerCase() !== (op.currency || '').toLowerCase()) {
           console.error(`[checkout-refund] Reconciliation: currency mismatch for op ${op.id}: expected ${op.currency}, got ${refund.currency}`);
           await adminClient.from('checkout_refund_operations')
             .update({ status: 'manual_review', last_error: `Currency mismatch: expected ${op.currency}, got ${refund.currency}` }).eq('id', op.id);
