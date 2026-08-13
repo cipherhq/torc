@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS public.checkout_refund_operations (
   stripe_refund_id TEXT,
   stripe_refund_status TEXT,
   idempotency_key TEXT NOT NULL,
+  -- Claim/lease for worker ownership
+  claim_token UUID,
+  lease_expires_at TIMESTAMPTZ,
+  -- State machine: pending → refund_requesting → refund_pending → completed | manual_review
   status TEXT NOT NULL DEFAULT 'pending',
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

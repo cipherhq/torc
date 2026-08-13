@@ -237,36 +237,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    // --- Phase A: Process pending checkout refund operations (issue Stripe refund) ---
-    const { data: checkoutOps, error: checkoutOpsErr } = await adminClient
-      .from('checkout_refund_operations')
-      .select('*')
-      .eq('status', 'pending')
-      .not('payment_intent_id', 'is', null)
-      .gt('refund_amount', 0)
-      .order('created_at', { ascending: true })
-      .limit(10);
+    // --- Phase A: Claim + process checkout refund operations ---
+    const { data: claimedOps, error: claimErr } = await adminClient.rpc('claim_checkout_refund', { p_batch_size: 5 });
 
-    if (checkoutOpsErr) console.error('[checkout-refund] Fetch error:', checkoutOpsErr.message);
+    if (claimErr) console.error('[checkout-refund] Claim RPC error:', claimErr.message);
 
-    for (const op of (checkoutOps || [])) {
+    for (const op of (claimedOps || [])) {
       try {
-        // Atomic claim: only proceed if this worker actually claimed the row
-        const { data: claimed, error: claimErr } = await adminClient
-          .from('checkout_refund_operations')
-          .update({ status: 'refund_requesting' })
-          .eq('id', op.id)
-          .eq('status', 'pending')
-          .select('id');
-
-        if (claimErr || !claimed || claimed.length === 0) {
-          console.log(`[checkout-refund] Op ${op.id}: not claimed (already taken or error)`);
-          continue;
-        }
-
         const refundBody = new URLSearchParams();
         refundBody.append('payment_intent', op.payment_intent_id);
-        refundBody.append('amount', Math.round(op.refund_amount * 100).toString());
+        refundBody.append('amount', Math.round(Number(op.refund_amount) * 100).toString());
         refundBody.append('reason', 'requested_by_customer');
         refundBody.append('metadata[checkout_id]', op.checkout_id);
         refundBody.append('metadata[type]', 'checkout_cancellation_refund');
@@ -274,9 +254,9 @@ Deno.serve(async (req) => {
 
         const refund = await stripePost('/v1/refunds', refundBody, stripeSecretKey, op.idempotency_key);
 
-        // Use atomic finalizer for succeeded — both op and checkout in one transaction
         const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
           p_operation_id: op.id,
+          p_claim_token: op.claim_token,
           p_stripe_refund_id: refund.id,
           p_stripe_refund_status: refund.status,
           p_error_message: refund.status === 'failed' ? 'Stripe refund failed' : null,
@@ -297,17 +277,15 @@ Deno.serve(async (req) => {
         const isNetworkError = !err?.stripeError;
 
         if (isTimeout || isNetworkError) {
-          console.error(`[checkout-refund] Op ${op.id} timeout/network (will retry): ${err?.message}`);
-          await adminClient
-            .from('checkout_refund_operations')
-            .update({ status: 'pending', last_error: err?.message || 'Stripe timeout — will retry' })
-            .eq('id', op.id);
+          // Unknown Stripe outcome — leave as refund_requesting with lease.
+          // Next run will reclaim after lease expiry and retry with same idempotency key.
+          console.error(`[checkout-refund] Op ${op.id} timeout/network — lease will expire for retry: ${err?.message}`);
           pending++;
         } else {
+          // Definitive Stripe error
           console.error(`[checkout-refund] Op ${op.id} Stripe error: ${err?.message}`);
-          await adminClient
-            .from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: err?.message || 'Stripe error' })
+          await adminClient.from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: err?.message || 'Stripe error', claim_token: null, lease_expires_at: null })
             .eq('id', op.id);
           failed++;
         }
@@ -315,10 +293,9 @@ Deno.serve(async (req) => {
     }
 
     // --- Phase B: Reconcile refund_pending checkout operations ---
-    // For operations where Stripe refund was issued but webhook finalization may have failed.
     const { data: pendingCheckoutOps, error: pendingCheckoutErr } = await adminClient
       .from('checkout_refund_operations')
-      .select('id, checkout_id, payment_intent_id, stripe_refund_id, refund_amount, currency')
+      .select('id, checkout_id, payment_intent_id, stripe_refund_id, refund_amount, currency, claim_token')
       .eq('status', 'refund_pending')
       .not('stripe_refund_id', 'is', null)
       .order('created_at', { ascending: true })
@@ -331,40 +308,42 @@ Deno.serve(async (req) => {
     let reconciled = 0;
     for (const op of (pendingCheckoutOps || [])) {
       try {
-        // Retrieve existing refund from Stripe — NEVER create a new one
         const refund = await stripeGet(`/v1/refunds/${op.stripe_refund_id}`, stripeSecretKey);
 
-        // Validate refund belongs to the expected payment
+        // Strict validation: refund ID must match exactly
         if (refund.id !== op.stripe_refund_id) {
           console.error(`[checkout-refund] Reconciliation: refund ID mismatch for op ${op.id}`);
           await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: 'Stripe refund ID mismatch during reconciliation' })
-            .eq('id', op.id);
-          failed++;
-          continue;
+            .update({ status: 'manual_review', last_error: 'Stripe refund ID mismatch' }).eq('id', op.id);
+          failed++; continue;
         }
-        if (refund.payment_intent && op.payment_intent_id && refund.payment_intent !== op.payment_intent_id) {
+        // Strict: require PI and match exactly
+        if (!refund.payment_intent || refund.payment_intent !== op.payment_intent_id) {
           console.error(`[checkout-refund] Reconciliation: PI mismatch for op ${op.id}`);
           await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: 'Payment intent mismatch during reconciliation' })
-            .eq('id', op.id);
-          failed++;
-          continue;
+            .update({ status: 'manual_review', last_error: 'Payment intent mismatch' }).eq('id', op.id);
+          failed++; continue;
         }
-        // Validate amount
+        // Strict: require numeric amount and exact match
         const expectedCents = Math.round(Number(op.refund_amount) * 100);
-        if (refund.amount && refund.amount !== expectedCents) {
+        if (typeof refund.amount !== 'number' || refund.amount !== expectedCents) {
           console.error(`[checkout-refund] Reconciliation: amount mismatch for op ${op.id}: expected ${expectedCents}, got ${refund.amount}`);
           await adminClient.from('checkout_refund_operations')
-            .update({ status: 'manual_review', last_error: `Refund amount mismatch: expected ${expectedCents}, got ${refund.amount}` })
-            .eq('id', op.id);
-          failed++;
-          continue;
+            .update({ status: 'manual_review', last_error: `Amount mismatch: expected ${expectedCents}, got ${refund.amount}` }).eq('id', op.id);
+          failed++; continue;
+        }
+        // Strict: validate currency when available
+        if (refund.currency && op.currency && refund.currency.toLowerCase() !== op.currency.toLowerCase()) {
+          console.error(`[checkout-refund] Reconciliation: currency mismatch for op ${op.id}: expected ${op.currency}, got ${refund.currency}`);
+          await adminClient.from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: `Currency mismatch: expected ${op.currency}, got ${refund.currency}` }).eq('id', op.id);
+          failed++; continue;
         }
 
-        // Use atomic finalizer — same path as webhook
+        // Use atomic finalizer — claim_token is null for refund_pending (no active claim)
         const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
           p_operation_id: op.id,
+          p_claim_token: op.claim_token,
           p_stripe_refund_id: refund.id,
           p_stripe_refund_status: refund.status,
           p_error_message: refund.status === 'failed' ? 'Refund failed (reconciliation)' : null,
@@ -379,12 +358,11 @@ Deno.serve(async (req) => {
           reconciled++;
         }
       } catch (err: any) {
-        // Timeout/network: leave as refund_pending for next run
         console.error(`[checkout-refund] Reconciliation error for op ${op.id}: ${err?.message}`);
       }
     }
 
-    const totalProcessed = (ops || []).length + (checkoutOps || []).length + (pendingCheckoutOps || []).length;
+    const totalProcessed = (ops || []).length + (claimedOps || []).length + (pendingCheckoutOps || []).length;
     return new Response(JSON.stringify({ processed: totalProcessed, succeeded, pending, failed }), {
       status: 200, headers: jsonHeaders,
     });

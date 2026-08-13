@@ -276,7 +276,7 @@ Deno.serve(async (req) => {
         try {
           const { data: checkoutOp, error: lookupErr } = await adminClient
             .from('checkout_refund_operations')
-            .select('id, checkout_id, payment_intent_id, status')
+            .select('id, checkout_id, payment_intent_id, status, claim_token')
             .eq('stripe_refund_id', refundObj.id)
             .eq('status', 'refund_pending')
             .maybeSingle();
@@ -306,8 +306,10 @@ Deno.serve(async (req) => {
           }
 
           // Use atomic finalizer — same path as scheduled reconciliation
+          // claim_token is null for refund_pending webhook correlation (no active claim)
           const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
             p_operation_id: checkoutOp.id,
+            p_claim_token: checkoutOp.claim_token || null,
             p_stripe_refund_id: refundObj.id,
             p_stripe_refund_status: refundStatus,
             p_error_message: refundStatus === 'failed' ? 'Stripe refund failed asynchronously' : null,
