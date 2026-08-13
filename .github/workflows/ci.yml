@@ -4024,6 +4024,7 @@ jobs:
             ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'customer_cancelled',
               'checkout must accept customer_cancelled status';
 
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
             DELETE FROM checkouts WHERE id = v_checkout_id;
             DELETE FROM profiles WHERE id = v_uid;
             DELETE FROM auth.users WHERE id = v_uid;
