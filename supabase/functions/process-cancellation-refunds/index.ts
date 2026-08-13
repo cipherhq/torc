@@ -209,7 +209,101 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ processed: (ops || []).length, succeeded, pending, failed }), {
+    // --- Process checkout-level refund operations (pre-job cancellations) ---
+    const { data: checkoutOps, error: checkoutOpsErr } = await adminClient
+      .from('checkout_refund_operations')
+      .select('*')
+      .eq('status', 'pending')
+      .not('payment_intent_id', 'is', null)
+      .gt('refund_amount', 0)
+      .order('created_at', { ascending: true })
+      .limit(10);
+
+    if (checkoutOpsErr) console.error('[checkout-refund] Fetch error:', checkoutOpsErr.message);
+
+    for (const op of (checkoutOps || [])) {
+      try {
+        await adminClient
+          .from('checkout_refund_operations')
+          .update({ status: 'refund_requesting' })
+          .eq('id', op.id)
+          .eq('status', 'pending');
+
+        const refundBody = new URLSearchParams();
+        refundBody.append('payment_intent', op.payment_intent_id);
+        refundBody.append('amount', Math.round(op.refund_amount * 100).toString());
+        refundBody.append('reason', 'requested_by_customer');
+        refundBody.append('metadata[checkout_id]', op.checkout_id);
+        refundBody.append('metadata[type]', 'checkout_cancellation_refund');
+        refundBody.append('metadata[operation_id]', op.id);
+
+        const refund = await stripePost('/v1/refunds', refundBody, stripeSecretKey, op.idempotency_key);
+
+        if (refund.status === 'succeeded') {
+          await adminClient
+            .from('checkout_refund_operations')
+            .update({
+              status: 'completed',
+              stripe_refund_id: refund.id,
+              stripe_refund_status: 'succeeded',
+              completed_at: new Date().toISOString(),
+            })
+            .eq('id', op.id);
+
+          // Update checkout to refunded
+          await adminClient
+            .from('checkouts')
+            .update({ status: 'refunded' })
+            .eq('id', op.checkout_id);
+
+          // No job updates, no provider compensation — no job/provider exists
+          succeeded++;
+        } else if (refund.status === 'pending') {
+          await adminClient
+            .from('checkout_refund_operations')
+            .update({
+              status: 'refund_pending',
+              stripe_refund_id: refund.id,
+              stripe_refund_status: 'pending',
+            })
+            .eq('id', op.id);
+          pending++;
+        } else {
+          await adminClient
+            .from('checkout_refund_operations')
+            .update({
+              status: 'manual_review',
+              stripe_refund_id: refund.id,
+              stripe_refund_status: refund.status,
+              last_error: 'Stripe refund status: ' + refund.status,
+            })
+            .eq('id', op.id);
+          failed++;
+        }
+      } catch (err: any) {
+        const isTimeout = err?.isTimeout === true;
+        const isNetworkError = !err?.stripeError;
+
+        if (isTimeout || isNetworkError) {
+          console.error(`[checkout-refund] Op ${op.id} timeout/network error (will retry): ${err?.message}`);
+          await adminClient
+            .from('checkout_refund_operations')
+            .update({ status: 'pending', last_error: err?.message || 'Stripe timeout — will retry' })
+            .eq('id', op.id);
+          pending++;
+        } else {
+          console.error(`[checkout-refund] Op ${op.id} Stripe error: ${err?.message}`);
+          await adminClient
+            .from('checkout_refund_operations')
+            .update({ status: 'manual_review', last_error: err?.message || 'Stripe error' })
+            .eq('id', op.id);
+          failed++;
+        }
+      }
+    }
+
+    const totalProcessed = (ops || []).length + (checkoutOps || []).length;
+    return new Response(JSON.stringify({ processed: totalProcessed, succeeded, pending, failed }), {
       status: 200, headers: jsonHeaders,
     });
   } catch (error: any) {

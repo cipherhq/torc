@@ -420,7 +420,7 @@ jobs:
       - name: Execute all new migrations in order
         run: |
           set -euo pipefail
-          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql supabase/migrations/20260818*.sql supabase/migrations/20260819*.sql; do
+          for f in supabase/migrations/20260804*.sql supabase/migrations/20260805*.sql supabase/migrations/20260806*.sql supabase/migrations/20260807*.sql supabase/migrations/20260808*.sql supabase/migrations/20260809*.sql supabase/migrations/20260810*.sql supabase/migrations/20260811*.sql supabase/migrations/20260812*.sql supabase/migrations/20260813*.sql supabase/migrations/20260814*.sql supabase/migrations/20260815*.sql supabase/migrations/20260816*.sql supabase/migrations/20260817*.sql supabase/migrations/20260818*.sql supabase/migrations/20260819*.sql supabase/migrations/20260820*.sql; do
             echo "Executing: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
             echo "OK: $f"
@@ -4068,6 +4068,101 @@ jobs:
           END $$;
 
           DO $$ BEGIN RAISE NOTICE 'All checkout cancellation lifecycle tests passed.'; END $$;
+
+          -- G. Cancel-before-webhook creates exactly one refund operation
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000010';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000010';
+            v_result JSON;
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'refund-race@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'refund-race@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency,
+              payment_intent_id, stripe_customer_id, booking_snapshot)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd',
+              'pi_refund_test_10', 'cus_test',
+              '{"pickupAddress":"123 Test","pickupLocation":{"latitude":40.7,"longitude":-74.0}}'::jsonb)
+            ON CONFLICT DO NOTHING;
+
+            -- Simulate webhook arriving after cancellation
+            v_result := process_stripe_webhook(
+              'evt_refund_test_10', 'payment_intent.succeeded',
+              'pi_refund_test_10', v_checkout_id::text, 5500, 'usd', 'cus_test'
+            );
+            ASSERT (v_result->>'success')::boolean, 'webhook must succeed';
+            ASSERT (v_result->>'cancelled')::boolean, 'webhook must detect cancellation';
+            ASSERT (v_result->>'refund_created')::boolean, 'webhook must create refund op';
+
+            -- No job created
+            ASSERT NOT EXISTS (SELECT 1 FROM jobs WHERE checkout_id = v_checkout_id),
+              'no job for cancelled checkout';
+
+            -- Exactly one refund operation
+            ASSERT (SELECT COUNT(*) FROM checkout_refund_operations WHERE checkout_id = v_checkout_id) = 1,
+              'exactly one refund operation';
+            ASSERT (SELECT status FROM checkout_refund_operations WHERE checkout_id = v_checkout_id) = 'pending',
+              'refund operation must be pending';
+            ASSERT (SELECT refund_amount FROM checkout_refund_operations WHERE checkout_id = v_checkout_id) = 55.00,
+              'refund must be 100% of checkout amount';
+
+            -- H. Duplicate webhook does NOT create second refund op
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_refund_test_10';
+            v_result := process_stripe_webhook(
+              'evt_refund_test_10b', 'payment_intent.succeeded',
+              'pi_refund_test_10', v_checkout_id::text, 5500, 'usd', 'cus_test'
+            );
+            ASSERT (SELECT COUNT(*) FROM checkout_refund_operations WHERE checkout_id = v_checkout_id) = 1,
+              'duplicate webhook must not create second refund op';
+
+            -- I. No provider earnings/compensation
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM provider_earnings pe JOIN jobs j ON j.id = pe.job_id WHERE j.checkout_id = v_checkout_id
+            ), 'no provider earnings for checkout-only cancellation';
+
+            -- Cleanup
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
+            DELETE FROM processed_webhook_events WHERE event_id LIKE 'evt_refund_test_10%';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- J. payment_failed does NOT overwrite customer_cancelled
+          DO $$
+          DECLARE
+            v_uid UUID := 'a0000000-0000-0000-0000-000000000011';
+            v_checkout_id UUID := 'c0000000-0000-0000-0000-000000000011';
+          BEGIN
+            INSERT INTO auth.users (id, email) VALUES (v_uid, 'failed-guard@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'failed-guard@example.com') ON CONFLICT DO NOTHING;
+            INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency, payment_intent_id)
+            VALUES (v_checkout_id, v_uid, 'tire', 'customer_cancelled', 55.00, 55.00, 'usd', 'pi_guard_11')
+            ON CONFLICT DO NOTHING;
+
+            PERFORM process_stripe_webhook(
+              'evt_guard_11', 'payment_intent.payment_failed',
+              'pi_guard_11', v_checkout_id::text, 5500, 'usd', 'cus_test'
+            );
+
+            ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'customer_cancelled',
+              'payment_failed must NOT overwrite customer_cancelled';
+
+            DELETE FROM processed_webhook_events WHERE event_id = 'evt_guard_11';
+            DELETE FROM checkouts WHERE id = v_checkout_id;
+            DELETE FROM profiles WHERE id = v_uid;
+            DELETE FROM auth.users WHERE id = v_uid;
+          END $$;
+
+          -- K. Existing job_cancellation_operations still works
+          DO $$ BEGIN
+            ASSERT EXISTS (
+              SELECT 1 FROM information_schema.tables
+              WHERE table_name = 'job_cancellation_operations' AND table_schema = 'public'
+            ), 'job_cancellation_operations table must still exist';
+          END $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All checkout refund operation tests passed.'; END $$;
           SQL
 
   security-scan:
