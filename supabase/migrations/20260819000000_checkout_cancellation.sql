@@ -83,6 +83,8 @@ GRANT EXECUTE ON FUNCTION public.cancel_checkout(UUID) TO authenticated;
 -- 4. Update process_stripe_webhook to respect customer_cancelled status
 -- The webhook RPC checks v_checkout.status early. Add customer_cancelled
 -- as a terminal state that prevents job creation.
+-- DROP + CREATE because PostgreSQL cannot change parameter defaults on REPLACE.
+DROP FUNCTION IF EXISTS public.process_stripe_webhook(TEXT, TEXT, TEXT, TEXT, INTEGER, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION public.process_stripe_webhook(
   p_event_id TEXT,
   p_event_type TEXT,
