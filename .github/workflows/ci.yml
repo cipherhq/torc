@@ -4014,7 +4014,7 @@ jobs:
             v_uid := gen_random_uuid();
             INSERT INTO auth.users (id, email) VALUES (v_uid, 'cancel-test@example.com');
             INSERT INTO profiles (id, role, email) VALUES (v_uid, 'customer', 'cancel-test@example.com');
-            PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+            PERFORM set_config('request.jwt.claim.sub', v_uid::text, false);
 
             v_checkout_id := gen_random_uuid();
             INSERT INTO checkouts (id, user_id, service_id, status, total_amount, base_price, currency)
@@ -4056,7 +4056,7 @@ jobs:
             VALUES (v_checkout_id, v_owner, 'tire', 'payment_processing', 55.00, 55.00, 'usd');
 
             -- Attacker tries to cancel owner's checkout
-            PERFORM set_config('request.jwt.claim.sub', v_attacker::text, true);
+            PERFORM set_config('request.jwt.claim.sub', v_attacker::text, false);
             v_result := cancel_checkout(v_checkout_id);
             ASSERT NOT (v_result->>'success')::boolean, 'attacker must not cancel others checkout';
             ASSERT (SELECT status FROM checkouts WHERE id = v_checkout_id) = 'payment_processing',
