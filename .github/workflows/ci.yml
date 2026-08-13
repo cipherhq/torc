@@ -1014,6 +1014,7 @@ jobs:
             ASSERT (result::jsonb)->>'success' = 'false', 'Test 18 FAILED: checkout with paid_at must be rejected. Got: ' || result::text;
             RAISE NOTICE 'Test 18 PASSED: Checkout with paid_at → rejected';
             DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
+            DELETE FROM checkout_refund_operations WHERE checkout_id = 'aaaaaaaa-0000-0000-0000-cccc00000018'::uuid;
             DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000018'::uuid;
             DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000018'::uuid;
           END $$;
@@ -1040,6 +1041,7 @@ jobs:
             ASSERT (result::jsonb)->>'error' = 'CHECKOUT_HAS_PAYMENT_INTENT', 'Test 19 FAILED: checkout with PI must be rejected';
             RAISE NOTICE 'Test 19 PASSED: Checkout with payment_intent_id → manual_review';
             DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000019'::uuid;
+            DELETE FROM checkout_refund_operations WHERE checkout_id = 'aaaaaaaa-0000-0000-0000-cccc00000019'::uuid;
             DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000019'::uuid;
             DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000019'::uuid;
           END $$;
@@ -1071,6 +1073,7 @@ jobs:
             DELETE FROM job_status_audit WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
             DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
             DELETE FROM job_expiry_refund_operations WHERE job_id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
+            DELETE FROM checkout_refund_operations WHERE checkout_id = 'aaaaaaaa-0000-0000-0000-cccc00000020'::uuid;
             DELETE FROM checkouts WHERE id = 'aaaaaaaa-0000-0000-0000-cccc00000020'::uuid;
             DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-eeee00000020'::uuid;
           END $$;
@@ -3663,6 +3666,7 @@ jobs:
           -- Cleanup
           DELETE FROM provider_earnings WHERE provider_id IN ('ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'ac00e500-4444-4444-4444-aaaaaaaaaaaa'::uuid);
           DELETE FROM provider_payouts WHERE provider_id = 'ac00e500-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+          DELETE FROM checkout_refund_operations WHERE checkout_id IN ('ac00e500-0000-0000-cccc-a0b111111111'::uuid, 'ac00e500-0000-0000-cccc-a0b222222222'::uuid, 'ac00e500-0000-0000-cccc-a0b555555555'::uuid, 'ac00e500-0000-0000-cccc-a0b666666666'::uuid);
           DELETE FROM checkouts WHERE id IN ('ac00e500-0000-0000-cccc-a0b111111111'::uuid, 'ac00e500-0000-0000-cccc-a0b222222222'::uuid, 'ac00e500-0000-0000-cccc-a0b555555555'::uuid, 'ac00e500-0000-0000-cccc-a0b666666666'::uuid);
           DELETE FROM job_events WHERE job_id IN ('ac00e500-0000-0000-0000-a0b111111111'::uuid, 'ac00e500-0000-0000-0000-a0b222222222'::uuid);
           DELETE FROM provider_earnings WHERE job_id IN (SELECT id FROM jobs WHERE customer_id = 'ac00e500-3333-3333-3333-aaaaaaaaaaaa'::uuid);
@@ -3982,6 +3986,7 @@ jobs:
 
             -- Cleanup
             DELETE FROM payment_attempts WHERE checkout_id = v_checkout_id;
+            DELETE FROM checkout_refund_operations WHERE checkout_id = v_checkout_id;
             DELETE FROM checkouts WHERE id = v_checkout_id;
             DELETE FROM profiles WHERE id = v_uid;
             DELETE FROM auth.users WHERE id = v_uid;
