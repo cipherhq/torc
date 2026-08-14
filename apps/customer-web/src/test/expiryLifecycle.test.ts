@@ -2801,3 +2801,50 @@ describe('Tip 3DS uses handleNextAction with status verification', () => {
     expect(scSrc).toContain("nextActionResult.paymentIntent?.status");
   });
 });
+
+describe('Payment method consistency in create-payment-intent', () => {
+  const piSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/functions/create-payment-intent/index.ts'), 'utf-8'
+  );
+
+  it('reads payment_method_id from existing checkout', () => {
+    // The select must include payment_method_id
+    expect(piSrc).toContain('payment_method_id');
+    const selectMatch = piSrc.match(/\.select\([^)]*payment_method_id[^)]*\)/);
+    expect(selectMatch).not.toBeNull();
+  });
+
+  it('rejects in-progress PI when payment method differs', () => {
+    expect(piSrc).toContain('PAYMENT_METHOD_MISMATCH');
+    expect(piSrc).toContain('paymentMethodId !== existingCheckout.payment_method_id');
+  });
+
+  it('PM check only applies to in-progress PI states', () => {
+    // The mismatch check is inside the requires_action/requires_confirmation/processing block
+    const raBlock = piSrc.slice(
+      piSrc.indexOf("pi.status === 'requires_action'"),
+      piSrc.indexOf("pi.status === 'canceled'")
+    );
+    expect(raBlock).toContain('PAYMENT_METHOD_MISMATCH');
+  });
+
+  it('paid checkout returns without PM check (already settled)', () => {
+    // The paid branch returns before reaching PM check
+    const paidBlock = piSrc.slice(
+      piSrc.indexOf("status === 'paid'"),
+      piSrc.indexOf("status === 'paid'") + 300
+    );
+    expect(paidBlock).not.toContain('PAYMENT_METHOD_MISMATCH');
+  });
+
+  it('dead PI retry clears payment_intent_id for new attempt', () => {
+    expect(piSrc).toContain("pi.status === 'canceled'");
+    expect(piSrc).toContain("payment_intent_id: null");
+    expect(piSrc).toContain("attempt_number");
+  });
+
+  it('idempotency key uses attempt_number', () => {
+    expect(piSrc).toContain('attempt_number');
+    expect(piSrc).toContain('Idempotency-Key');
+  });
+});
