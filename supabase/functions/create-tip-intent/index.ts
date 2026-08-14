@@ -11,8 +11,17 @@ import { getSupabaseSecretKey, getSupabasePublishableKey } from '../_shared/supa
  * The tip_id comes from the request_tip_payment RPC which validates everything.
  */
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 Deno.serve(async (req) => {
-  const jsonHeaders = { 'Content-Type': 'application/json' };
+  const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {

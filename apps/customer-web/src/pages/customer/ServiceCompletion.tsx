@@ -177,7 +177,6 @@ export function ServiceCompletion() {
             const piResult = await tipFnRes.json();
             const piError = !tipFnRes.ok ? piResult : null;
             if (piError) {
-              console.warn('create-tip-intent error:', piResult?.error || tipFnRes.status);
               setTipStatus('failed');
               tipOutcome = 'failed';
             } else {
