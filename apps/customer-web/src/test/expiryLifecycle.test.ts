@@ -1988,13 +1988,26 @@ describe('Tip SCA and idempotent continuation', () => {
     expect(src).toContain('TIP_ALREADY_COMPLETED');
   });
 
-  it('tipping flow uses card-only, no off_session or redirect URL', () => {
+  it('tip PI uses use_stripe_sdk + card-only + confirm, no return_url', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
     );
-    expect(src).not.toContain('off_session');
+    // Server-confirmed with Stripe.js handling next actions
+    expect(src).toContain("'use_stripe_sdk', 'true'");
+    expect(src).toContain("'confirm', 'true'");
+    expect(src).toContain("payment_method_types[]', 'card'");
     expect(src).not.toContain('return_url');
-    expect(src).toContain("payment_method_types[]");
+    expect(src).not.toContain('off_session');
+  });
+
+  it('checkout PI uses use_stripe_sdk + card-only + confirm, no return_url', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-payment-intent/index.ts'), 'utf-8'
+    );
+    expect(src).toContain("'use_stripe_sdk', 'true'");
+    expect(src).toContain("'confirm', 'true'");
+    expect(src).toContain("payment_method_types[]', 'card'");
+    expect(src).not.toContain('return_url');
   });
 
   it('webhook finalization remains idempotent', () => {
