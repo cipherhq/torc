@@ -179,8 +179,8 @@ Deno.serve(async (req) => {
     if (paymentMethodId) {
       params.append('payment_method', paymentMethodId);
       params.append('confirm', 'true');
-      // Customer-present saved-card tip: no redirect-based methods needed
-      // SCA/3DS handled inline by Stripe.js confirmCardPayment in the browser
+      // Server-confirmed with Stripe.js handling next actions (3DS/SCA)
+      params.append('use_stripe_sdk', 'true');
       params.append('payment_method_types[]', 'card');
     }
 

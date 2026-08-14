@@ -393,6 +393,8 @@ Deno.serve(async (req) => {
     intentBody.append('payment_method', paymentMethodId);
     intentBody.append('payment_method_types[]', 'card');
     intentBody.append('confirm', 'true');
+    // Server-confirmed with Stripe.js handling next actions (3DS/SCA)
+    intentBody.append('use_stripe_sdk', 'true');
     intentBody.append('off_session', 'false');
     if (savePaymentMethod) {
       intentBody.append('setup_future_usage', 'off_session');
