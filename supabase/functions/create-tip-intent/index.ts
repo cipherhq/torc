@@ -30,15 +30,20 @@ Deno.serve(async (req) => {
     }
 
     // Get the caller's JWT from Authorization header
-    const authHeader = req.headers.get('Authorization') || '';
-    const jwt = authHeader.replace(/^Bearer\s+/i, '');
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: jsonHeaders,
+      });
+    }
 
-    // Create client with user's JWT for auth context
-    const userClient = createClient(supabaseUrl, getSupabasePublishableKey() || supabaseServiceRoleKey, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    // Create client with user's JWT — use publishable/anon key (same as create-payment-intent)
+    const supabaseAnonKey = getSupabasePublishableKey();
+    const supabaseUserClient = createClient(supabaseUrl, supabaseAnonKey!, {
+      global: { headers: { Authorization: authHeader } },
     });
 
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: jsonHeaders,

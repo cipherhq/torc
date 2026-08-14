@@ -151,10 +151,33 @@ export function ServiceCompletion() {
               tipOutcome = 'failed';
             }
           } else {
-            const { data: piResult, error: piError } = await supabase.functions.invoke('create-tip-intent', {
-              body: { tip_id: tipResult.tip_id },
-            });
+            // Use direct fetch with explicitly refreshed token (same pattern as checkout)
+            const { data: tipRefresh } = await supabase.auth.refreshSession();
+            let tipToken = tipRefresh?.session?.access_token;
+            if (!tipToken) {
+              const { data: { session: tipSession } } = await supabase.auth.getSession();
+              tipToken = tipSession?.access_token;
+            }
+            if (!tipToken) {
+              setTipStatus('failed');
+              tipOutcome = 'failed';
+            } else {
+            const tipFnRes = await fetch(
+              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-tip-intent`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${tipToken}`,
+                  apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                },
+                body: JSON.stringify({ tip_id: tipResult.tip_id }),
+              }
+            );
+            const piResult = await tipFnRes.json();
+            const piError = !tipFnRes.ok ? piResult : null;
             if (piError) {
+              console.warn('create-tip-intent error:', piResult?.error || tipFnRes.status);
               setTipStatus('failed');
               tipOutcome = 'failed';
             } else {
@@ -199,6 +222,7 @@ export function ServiceCompletion() {
                 tipOutcome = 'failed';
               }
             }
+            } // end tipToken else
           }
         } catch (tipErr: any) {
           console.warn('Tip processing error:', tipErr?.message);

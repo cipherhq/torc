@@ -2000,6 +2000,21 @@ describe('Tip SCA and idempotent continuation', () => {
     expect(src).not.toContain('off_session');
   });
 
+  it('config.toml sets verify_jwt=false for both payment functions', () => {
+    const config = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/config.toml'), 'utf-8'
+    );
+    // Both payment functions must have verify_jwt = false in config
+    // so raw JWT passes through for function-level auth.getUser()
+    expect(config).toContain('[functions.create-payment-intent]');
+    expect(config).toContain('[functions.create-tip-intent]');
+    // Verify each has verify_jwt = false after its section header
+    const piSection = config.slice(config.indexOf('[functions.create-payment-intent]'));
+    const tipSection = config.slice(config.indexOf('[functions.create-tip-intent]'));
+    expect(piSection.slice(0, 100)).toContain('verify_jwt = false');
+    expect(tipSection.slice(0, 100)).toContain('verify_jwt = false');
+  });
+
   it('checkout PI uses use_stripe_sdk + card-only + confirm, no return_url', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'supabase/functions/create-payment-intent/index.ts'), 'utf-8'
@@ -2198,13 +2213,22 @@ describe('Tip SCA/retry control flow', () => {
     expect(src.slice(guardLine, navLine)).toContain("=== 'succeeded'");
   });
 
-  it('2A: requires_action handled by Stripe.js confirmCardPayment', () => {
+  it('2A: tip uses direct fetch with refreshed token, not supabase.functions.invoke', () => {
     const src = fs.readFileSync(scPath, 'utf-8');
-    // requires_action is handled inline by confirmCardPayment
+    // Must NOT use supabase.functions.invoke for tip
+    expect(src).not.toContain("supabase.functions.invoke('create-tip-intent'");
+    // Must use direct fetch with explicit auth (same pattern as checkout)
+    expect(src).toContain('functions/v1/create-tip-intent');
+    expect(src).toContain('Authorization: `Bearer ${tipToken}`');
+    expect(src).toContain('supabase.auth.refreshSession()');
+    // SCA/3DS still handled by confirmCardPayment
     expect(src).toContain('confirmCardPayment');
-    // Failed tip shows error and "Continue Without Tip" option
+    // Failure UX
     expect(src).toContain('Continue Without Tip');
     expect(src).toContain('handleContinueWithoutTip');
+    // No service-role/secret key in client
+    expect(src).not.toContain('service_role');
+    expect(src).not.toContain('SUPABASE_SERVICE_ROLE');
   });
 
   it('2B: new PI response includes status field', () => {
