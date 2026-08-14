@@ -101,7 +101,10 @@ Deno.serve(async (req) => {
       'charge.refunded',
     ];
 
-    if (supportedEvents.includes(event.type)) {
+    // Tip PIs use their own lifecycle — never route through checkout RPC
+    const isTipEvent = eventObject?.metadata?.type === 'tip';
+
+    if (supportedEvents.includes(event.type) && !isTipEvent) {
       // Use atomic RPC: handles idempotency, checkout+job updates in one transaction
       const { data: result, error: rpcError } = await adminClient.rpc('process_stripe_webhook', {
         p_event_id: event.id,
@@ -123,7 +126,7 @@ Deno.serve(async (req) => {
       } else {
         console.log(`[stripe-webhook] ${event.type}: pi=${paymentIntentId}, checkout=${checkoutId || 'none'}`);
       }
-    } else {
+    } else if (!isTipEvent) {
       console.log(`[stripe-webhook] Unhandled event type: ${event.type}`);
     }
 
@@ -335,47 +338,61 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
-    // TIP PAYMENT FINALIZATION
-    // When a tip PaymentIntent succeeds, finalize the tip earning.
+    // TIP PAYMENT LIFECYCLE
+    // Tip PIs have metadata.type === 'tip' and use their own
+    // finalization path — never the checkout process_stripe_webhook RPC.
+    // Failures must throw so Stripe retries (finalization is idempotent).
     // ================================================================
-    if (event.type === 'payment_intent.succeeded' && eventObject?.metadata?.type === 'tip') {
+    if (isTipEvent && (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed')) {
       const tipId = eventObject?.metadata?.tip_id;
       const tipJobId = eventObject?.metadata?.job_id;
       const tipPiId = eventObject?.id;
       const tipAmount = eventObject?.amount ? eventObject.amount / 100 : null;
       const tipCurrency = eventObject?.currency;
+      const tipStripeStatus = event.type === 'payment_intent.succeeded' ? 'succeeded' : 'failed';
 
-      if (tipId && tipJobId && tipPiId) {
-        try {
-          // Verify tip record exists and matches
-          const { data: tip } = await adminClient
-            .from('job_tips')
-            .select('id, job_id, customer_id, provider_id, amount, stripe_status')
-            .eq('id', tipId)
-            .single();
+      if (!tipId || !tipJobId || !tipPiId) {
+        throw new Error(`Tip ${tipStripeStatus} event missing required metadata: tip_id=${tipId}, job_id=${tipJobId}, pi=${tipPiId}`);
+      }
 
-          if (tip && tip.job_id === tipJobId && tip.stripe_status !== 'succeeded') {
-            // Verify amount and currency
-            if (tipAmount !== null && Math.abs(tipAmount - Number(tip.amount)) < 0.01 && tipCurrency === 'usd') {
-              const { error: finalizeErr } = await adminClient.rpc('finalize_tip_payment', {
-                p_tip_id: tipId,
-                p_payment_intent_id: tipPiId,
-                p_stripe_status: 'succeeded',
-              });
-              if (finalizeErr) {
-                console.error(`[stripe-webhook] Tip finalization error: ${finalizeErr.message}`);
-              } else {
-                console.log(`[stripe-webhook] Tip finalized: tip=${tipId}, job=${tipJobId}`);
-              }
-            } else {
-              console.error(`[stripe-webhook] Tip amount/currency mismatch: expected ${tip.amount} USD, got ${tipAmount} ${tipCurrency}`);
-            }
-          } else if (tip?.stripe_status === 'succeeded') {
-            console.log(`[stripe-webhook] Tip already finalized: ${tipId}`);
+      // Verify tip record exists and matches
+      const { data: tip, error: tipLookupErr } = await adminClient
+        .from('job_tips')
+        .select('id, job_id, customer_id, provider_id, amount, stripe_status')
+        .eq('id', tipId)
+        .single();
+
+      if (tipLookupErr) {
+        throw new Error(`Tip lookup failed for ${tipId}: ${tipLookupErr.message}`);
+      }
+
+      if (tip?.stripe_status === 'succeeded') {
+        // Already finalized — idempotent success
+        console.log(`[stripe-webhook] Tip already finalized: ${tipId}`);
+      } else if (tip && tip.job_id === tipJobId) {
+        if (tipStripeStatus === 'succeeded') {
+          // Verify amount and currency before finalizing
+          if (tipAmount === null || Math.abs(tipAmount - Number(tip.amount)) >= 0.01 || tipCurrency !== 'usd') {
+            throw new Error(`Tip amount/currency mismatch: expected ${tip.amount} USD, got ${tipAmount} ${tipCurrency}`);
           }
-        } catch (tipErr: any) {
-          console.error(`[stripe-webhook] Tip processing error: ${tipErr?.message}`);
         }
+
+        const { data: finalizeResult, error: finalizeErr } = await adminClient.rpc('finalize_tip_payment', {
+          p_tip_id: tipId,
+          p_payment_intent_id: tipPiId,
+          p_stripe_status: tipStripeStatus,
+        });
+
+        if (finalizeErr) {
+          throw new Error(`Tip finalization RPC failed for ${tipId}: ${finalizeErr.message}`);
+        }
+        if (finalizeResult && !finalizeResult.success) {
+          throw new Error(`Tip finalization rejected for ${tipId}: ${finalizeResult.error}`);
+        }
+
+        console.log(`[stripe-webhook] Tip ${tipStripeStatus}: tip=${tipId}, job=${tipJobId}`);
+      } else {
+        throw new Error(`Tip record mismatch: tip=${tipId} has job=${tip?.job_id}, event has job=${tipJobId}`);
       }
     }
 

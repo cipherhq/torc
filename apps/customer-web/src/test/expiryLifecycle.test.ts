@@ -1648,7 +1648,7 @@ describe('Financial completion integrity', () => {
     );
     expect(src).toContain('tipping_enabled');
     expect(src).toContain('tip_presets');
-    expect(src).toContain('confirmCardPayment');
+    expect(src).toContain('handleNextAction');
   });
 });
 
@@ -2221,8 +2221,8 @@ describe('Tip SCA/retry control flow', () => {
     expect(src).toContain('functions/v1/create-tip-intent');
     expect(src).toContain('Authorization: `Bearer ${tipToken}`');
     expect(src).toContain('supabase.auth.refreshSession()');
-    // SCA/3DS still handled by confirmCardPayment
-    expect(src).toContain('confirmCardPayment');
+    // SCA/3DS handled by handleNextAction (server-confirmed PI)
+    expect(src).toContain('handleNextAction');
     // Failure UX
     expect(src).toContain('Continue Without Tip');
     expect(src).toContain('handleContinueWithoutTip');
@@ -2699,5 +2699,105 @@ describe('Account deletion store compliance', () => {
     expect(src).toContain('checkouts_user_id_fkey');
     expect(src).toContain('support_tickets_requester_id_fkey');
     expect(src).toContain('documents_provider_id_fkey');
+  });
+});
+
+// ============================================================
+// PR #29 — Tip webhook finalization hardening
+// ============================================================
+
+describe('Tip webhook routing: tip events bypass checkout RPC', () => {
+  const webhookSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/functions/stripe-webhook/index.ts'), 'utf-8'
+  );
+
+  it('detects tip events via metadata.type', () => {
+    expect(webhookSrc).toContain("metadata?.type === 'tip'");
+  });
+
+  it('checkout process_stripe_webhook is skipped for tip events', () => {
+    // The condition must exclude isTipEvent from entering process_stripe_webhook
+    expect(webhookSrc).toContain('&& !isTipEvent');
+  });
+
+  it('tip payment_intent.succeeded reaches finalize_tip_payment', () => {
+    expect(webhookSrc).toContain("finalize_tip_payment");
+    // The tip block handles payment_intent.succeeded
+    expect(webhookSrc).toContain("payment_intent.succeeded");
+  });
+
+  it('tip payment_intent.payment_failed is routed separately', () => {
+    // Tip block handles both succeeded and payment_failed
+    expect(webhookSrc).toContain("payment_intent.payment_failed");
+    // isTipEvent check covers both event types
+    expect(webhookSrc).toContain("isTipEvent && (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed')");
+  });
+
+  it('tip finalization failure throws (non-2xx for Stripe retry)', () => {
+    // Errors must throw, not just log — outer catch returns 500
+    const tipBlock = webhookSrc.slice(webhookSrc.indexOf('TIP PAYMENT LIFECYCLE'));
+    expect(tipBlock).toContain('throw new Error');
+    // Must NOT silently swallow finalization errors
+    expect(tipBlock).not.toMatch(/finalizeErr\);\s*\n\s*\} else/);
+  });
+
+  it('duplicate succeeded tip event is idempotent (no throw)', () => {
+    expect(webhookSrc).toContain("Tip already finalized");
+  });
+
+  it('failed tip creates no provider earning (finalize_tip_payment logic)', () => {
+    const migSrc = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'), 'utf-8'
+    );
+    const fnStart = migSrc.indexOf('finalize_tip_payment');
+    const fnBody = migSrc.slice(fnStart, migSrc.indexOf('$$;', fnStart));
+    // Only inserts earning when succeeded
+    expect(fnBody).toContain("IF p_stripe_status = 'succeeded' THEN");
+    expect(fnBody).toContain("INSERT INTO provider_earnings");
+  });
+
+  it('ordinary checkout webhook behavior is unchanged', () => {
+    // process_stripe_webhook is still called for non-tip events
+    expect(webhookSrc).toContain("process_stripe_webhook");
+    // Errors from checkout RPC still throw
+    expect(webhookSrc).toContain("Webhook RPC failed");
+  });
+});
+
+describe('Tip service-role grants migration', () => {
+  const grantSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260822000000_fix_tip_rpc_grants.sql'), 'utf-8'
+  );
+
+  it('grants finalize_tip_payment to service_role', () => {
+    expect(grantSrc).toContain('GRANT EXECUTE ON FUNCTION public.finalize_tip_payment(UUID, TEXT, TEXT) TO service_role');
+  });
+
+  it('grants rotate_tip_idempotency_key to service_role', () => {
+    expect(grantSrc).toContain('GRANT EXECUTE ON FUNCTION public.rotate_tip_idempotency_key(UUID, TEXT) TO service_role');
+  });
+});
+
+describe('Tip 3DS uses handleNextAction with status verification', () => {
+  const scSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+  );
+
+  it('uses handleNextAction, not confirmCardPayment, for tip requires_action', () => {
+    // handleNextAction is correct for server-confirmed PIs
+    expect(scSrc).toContain('handleNextAction');
+    // confirmCardPayment must NOT be used for tip flow
+    expect(scSrc).not.toContain('confirmCardPayment');
+  });
+
+  it('checks paymentIntent.status from handleNextAction result', () => {
+    expect(scSrc).toContain("nextActionResult.paymentIntent?.status === 'succeeded'");
+    expect(scSrc).toContain("nextActionResult.paymentIntent?.status === 'processing'");
+  });
+
+  it('does not treat no-error as unconditional success', () => {
+    // Must inspect paymentIntent.status, not just absence of error
+    expect(scSrc).toContain('nextActionResult.error');
+    expect(scSrc).toContain("nextActionResult.paymentIntent?.status");
   });
 });

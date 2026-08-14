@@ -192,14 +192,21 @@ export function ServiceCompletion() {
                 tipOutcome = 'requires_action';
                 const stripe = await stripePromise;
                 if (stripe) {
-                  const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
-                  if (confirmError) {
+                  const nextActionResult = await stripe.handleNextAction({ clientSecret: piResult.client_secret });
+                  if (nextActionResult.error) {
                     setTipStatus('failed');
                     tipOutcome = 'failed';
-                  } else {
+                  } else if (nextActionResult.paymentIntent?.status === 'succeeded') {
                     setTipStatus('succeeded');
                     setTipClientSecret(null);
                     tipOutcome = 'succeeded';
+                  } else if (nextActionResult.paymentIntent?.status === 'processing') {
+                    setTipStatus('processing');
+                    tipOutcome = 'processing';
+                  } else {
+                    // Non-terminal / unexpected — treat as processing, webhook is authoritative
+                    setTipStatus('processing');
+                    tipOutcome = 'processing';
                   }
                 } else {
                   setTipStatus('failed');
@@ -244,7 +251,7 @@ export function ServiceCompletion() {
       } else if (tipOutcome === 'processing') {
         setSubmitError('Tip payment is still processing. Please wait a moment and try again.');
       }
-      // requires_action is handled inline by Stripe.js confirmCardPayment above
+      // requires_action is handled inline by Stripe.js handleNextAction above
     } catch (err) {
       console.warn('Failed to submit:', err);
       setSubmitError('Could not submit. Please try again.');
