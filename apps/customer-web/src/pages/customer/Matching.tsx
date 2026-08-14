@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { Loader, MapPin, CheckCircle, Star, Clock, Navigation, User, ArrowLeft, CalendarCheck, AlertTriangle } from 'lucide-react';
-import { getRequestContext } from '../../data/bookingDraftStore';
+import { getRequestContext, resetRequestContext } from '../../data/bookingDraftStore';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useJob } from '../../context/JobContext';
@@ -1052,9 +1052,32 @@ export function Matching() {
                   const finalReason = cancelReason === 'other' ? cancelCustomReason.trim() : cancelReason;
                   if (!finalReason) return;
                   try {
-                    if (createdJobId) await cancelJob(createdJobId, finalReason);
-                  } catch (e) {
+                    if (createdJobId) {
+                      // Job exists — use existing job cancellation
+                      await cancelJob(createdJobId, finalReason);
+                    } else {
+                      // No job yet — cancel the checkout server-side to prevent ghost job
+                      const ctx = getRequestContext();
+                      if (ctx.checkoutId) {
+                        const { data, error } = await supabase.rpc('cancel_checkout', {
+                          p_checkout_id: ctx.checkoutId,
+                        });
+                        if (error) throw error;
+                        if (data && !data.success && !data.already_cancelled) {
+                          // If job was created between our check and RPC, cancel the job instead
+                          if (data.job_id) {
+                            await cancelJob(data.job_id, finalReason);
+                          } else {
+                            throw new Error(data.error || 'Could not cancel request.');
+                          }
+                        }
+                      }
+                    }
+                    resetRequestContext();
+                  } catch (e: any) {
                     console.warn('Cancel failed:', e);
+                    setError(e?.message || 'Could not cancel request. Please try again.');
+                    return; // Stay on screen — don't navigate if cancel failed
                   }
                   navigate('/home');
                 }}

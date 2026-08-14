@@ -265,6 +265,76 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
+    // CHECKOUT REFUND FINALIZATION (async refunds from pre-job cancellations)
+    // Correlate charge.refunded/refund.updated with checkout_refund_operations
+    // in refund_pending state. Same safe pattern as expiry refund correlation.
+    // DB errors are logged as CRITICAL — the scheduled refund worker
+    // reconciliation is the safety net (same convergence strategy as expiry).
+    // ================================================================
+    if (event.type === 'charge.refunded' || event.type === 'refund.updated') {
+      for (const refundObj of refundObjects) {
+        try {
+          const { data: checkoutOp, error: lookupErr } = await adminClient
+            .from('checkout_refund_operations')
+            .select('id, checkout_id, payment_intent_id, status, claim_token')
+            .eq('stripe_refund_id', refundObj.id)
+            .eq('status', 'refund_pending')
+            .maybeSingle();
+
+          if (lookupErr) {
+            console.error(
+              `[stripe-webhook] CRITICAL: Checkout refund lookup error for refund ${refundObj.id}: ${lookupErr.message}. ` +
+              `Scheduled reconciliation will retry.`
+            );
+            continue;
+          }
+
+          if (!checkoutOp) continue;
+
+          // Verify payment_intent matches
+          if (refundObj.payment_intent && checkoutOp.payment_intent_id
+              && refundObj.payment_intent !== checkoutOp.payment_intent_id) {
+            console.error(
+              `[stripe-webhook] Checkout refund PI mismatch: expected ${checkoutOp.payment_intent_id}, got ${refundObj.payment_intent}`
+            );
+            continue;
+          }
+
+          const refundStatus = refundObj.status;
+          if (!refundStatus || (refundStatus !== 'succeeded' && refundStatus !== 'failed')) {
+            continue; // Still pending — leave as refund_pending
+          }
+
+          // Use atomic finalizer — same path as scheduled reconciliation
+          // claim_token is null for refund_pending webhook correlation (no active claim)
+          const { data: finResult, error: finErr } = await adminClient.rpc('finalize_checkout_refund', {
+            p_operation_id: checkoutOp.id,
+            p_claim_token: checkoutOp.claim_token || null,
+            p_stripe_refund_id: refundObj.id,
+            p_stripe_refund_status: refundStatus,
+            p_error_message: refundStatus === 'failed' ? 'Stripe refund failed asynchronously' : null,
+          });
+
+          if (finErr) {
+            console.error(
+              `[stripe-webhook] CRITICAL: Checkout refund finalization failed for op ${checkoutOp.id}: ${finErr.message}. ` +
+              `Scheduled reconciliation will handle this.`
+            );
+          } else if (finResult?.status === 'completed') {
+            console.log(`[stripe-webhook] Checkout refund completed: op=${checkoutOp.id}`);
+          } else if (finResult?.status === 'manual_review') {
+            console.error(`[stripe-webhook] Checkout refund failed: op=${checkoutOp.id}`);
+          }
+        } catch (err: any) {
+          console.error(
+            `[stripe-webhook] CRITICAL: Checkout refund correlation exception: ${err?.message}. ` +
+            `Event already processed — scheduled reconciliation will handle this.`
+          );
+        }
+      }
+    }
+
+    // ================================================================
     // TIP PAYMENT FINALIZATION
     // When a tip PaymentIntent succeeds, finalize the tip earning.
     // ================================================================
