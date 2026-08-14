@@ -2185,9 +2185,13 @@ describe('Tip SCA/retry control flow', () => {
     expect(src.slice(guardLine, navLine)).toContain("=== 'succeeded'");
   });
 
-  it('2A: requires_action stays on page', () => {
+  it('2A: requires_action handled by Stripe.js confirmCardPayment', () => {
     const src = fs.readFileSync(scPath, 'utf-8');
-    expect(src).toContain('// failed, requires_action, processing');
+    // requires_action is handled inline by confirmCardPayment
+    expect(src).toContain('confirmCardPayment');
+    // Failed tip shows error and "Continue Without Tip" option
+    expect(src).toContain('Continue Without Tip');
+    expect(src).toContain('handleContinueWithoutTip');
   });
 
   it('2B: new PI response includes status field', () => {

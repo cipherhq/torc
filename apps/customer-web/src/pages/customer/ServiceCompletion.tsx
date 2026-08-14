@@ -212,17 +212,29 @@ export function ServiceCompletion() {
         await rateJob(jobId, rating, feedback);
       }
 
-      // Navigate away ONLY when no actionable tip retry is needed
+      // Navigate away when tip is not blocking
       if (tipOutcome === 'idle' || tipOutcome === 'succeeded') {
         navigate('/home');
+      } else if (tipOutcome === 'failed') {
+        // Tip failed — show error with recovery options, don't trap the user
+        setSubmitError('Your tip could not be processed. You can retry or continue without tipping.');
+      } else if (tipOutcome === 'processing') {
+        setSubmitError('Tip payment is still processing. Please wait a moment and try again.');
       }
-      // failed, requires_action, processing → stay on page
+      // requires_action is handled inline by Stripe.js confirmCardPayment above
     } catch (err) {
       console.warn('Failed to submit:', err);
       setSubmitError('Could not submit. Please try again.');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleContinueWithoutTip = async () => {
+    // Clear tip state and navigate home — rating/feedback already saved
+    setTipStatus('idle');
+    setSubmitError('');
+    navigate('/home');
   };
 
   return (
@@ -524,6 +536,15 @@ export function ServiceCompletion() {
         </motion.button>
         {submitError && (
           <p className="text-center mt-3 text-sm text-red-400">{submitError}</p>
+        )}
+        {tipStatus === 'failed' && (
+          <button
+            onClick={handleContinueWithoutTip}
+            className="w-full mt-3 rounded-2xl py-3 font-semibold text-sm"
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F9FF', color: isDark ? 'rgba(255,255,255,0.7)' : '#6B7280' }}
+          >
+            Continue Without Tip
+          </button>
         )}
       </div>
     </div>
