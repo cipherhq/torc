@@ -2963,6 +2963,26 @@ describe('Customer completion navigation safety', () => {
     expect(catchBlock).toContain('showToast');
   });
 
+  it('resolved Supabase RPC error cannot reach confirmed/waiting state', () => {
+    // Supabase .rpc() resolves with { data, error } — does NOT throw on failure.
+    // handleComplete must destructure and check the error before setCustomerConfirmed.
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // Must destructure { error: confirmError } from the RPC result
+    expect(fnBody).toContain('error: confirmError');
+    expect(fnBody).toContain("supabase.rpc('confirm_customer_job_completion'");
+    // Must check confirmError BEFORE setCustomerConfirmed(true)
+    const confirmErrorCheck = fnBody.indexOf('if (confirmError)');
+    const setConfirmed = fnBody.indexOf('setCustomerConfirmed(true)');
+    expect(confirmErrorCheck).toBeGreaterThan(-1);
+    expect(setConfirmed).toBeGreaterThan(-1);
+    expect(confirmErrorCheck).toBeLessThan(setConfirmed);
+    // confirmError branch must return (not fall through)
+    const errorBlock = fnBody.slice(confirmErrorCheck, setConfirmed);
+    expect(errorBlock).toContain('return');
+  });
+
   it('confirmation RPC success DOES set customerConfirmed and show waiting state', () => {
     const fnStart = ltSrc.indexOf('handleComplete');
     const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));

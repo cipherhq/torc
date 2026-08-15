@@ -435,7 +435,11 @@ export function LiveTracking() {
     try {
       // Server-authoritative customer completion confirmation.
       // Does NOT change job status — provider must still complete independently.
-      await supabase.rpc('confirm_customer_job_completion', { p_job_id: jobId });
+      const { error: confirmError } = await supabase.rpc('confirm_customer_job_completion', { p_job_id: jobId });
+      if (confirmError) {
+        showToast('error', 'Could not confirm completion', 'Please try again.');
+        return;
+      }
       setCustomerConfirmed(true);
 
       // Race safety: provider may have already completed — check authoritative status
