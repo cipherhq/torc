@@ -448,8 +448,8 @@ export function LiveTracking() {
       // Otherwise stay on LiveTracking — realtime subscription will drive navigation
     } catch (e) {
       console.warn('Customer completion confirmation failed:', e);
-      // Still mark as confirmed so user sees waiting state rather than retrying
-      setCustomerConfirmed(true);
+      // Do NOT set customerConfirmed — re-enable Service Complete for retry
+      showToast('error', 'Could not confirm completion', 'Please try again.');
     } finally {
       setConfirmingComplete(false);
     }

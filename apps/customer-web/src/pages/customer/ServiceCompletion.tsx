@@ -325,7 +325,8 @@ export function ServiceCompletion() {
           <p className="text-lg" style={{ color: subColor }}>Your vehicle is ready to go</p>
         </motion.div>
 
-        {/* After photo */}
+        {/* After photo — only when job is completed */}
+        {jobReady === true && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -371,8 +372,27 @@ export function ServiceCompletion() {
             )}
           </div>
         </motion.div>
+        )}
 
-        {/* Receipt */}
+        {/* Waiting state — shown when job is not yet completed */}
+        {jobReady !== true && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="rounded-2xl p-6 mb-6 text-center"
+            style={{
+              background: isDark ? 'rgba(255,165,0,0.1)' : 'rgba(255,165,0,0.08)',
+              border: `1px solid ${isDark ? 'rgba(255,165,0,0.3)' : 'rgba(255,165,0,0.25)'}`,
+            }}
+          >
+            <p className="font-semibold text-base" style={{ color: isDark ? '#FFB347' : '#D97706' }}>Waiting for provider to complete</p>
+            <p className="text-sm mt-2" style={{ color: subColor }}>Rating, tipping, and receipt will be available once the provider finishes the job.</p>
+          </motion.div>
+        )}
+
+        {/* Receipt — only when job is completed */}
+        {jobReady === true && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -415,17 +435,7 @@ export function ServiceCompletion() {
             </div>
           </div>
 
-          {jobReady === false && (
-            <div className="rounded-2xl p-4 mb-4" style={{
-              background: isDark ? 'rgba(255,165,0,0.1)' : 'rgba(255,165,0,0.08)',
-              border: `1px solid ${isDark ? 'rgba(255,165,0,0.3)' : 'rgba(255,165,0,0.25)'}`,
-            }}>
-              <p className="font-semibold text-sm" style={{ color: isDark ? '#FFB347' : '#D97706' }}>Waiting for provider to complete</p>
-              <p className="text-xs mt-1" style={{ color: subColor }}>Tipping will be available once the provider finishes the job.</p>
-            </div>
-          )}
-
-          {tippingEnabled && jobReady === true && <div className="rounded-2xl p-4" style={{
+          {tippingEnabled && <div className="rounded-2xl p-4" style={{
             background: isDark
               ? 'linear-gradient(180deg, rgba(0,140,229,0.12), rgba(255,255,255,0.04))'
               : 'linear-gradient(180deg, rgba(0,140,229,0.06), rgba(255,255,255,0.8))',
@@ -485,7 +495,7 @@ export function ServiceCompletion() {
             </div>
           </div>}
 
-          {tippingEnabled && jobReady === true && tipAmount > 0 && (
+          {tippingEnabled && tipAmount > 0 && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -501,8 +511,10 @@ export function ServiceCompletion() {
             </motion.div>
           )}
         </motion.div>
+        )}
 
-        {/* Rating */}
+        {/* Rating — only when job is completed */}
+        {jobReady === true && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -572,6 +584,7 @@ export function ServiceCompletion() {
             }}
           />
         </motion.div>
+        )}
 
         {/* Report issue */}
         <motion.button
@@ -589,7 +602,8 @@ export function ServiceCompletion() {
         </motion.button>
       </div>
 
-      {/* Fixed bottom button */}
+      {/* Fixed bottom button — only when job is completed */}
+      {jobReady === true && (
       <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: '1px solid ' + cardBorder, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         <motion.button
           whileHover={{ scale: 1.02 }}
@@ -619,6 +633,7 @@ export function ServiceCompletion() {
           </button>
         )}
       </div>
+      )}
     </div>
   );
 }

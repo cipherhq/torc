@@ -2910,16 +2910,27 @@ describe('Customer completion navigation safety', () => {
     expect(fnBody).toContain("freshStatus === 'completed'");
   });
 
-  it('ServiceCompletion route guard blocks tip on non-completed job', () => {
-    // jobReady state must gate tipping
-    expect(scSrc).toContain('jobReady');
-    // Tip section only renders when jobReady === true
-    expect(scSrc).toContain('jobReady === true');
-    // Tip processing in handleSubmit is guarded
+  it('jobReady=false blocks all actionable controls — no rating, tip, submit, or photo', () => {
+    // Rating section gated by jobReady === true
     expect(scSrc).toContain("jobReady === true");
-    // Waiting message shown when jobReady === false
+    // Count occurrences — rating, receipt, photo, and bottom bar should all be gated
+    const gateMatches = scSrc.match(/jobReady === true/g) || [];
+    // At least: receipt, rating, photo, bottom button, tip processing guard
+    expect(gateMatches.length).toBeGreaterThanOrEqual(4);
+    // handleSubmit tip processing gated
+    expect(scSrc).toContain("jobReady === true");
+    // Waiting state shown when not ready
     expect(scSrc).toContain('Waiting for provider to complete');
-    expect(scSrc).toContain('jobReady === false');
+    expect(scSrc).toContain('jobReady !== true');
+  });
+
+  it('jobReady=false cannot call rateJob or navigate Home through submit', () => {
+    // handleSubmit contains rateJob — but the submit button is hidden when jobReady !== true
+    // The bottom button div is wrapped in {jobReady === true && (...)}
+    const bottomSection = scSrc.slice(scSrc.indexOf('Fixed bottom button'));
+    expect(bottomSection).toContain('jobReady === true');
+    // handleSubmit also guards tip processing
+    expect(scSrc).toContain('jobReady === true');
   });
 
   it('ServiceCompletion subscribes to realtime for job status updates', () => {
@@ -2929,10 +2940,40 @@ describe('Customer completion navigation safety', () => {
     expect(scSrc).toContain('setJobReady(true)');
   });
 
-  it('completed job still reaches rating/tip normally', () => {
-    // When job IS completed, tipping renders normally
-    expect(scSrc).toContain("tippingEnabled && jobReady === true");
-    // Rating section is always available (not gated by jobReady)
+  it('authoritative completed reveals full rating/tip UI', () => {
+    // When jobReady === true, all controls render
+    expect(scSrc).toContain("tippingEnabled");
     expect(scSrc).toContain('Rate Your Experience');
+    expect(scSrc).toContain('Skip Rating');
+    expect(scSrc).toContain('Submit & Return Home');
+    // Photo section gated
+    expect(scSrc).toContain('After Service Photo');
+  });
+
+  it('confirmation RPC failure does NOT set customerConfirmed', () => {
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // catch block must NOT contain setCustomerConfirmed(true)
+    const catchStart = fnBody.indexOf('} catch');
+    const catchEnd = fnBody.indexOf('} finally');
+    const catchBlock = fnBody.slice(catchStart, catchEnd);
+    expect(catchBlock).not.toContain('setCustomerConfirmed(true)');
+    // catch block shows error toast instead
+    expect(catchBlock).toContain('showToast');
+  });
+
+  it('confirmation RPC success DOES set customerConfirmed and show waiting state', () => {
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // try block sets customerConfirmed after successful RPC
+    const tryStart = fnBody.indexOf('try {');
+    const catchStart = fnBody.indexOf('} catch');
+    const tryBlock = fnBody.slice(tryStart, catchStart);
+    expect(tryBlock).toContain('setCustomerConfirmed(true)');
+    // Waiting UI renders when customerConfirmed
+    expect(ltSrc).toContain("status === 'inprogress' && customerConfirmed");
+    expect(ltSrc).toContain('Waiting for provider to finish');
   });
 });
