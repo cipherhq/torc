@@ -25,6 +25,7 @@ export function ServiceCompletion() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [afterPhoto, setAfterPhoto] = useState<string | null>(null);
+  const [jobReady, setJobReady] = useState<boolean | null>(null); // null = loading
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,13 +71,44 @@ export function ServiceCompletion() {
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
+  // Check authoritative job status — block tip UI until job is completed
   useEffect(() => {
-    if (jobId && !currentJob) {
-      fetchJob(jobId).catch(console.warn);
+    if (!jobId) return;
+    let cancelled = false;
+    async function checkJob() {
+      try {
+        const job = await fetchJob(jobId!);
+        if (cancelled) return;
+        if (job?.status === 'completed') {
+          setJobReady(true);
+        } else {
+          setJobReady(false);
+        }
+      } catch {
+        if (!cancelled) setJobReady(false);
+      }
     }
-    // Load tipping settings
-    loadPlatformSettings().then(s => {
-      // tipping_enabled is stored as a separate key, load directly
+    checkJob();
+    // Subscribe to realtime status updates so we transition when provider completes
+    const channel = supabase
+      .channel(`completion-guard-${jobId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'jobs',
+        filter: `id=eq.${jobId}`,
+      }, (payload) => {
+        if (payload.new?.status === 'completed') {
+          setJobReady(true);
+        }
+      })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [jobId]);
+
+  // Load tipping settings (independent of job status)
+  useEffect(() => {
+    loadPlatformSettings().then(() => {
       supabase.from('platform_settings').select('value').eq('key', 'tipping_enabled').maybeSingle()
         .then(({ data }) => { if (data?.value === false) setTippingEnabled(false); });
       supabase.from('platform_settings').select('value').eq('key', 'tip_presets').maybeSingle()
@@ -87,7 +119,7 @@ export function ServiceCompletion() {
           }
         });
     }).catch(() => {});
-  }, [jobId]);
+  }, []);
 
   const [tipPct, setTipPct] = useState<number | null>(null);
   const [customTipAmount, setCustomTipAmount] = useState('');
@@ -132,8 +164,8 @@ export function ServiceCompletion() {
         await supabase.from('jobs').update({ completion_photo_url: photoUrl }).eq('id', jobId);
       }
 
-      // Process tip via server-authoritative payment flow
-      if (tipAmount > 0 && jobId && tipStatus !== 'succeeded') {
+      // Process tip via server-authoritative payment flow (only if job is completed)
+      if (tipAmount > 0 && jobId && tipStatus !== 'succeeded' && jobReady === true) {
         setTipStatus('processing');
         tipOutcome = 'processing';
         try {
@@ -383,7 +415,17 @@ export function ServiceCompletion() {
             </div>
           </div>
 
-          {tippingEnabled && <div className="rounded-2xl p-4" style={{
+          {jobReady === false && (
+            <div className="rounded-2xl p-4 mb-4" style={{
+              background: isDark ? 'rgba(255,165,0,0.1)' : 'rgba(255,165,0,0.08)',
+              border: `1px solid ${isDark ? 'rgba(255,165,0,0.3)' : 'rgba(255,165,0,0.25)'}`,
+            }}>
+              <p className="font-semibold text-sm" style={{ color: isDark ? '#FFB347' : '#D97706' }}>Waiting for provider to complete</p>
+              <p className="text-xs mt-1" style={{ color: subColor }}>Tipping will be available once the provider finishes the job.</p>
+            </div>
+          )}
+
+          {tippingEnabled && jobReady === true && <div className="rounded-2xl p-4" style={{
             background: isDark
               ? 'linear-gradient(180deg, rgba(0,140,229,0.12), rgba(255,255,255,0.04))'
               : 'linear-gradient(180deg, rgba(0,140,229,0.06), rgba(255,255,255,0.8))',
@@ -443,7 +485,7 @@ export function ServiceCompletion() {
             </div>
           </div>}
 
-          {tippingEnabled && tipAmount > 0 && (
+          {tippingEnabled && jobReady === true && tipAmount > 0 && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}

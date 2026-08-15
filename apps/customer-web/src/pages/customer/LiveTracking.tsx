@@ -102,6 +102,8 @@ export function LiveTracking() {
   const [cancelling, setCancelling] = useState(false);
   const [showProviderCancelled, setShowProviderCancelled] = useState(false);
   const [providerCancelReason, setProviderCancelReason] = useState('');
+  const [customerConfirmed, setCustomerConfirmed] = useState(false);
+  const [confirmingComplete, setConfirmingComplete] = useState(false);
   const directionsServiceRef = useRef<boolean>(false);
   const lastDirectionsRequestAtRef = useRef(0);
   const directionsRetryCountRef = useRef(0);
@@ -428,14 +430,29 @@ export function LiveTracking() {
   };
 
   const handleComplete = async () => {
-    if (jobId) {
-      try {
-        // Server-authoritative customer completion confirmation.
-        // Does NOT change job status — provider must still complete independently.
-        await supabase.rpc('confirm_customer_job_completion', { p_job_id: jobId });
-      } catch (e) { console.warn(e); }
+    if (!jobId || confirmingComplete || customerConfirmed) return;
+    setConfirmingComplete(true);
+    try {
+      // Server-authoritative customer completion confirmation.
+      // Does NOT change job status — provider must still complete independently.
+      await supabase.rpc('confirm_customer_job_completion', { p_job_id: jobId });
+      setCustomerConfirmed(true);
+
+      // Race safety: provider may have already completed — check authoritative status
+      const freshJob = await fetchJob(jobId);
+      const freshStatus = normalizeJobStatus(freshJob?.status);
+      if (freshStatus === 'completed') {
+        navigate(`/completion/${jobId}`);
+        return;
+      }
+      // Otherwise stay on LiveTracking — realtime subscription will drive navigation
+    } catch (e) {
+      console.warn('Customer completion confirmation failed:', e);
+      // Still mark as confirmed so user sees waiting state rather than retrying
+      setCustomerConfirmed(true);
+    } finally {
+      setConfirmingComplete(false);
     }
-    navigate(`/completion/${jobId}`);
   };
 
   const handleCall = () => {
@@ -794,10 +811,11 @@ export function LiveTracking() {
               Confirm Provider Arrived
             </button>
           )}
-          {status === 'inprogress' && (
+          {status === 'inprogress' && !customerConfirmed && (
             <button
               onClick={handleComplete}
-              className="w-full rounded-2xl py-4 font-bold text-lg mb-3 active:scale-[0.98] transition-transform"
+              disabled={confirmingComplete}
+              className="w-full rounded-2xl py-4 font-bold text-lg mb-3 active:scale-[0.98] transition-transform disabled:opacity-60"
               style={{
                 background: 'linear-gradient(to right, #008CE5, #0070B8)',
                 color: '#FFFFFF',
@@ -805,8 +823,14 @@ export function LiveTracking() {
                 touchAction: 'manipulation',
               }}
             >
-              Service Complete
+              {confirmingComplete ? 'Confirming...' : 'Service Complete'}
             </button>
+          )}
+          {status === 'inprogress' && customerConfirmed && (
+            <div className="w-full rounded-2xl py-4 text-center mb-3" style={{ background: 'rgba(0,140,229,0.1)', border: '1px solid rgba(0,140,229,0.3)' }}>
+              <p className="font-semibold text-base" style={{ color: '#008CE5' }}>Waiting for provider to finish</p>
+              <p className="text-sm mt-1" style={{ color: '#6B7280' }}>You&apos;ll be taken to the receipt once the provider completes the job.</p>
+            </div>
           )}
           {(status === 'cancelled' || status === 'completed') && (
             <>

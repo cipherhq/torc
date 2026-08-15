@@ -2848,3 +2848,91 @@ describe('Payment method consistency in create-payment-intent', () => {
     expect(piSrc).toContain('Idempotency-Key');
   });
 });
+
+describe('Customer completion navigation safety', () => {
+  const ltSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+  );
+  const scSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+  );
+
+  it('handleComplete does NOT navigate to /completion/ after RPC', () => {
+    // After confirm_customer_job_completion, handleComplete must NOT unconditionally navigate
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // Must call the RPC
+    expect(fnBody).toContain('confirm_customer_job_completion');
+    // Must set customerConfirmed
+    expect(fnBody).toContain('setCustomerConfirmed(true)');
+    // Must NOT have unconditional navigate after RPC — only navigates if freshStatus === 'completed'
+    expect(fnBody).toContain("freshStatus === 'completed'");
+    // Should not have a bare navigate('/completion/') outside the completed check
+    const lines = fnBody.split('\n');
+    const navigateLines = lines.filter(l => l.includes("navigate(`/completion/"));
+    const completedCheckLines = lines.filter(l => l.includes("=== 'completed'"));
+    expect(completedCheckLines.length).toBeGreaterThanOrEqual(1);
+    expect(navigateLines.length).toBe(1); // only inside the completed check
+  });
+
+  it('customer confirmation RPC still runs on Service Complete tap', () => {
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("supabase.rpc('confirm_customer_job_completion'");
+  });
+
+  it('customer sees waiting state after confirmation during inprogress', () => {
+    // Button should be hidden when customerConfirmed is true
+    expect(ltSrc).toContain("status === 'inprogress' && !customerConfirmed");
+    // Waiting message should appear when customerConfirmed is true
+    expect(ltSrc).toContain("status === 'inprogress' && customerConfirmed");
+    expect(ltSrc).toContain('Waiting for provider to finish');
+  });
+
+  it('provider/server transition to completed triggers completion navigation', () => {
+    // The existing realtime subscription + status effect should navigate on completed
+    expect(ltSrc).toContain("mustCompleteCustomerRating");
+    expect(ltSrc).toContain("navigate(`/completion/${jobId}`");
+    // status === 'completed' must trigger navigation via the existing useEffect
+    expect(ltSrc).toContain("status === 'completed' && !customerHasRatedProvider");
+  });
+
+  it('near-simultaneous provider completion is handled — race safety', () => {
+    // After RPC, handleComplete re-reads authoritative status
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // Must fetch fresh job state after RPC
+    expect(fnBody).toContain('fetchJob(jobId');
+    expect(fnBody).toContain('normalizeJobStatus');
+    expect(fnBody).toContain("freshStatus === 'completed'");
+  });
+
+  it('ServiceCompletion route guard blocks tip on non-completed job', () => {
+    // jobReady state must gate tipping
+    expect(scSrc).toContain('jobReady');
+    // Tip section only renders when jobReady === true
+    expect(scSrc).toContain('jobReady === true');
+    // Tip processing in handleSubmit is guarded
+    expect(scSrc).toContain("jobReady === true");
+    // Waiting message shown when jobReady === false
+    expect(scSrc).toContain('Waiting for provider to complete');
+    expect(scSrc).toContain('jobReady === false');
+  });
+
+  it('ServiceCompletion subscribes to realtime for job status updates', () => {
+    expect(scSrc).toContain('postgres_changes');
+    expect(scSrc).toContain("table: 'jobs'");
+    expect(scSrc).toContain("status === 'completed'");
+    expect(scSrc).toContain('setJobReady(true)');
+  });
+
+  it('completed job still reaches rating/tip normally', () => {
+    // When job IS completed, tipping renders normally
+    expect(scSrc).toContain("tippingEnabled && jobReady === true");
+    // Rating section is always available (not gated by jobReady)
+    expect(scSrc).toContain('Rate Your Experience');
+  });
+});
