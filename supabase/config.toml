@@ -15,3 +15,11 @@ verify_jwt = false
 # process-account-deletion authenticates using x-torc-cron-secret.
 [functions.process-account-deletion]
 verify_jwt = false
+
+# Customer payment functions handle their own auth via auth.getUser().
+# verify_jwt must be false so the raw JWT passes through to the function.
+[functions.create-payment-intent]
+verify_jwt = false
+
+[functions.create-tip-intent]
+verify_jwt = false

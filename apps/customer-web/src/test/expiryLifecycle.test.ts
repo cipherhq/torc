@@ -1648,7 +1648,7 @@ describe('Financial completion integrity', () => {
     );
     expect(src).toContain('tipping_enabled');
     expect(src).toContain('tip_presets');
-    expect(src).toContain('confirmCardPayment');
+    expect(src).toContain('handleNextAction');
   });
 });
 
@@ -1988,13 +1988,41 @@ describe('Tip SCA and idempotent continuation', () => {
     expect(src).toContain('TIP_ALREADY_COMPLETED');
   });
 
-  it('tipping flow uses card-only, no off_session or redirect URL', () => {
+  it('tip PI uses use_stripe_sdk + card-only + confirm, no return_url', () => {
     const src = fs.readFileSync(
       path.resolve(REPO_ROOT, 'supabase/functions/create-tip-intent/index.ts'), 'utf-8'
     );
-    expect(src).not.toContain('off_session');
+    // Server-confirmed with Stripe.js handling next actions
+    expect(src).toContain("'use_stripe_sdk', 'true'");
+    expect(src).toContain("'confirm', 'true'");
+    expect(src).toContain("payment_method_types[]', 'card'");
     expect(src).not.toContain('return_url');
-    expect(src).toContain("payment_method_types[]");
+    expect(src).not.toContain('off_session');
+  });
+
+  it('config.toml sets verify_jwt=false for both payment functions', () => {
+    const config = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/config.toml'), 'utf-8'
+    );
+    // Both payment functions must have verify_jwt = false in config
+    // so raw JWT passes through for function-level auth.getUser()
+    expect(config).toContain('[functions.create-payment-intent]');
+    expect(config).toContain('[functions.create-tip-intent]');
+    // Verify each has verify_jwt = false after its section header
+    const piSection = config.slice(config.indexOf('[functions.create-payment-intent]'));
+    const tipSection = config.slice(config.indexOf('[functions.create-tip-intent]'));
+    expect(piSection.slice(0, 100)).toContain('verify_jwt = false');
+    expect(tipSection.slice(0, 100)).toContain('verify_jwt = false');
+  });
+
+  it('checkout PI uses use_stripe_sdk + card-only + confirm, no return_url', () => {
+    const src = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/functions/create-payment-intent/index.ts'), 'utf-8'
+    );
+    expect(src).toContain("'use_stripe_sdk', 'true'");
+    expect(src).toContain("'confirm', 'true'");
+    expect(src).toContain("payment_method_types[]', 'card'");
+    expect(src).not.toContain('return_url');
   });
 
   it('webhook finalization remains idempotent', () => {
@@ -2185,9 +2213,22 @@ describe('Tip SCA/retry control flow', () => {
     expect(src.slice(guardLine, navLine)).toContain("=== 'succeeded'");
   });
 
-  it('2A: requires_action stays on page', () => {
+  it('2A: tip uses direct fetch with refreshed token, not supabase.functions.invoke', () => {
     const src = fs.readFileSync(scPath, 'utf-8');
-    expect(src).toContain('// failed, requires_action, processing');
+    // Must NOT use supabase.functions.invoke for tip
+    expect(src).not.toContain("supabase.functions.invoke('create-tip-intent'");
+    // Must use direct fetch with explicit auth (same pattern as checkout)
+    expect(src).toContain('functions/v1/create-tip-intent');
+    expect(src).toContain('Authorization: `Bearer ${tipToken}`');
+    expect(src).toContain('supabase.auth.refreshSession()');
+    // SCA/3DS handled by handleNextAction (server-confirmed PI)
+    expect(src).toContain('handleNextAction');
+    // Failure UX
+    expect(src).toContain('Continue Without Tip');
+    expect(src).toContain('handleContinueWithoutTip');
+    // No service-role/secret key in client
+    expect(src).not.toContain('service_role');
+    expect(src).not.toContain('SUPABASE_SERVICE_ROLE');
   });
 
   it('2B: new PI response includes status field', () => {
@@ -2658,5 +2699,301 @@ describe('Account deletion store compliance', () => {
     expect(src).toContain('checkouts_user_id_fkey');
     expect(src).toContain('support_tickets_requester_id_fkey');
     expect(src).toContain('documents_provider_id_fkey');
+  });
+});
+
+// ============================================================
+// PR #29 — Tip webhook finalization hardening
+// ============================================================
+
+describe('Tip webhook routing: tip events bypass checkout RPC', () => {
+  const webhookSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/functions/stripe-webhook/index.ts'), 'utf-8'
+  );
+
+  it('detects tip events via metadata.type', () => {
+    expect(webhookSrc).toContain("metadata?.type === 'tip'");
+  });
+
+  it('checkout process_stripe_webhook is skipped for tip events', () => {
+    // The condition must exclude isTipEvent from entering process_stripe_webhook
+    expect(webhookSrc).toContain('&& !isTipEvent');
+  });
+
+  it('tip payment_intent.succeeded reaches finalize_tip_payment', () => {
+    expect(webhookSrc).toContain("finalize_tip_payment");
+    // The tip block handles payment_intent.succeeded
+    expect(webhookSrc).toContain("payment_intent.succeeded");
+  });
+
+  it('tip payment_intent.payment_failed is routed separately', () => {
+    // Tip block handles both succeeded and payment_failed
+    expect(webhookSrc).toContain("payment_intent.payment_failed");
+    // isTipEvent check covers both event types
+    expect(webhookSrc).toContain("isTipEvent && (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed')");
+  });
+
+  it('tip finalization failure throws (non-2xx for Stripe retry)', () => {
+    // Errors must throw, not just log — outer catch returns 500
+    const tipBlock = webhookSrc.slice(webhookSrc.indexOf('TIP PAYMENT LIFECYCLE'));
+    expect(tipBlock).toContain('throw new Error');
+    // Must NOT silently swallow finalization errors
+    expect(tipBlock).not.toMatch(/finalizeErr\);\s*\n\s*\} else/);
+  });
+
+  it('duplicate succeeded tip event is idempotent (no throw)', () => {
+    expect(webhookSrc).toContain("Tip already finalized");
+  });
+
+  it('failed tip creates no provider earning (finalize_tip_payment logic)', () => {
+    const migSrc = fs.readFileSync(
+      path.resolve(REPO_ROOT, 'supabase/migrations/20260815000000_financial_completion.sql'), 'utf-8'
+    );
+    const fnStart = migSrc.indexOf('finalize_tip_payment');
+    const fnBody = migSrc.slice(fnStart, migSrc.indexOf('$$;', fnStart));
+    // Only inserts earning when succeeded
+    expect(fnBody).toContain("IF p_stripe_status = 'succeeded' THEN");
+    expect(fnBody).toContain("INSERT INTO provider_earnings");
+  });
+
+  it('ordinary checkout webhook behavior is unchanged', () => {
+    // process_stripe_webhook is still called for non-tip events
+    expect(webhookSrc).toContain("process_stripe_webhook");
+    // Errors from checkout RPC still throw
+    expect(webhookSrc).toContain("Webhook RPC failed");
+  });
+});
+
+describe('Tip service-role grants migration', () => {
+  const grantSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260822000000_fix_tip_rpc_grants.sql'), 'utf-8'
+  );
+
+  it('grants finalize_tip_payment to service_role', () => {
+    expect(grantSrc).toContain('GRANT EXECUTE ON FUNCTION public.finalize_tip_payment(UUID, TEXT, TEXT) TO service_role');
+  });
+
+  it('grants rotate_tip_idempotency_key to service_role', () => {
+    expect(grantSrc).toContain('GRANT EXECUTE ON FUNCTION public.rotate_tip_idempotency_key(UUID, TEXT) TO service_role');
+  });
+});
+
+describe('Tip 3DS uses handleNextAction with status verification', () => {
+  const scSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+  );
+
+  it('uses handleNextAction, not confirmCardPayment, for tip requires_action', () => {
+    // handleNextAction is correct for server-confirmed PIs
+    expect(scSrc).toContain('handleNextAction');
+    // confirmCardPayment must NOT be used for tip flow
+    expect(scSrc).not.toContain('confirmCardPayment');
+  });
+
+  it('checks paymentIntent.status from handleNextAction result', () => {
+    expect(scSrc).toContain("nextActionResult.paymentIntent?.status === 'succeeded'");
+    expect(scSrc).toContain("nextActionResult.paymentIntent?.status === 'processing'");
+  });
+
+  it('does not treat no-error as unconditional success', () => {
+    // Must inspect paymentIntent.status, not just absence of error
+    expect(scSrc).toContain('nextActionResult.error');
+    expect(scSrc).toContain("nextActionResult.paymentIntent?.status");
+  });
+});
+
+describe('Payment method consistency in create-payment-intent', () => {
+  const piSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/functions/create-payment-intent/index.ts'), 'utf-8'
+  );
+
+  it('reads payment_method_id from existing checkout', () => {
+    // The select must include payment_method_id
+    expect(piSrc).toContain('payment_method_id');
+    const selectMatch = piSrc.match(/\.select\([^)]*payment_method_id[^)]*\)/);
+    expect(selectMatch).not.toBeNull();
+  });
+
+  it('rejects in-progress PI when payment method differs', () => {
+    expect(piSrc).toContain('PAYMENT_METHOD_MISMATCH');
+    expect(piSrc).toContain('paymentMethodId !== existingCheckout.payment_method_id');
+  });
+
+  it('PM check only applies to in-progress PI states', () => {
+    // The mismatch check is inside the requires_action/requires_confirmation/processing block
+    const raBlock = piSrc.slice(
+      piSrc.indexOf("pi.status === 'requires_action'"),
+      piSrc.indexOf("pi.status === 'canceled'")
+    );
+    expect(raBlock).toContain('PAYMENT_METHOD_MISMATCH');
+  });
+
+  it('paid checkout returns without PM check (already settled)', () => {
+    // The paid branch returns before reaching PM check
+    const paidBlock = piSrc.slice(
+      piSrc.indexOf("status === 'paid'"),
+      piSrc.indexOf("status === 'paid'") + 300
+    );
+    expect(paidBlock).not.toContain('PAYMENT_METHOD_MISMATCH');
+  });
+
+  it('dead PI retry clears payment_intent_id for new attempt', () => {
+    expect(piSrc).toContain("pi.status === 'canceled'");
+    expect(piSrc).toContain("payment_intent_id: null");
+    expect(piSrc).toContain("attempt_number");
+  });
+
+  it('idempotency key uses attempt_number', () => {
+    expect(piSrc).toContain('attempt_number');
+    expect(piSrc).toContain('Idempotency-Key');
+  });
+});
+
+describe('Customer completion navigation safety', () => {
+  const ltSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/LiveTracking.tsx'), 'utf-8'
+  );
+  const scSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/ServiceCompletion.tsx'), 'utf-8'
+  );
+
+  it('handleComplete does NOT navigate to /completion/ after RPC', () => {
+    // After confirm_customer_job_completion, handleComplete must NOT unconditionally navigate
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // Must call the RPC
+    expect(fnBody).toContain('confirm_customer_job_completion');
+    // Must set customerConfirmed
+    expect(fnBody).toContain('setCustomerConfirmed(true)');
+    // Must NOT have unconditional navigate after RPC — only navigates if freshStatus === 'completed'
+    expect(fnBody).toContain("freshStatus === 'completed'");
+    // Should not have a bare navigate('/completion/') outside the completed check
+    const lines = fnBody.split('\n');
+    const navigateLines = lines.filter(l => l.includes("navigate(`/completion/"));
+    const completedCheckLines = lines.filter(l => l.includes("=== 'completed'"));
+    expect(completedCheckLines.length).toBeGreaterThanOrEqual(1);
+    expect(navigateLines.length).toBe(1); // only inside the completed check
+  });
+
+  it('customer confirmation RPC still runs on Service Complete tap', () => {
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    expect(fnBody).toContain("supabase.rpc('confirm_customer_job_completion'");
+  });
+
+  it('customer sees waiting state after confirmation during inprogress', () => {
+    // Button should be hidden when customerConfirmed is true
+    expect(ltSrc).toContain("status === 'inprogress' && !customerConfirmed");
+    // Waiting message should appear when customerConfirmed is true
+    expect(ltSrc).toContain("status === 'inprogress' && customerConfirmed");
+    expect(ltSrc).toContain('Waiting for provider to finish');
+  });
+
+  it('provider/server transition to completed triggers completion navigation', () => {
+    // The existing realtime subscription + status effect should navigate on completed
+    expect(ltSrc).toContain("mustCompleteCustomerRating");
+    expect(ltSrc).toContain("navigate(`/completion/${jobId}`");
+    // status === 'completed' must trigger navigation via the existing useEffect
+    expect(ltSrc).toContain("status === 'completed' && !customerHasRatedProvider");
+  });
+
+  it('near-simultaneous provider completion is handled — race safety', () => {
+    // After RPC, handleComplete re-reads authoritative status
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // Must fetch fresh job state after RPC
+    expect(fnBody).toContain('fetchJob(jobId');
+    expect(fnBody).toContain('normalizeJobStatus');
+    expect(fnBody).toContain("freshStatus === 'completed'");
+  });
+
+  it('jobReady=false blocks all actionable controls — no rating, tip, submit, or photo', () => {
+    // Rating section gated by jobReady === true
+    expect(scSrc).toContain("jobReady === true");
+    // Count occurrences — rating, receipt, photo, and bottom bar should all be gated
+    const gateMatches = scSrc.match(/jobReady === true/g) || [];
+    // At least: receipt, rating, photo, bottom button, tip processing guard
+    expect(gateMatches.length).toBeGreaterThanOrEqual(4);
+    // handleSubmit tip processing gated
+    expect(scSrc).toContain("jobReady === true");
+    // Waiting state shown when not ready
+    expect(scSrc).toContain('Waiting for provider to complete');
+    expect(scSrc).toContain('jobReady !== true');
+  });
+
+  it('jobReady=false cannot call rateJob or navigate Home through submit', () => {
+    // handleSubmit contains rateJob — but the submit button is hidden when jobReady !== true
+    // The bottom button div is wrapped in {jobReady === true && (...)}
+    const bottomSection = scSrc.slice(scSrc.indexOf('Fixed bottom button'));
+    expect(bottomSection).toContain('jobReady === true');
+    // handleSubmit also guards tip processing
+    expect(scSrc).toContain('jobReady === true');
+  });
+
+  it('ServiceCompletion subscribes to realtime for job status updates', () => {
+    expect(scSrc).toContain('postgres_changes');
+    expect(scSrc).toContain("table: 'jobs'");
+    expect(scSrc).toContain("status === 'completed'");
+    expect(scSrc).toContain('setJobReady(true)');
+  });
+
+  it('authoritative completed reveals full rating/tip UI', () => {
+    // When jobReady === true, all controls render
+    expect(scSrc).toContain("tippingEnabled");
+    expect(scSrc).toContain('Rate Your Experience');
+    expect(scSrc).toContain('Skip Rating');
+    expect(scSrc).toContain('Submit & Return Home');
+    // Photo section gated
+    expect(scSrc).toContain('After Service Photo');
+  });
+
+  it('confirmation RPC failure does NOT set customerConfirmed', () => {
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // catch block must NOT contain setCustomerConfirmed(true)
+    const catchStart = fnBody.indexOf('} catch');
+    const catchEnd = fnBody.indexOf('} finally');
+    const catchBlock = fnBody.slice(catchStart, catchEnd);
+    expect(catchBlock).not.toContain('setCustomerConfirmed(true)');
+    // catch block shows error toast instead
+    expect(catchBlock).toContain('showToast');
+  });
+
+  it('resolved Supabase RPC error cannot reach confirmed/waiting state', () => {
+    // Supabase .rpc() resolves with { data, error } — does NOT throw on failure.
+    // handleComplete must destructure and check the error before setCustomerConfirmed.
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // Must destructure { error: confirmError } from the RPC result
+    expect(fnBody).toContain('error: confirmError');
+    expect(fnBody).toContain("supabase.rpc('confirm_customer_job_completion'");
+    // Must check confirmError BEFORE setCustomerConfirmed(true)
+    const confirmErrorCheck = fnBody.indexOf('if (confirmError)');
+    const setConfirmed = fnBody.indexOf('setCustomerConfirmed(true)');
+    expect(confirmErrorCheck).toBeGreaterThan(-1);
+    expect(setConfirmed).toBeGreaterThan(-1);
+    expect(confirmErrorCheck).toBeLessThan(setConfirmed);
+    // confirmError branch must return (not fall through)
+    const errorBlock = fnBody.slice(confirmErrorCheck, setConfirmed);
+    expect(errorBlock).toContain('return');
+  });
+
+  it('confirmation RPC success DOES set customerConfirmed and show waiting state', () => {
+    const fnStart = ltSrc.indexOf('handleComplete');
+    const fnEnd = ltSrc.indexOf('};', ltSrc.indexOf('setConfirmingComplete(false)', fnStart));
+    const fnBody = ltSrc.slice(fnStart, fnEnd);
+    // try block sets customerConfirmed after successful RPC
+    const tryStart = fnBody.indexOf('try {');
+    const catchStart = fnBody.indexOf('} catch');
+    const tryBlock = fnBody.slice(tryStart, catchStart);
+    expect(tryBlock).toContain('setCustomerConfirmed(true)');
+    // Waiting UI renders when customerConfirmed
+    expect(ltSrc).toContain("status === 'inprogress' && customerConfirmed");
+    expect(ltSrc).toContain('Waiting for provider to finish');
   });
 });

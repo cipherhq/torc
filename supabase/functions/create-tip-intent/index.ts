@@ -11,8 +11,17 @@ import { getSupabaseSecretKey, getSupabasePublishableKey } from '../_shared/supa
  * The tip_id comes from the request_tip_payment RPC which validates everything.
  */
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 Deno.serve(async (req) => {
-  const jsonHeaders = { 'Content-Type': 'application/json' };
+  const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -30,15 +39,20 @@ Deno.serve(async (req) => {
     }
 
     // Get the caller's JWT from Authorization header
-    const authHeader = req.headers.get('Authorization') || '';
-    const jwt = authHeader.replace(/^Bearer\s+/i, '');
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: jsonHeaders,
+      });
+    }
 
-    // Create client with user's JWT for auth context
-    const userClient = createClient(supabaseUrl, getSupabasePublishableKey() || supabaseServiceRoleKey, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    // Create client with user's JWT — use publishable/anon key (same as create-payment-intent)
+    const supabaseAnonKey = getSupabasePublishableKey();
+    const supabaseUserClient = createClient(supabaseUrl, supabaseAnonKey!, {
+      global: { headers: { Authorization: authHeader } },
     });
 
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: jsonHeaders,
@@ -179,8 +193,8 @@ Deno.serve(async (req) => {
     if (paymentMethodId) {
       params.append('payment_method', paymentMethodId);
       params.append('confirm', 'true');
-      // Customer-present saved-card tip: no redirect-based methods needed
-      // SCA/3DS handled inline by Stripe.js confirmCardPayment in the browser
+      // Server-confirmed with Stripe.js handling next actions (3DS/SCA)
+      params.append('use_stripe_sdk', 'true');
       params.append('payment_method_types[]', 'card');
     }
 

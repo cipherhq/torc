@@ -25,6 +25,7 @@ export function ServiceCompletion() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [afterPhoto, setAfterPhoto] = useState<string | null>(null);
+  const [jobReady, setJobReady] = useState<boolean | null>(null); // null = loading
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,13 +71,44 @@ export function ServiceCompletion() {
   const cardBg = isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF';
   const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : '#D3E0F2';
 
+  // Check authoritative job status — block tip UI until job is completed
   useEffect(() => {
-    if (jobId && !currentJob) {
-      fetchJob(jobId).catch(console.warn);
+    if (!jobId) return;
+    let cancelled = false;
+    async function checkJob() {
+      try {
+        const job = await fetchJob(jobId!);
+        if (cancelled) return;
+        if (job?.status === 'completed') {
+          setJobReady(true);
+        } else {
+          setJobReady(false);
+        }
+      } catch {
+        if (!cancelled) setJobReady(false);
+      }
     }
-    // Load tipping settings
-    loadPlatformSettings().then(s => {
-      // tipping_enabled is stored as a separate key, load directly
+    checkJob();
+    // Subscribe to realtime status updates so we transition when provider completes
+    const channel = supabase
+      .channel(`completion-guard-${jobId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'jobs',
+        filter: `id=eq.${jobId}`,
+      }, (payload) => {
+        if (payload.new?.status === 'completed') {
+          setJobReady(true);
+        }
+      })
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [jobId]);
+
+  // Load tipping settings (independent of job status)
+  useEffect(() => {
+    loadPlatformSettings().then(() => {
       supabase.from('platform_settings').select('value').eq('key', 'tipping_enabled').maybeSingle()
         .then(({ data }) => { if (data?.value === false) setTippingEnabled(false); });
       supabase.from('platform_settings').select('value').eq('key', 'tip_presets').maybeSingle()
@@ -87,7 +119,7 @@ export function ServiceCompletion() {
           }
         });
     }).catch(() => {});
-  }, [jobId]);
+  }, []);
 
   const [tipPct, setTipPct] = useState<number | null>(null);
   const [customTipAmount, setCustomTipAmount] = useState('');
@@ -132,8 +164,8 @@ export function ServiceCompletion() {
         await supabase.from('jobs').update({ completion_photo_url: photoUrl }).eq('id', jobId);
       }
 
-      // Process tip via server-authoritative payment flow
-      if (tipAmount > 0 && jobId && tipStatus !== 'succeeded') {
+      // Process tip via server-authoritative payment flow (only if job is completed)
+      if (tipAmount > 0 && jobId && tipStatus !== 'succeeded' && jobReady === true) {
         setTipStatus('processing');
         tipOutcome = 'processing';
         try {
@@ -151,9 +183,31 @@ export function ServiceCompletion() {
               tipOutcome = 'failed';
             }
           } else {
-            const { data: piResult, error: piError } = await supabase.functions.invoke('create-tip-intent', {
-              body: { tip_id: tipResult.tip_id },
-            });
+            // Use direct fetch with explicitly refreshed token (same pattern as checkout)
+            const { data: tipRefresh } = await supabase.auth.refreshSession();
+            let tipToken = tipRefresh?.session?.access_token;
+            if (!tipToken) {
+              const { data: { session: tipSession } } = await supabase.auth.getSession();
+              tipToken = tipSession?.access_token;
+            }
+            if (!tipToken) {
+              setTipStatus('failed');
+              tipOutcome = 'failed';
+            } else {
+            const tipFnRes = await fetch(
+              `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-tip-intent`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${tipToken}`,
+                  apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                },
+                body: JSON.stringify({ tip_id: tipResult.tip_id }),
+              }
+            );
+            const piResult = await tipFnRes.json();
+            const piError = !tipFnRes.ok ? piResult : null;
             if (piError) {
               setTipStatus('failed');
               tipOutcome = 'failed';
@@ -170,14 +224,21 @@ export function ServiceCompletion() {
                 tipOutcome = 'requires_action';
                 const stripe = await stripePromise;
                 if (stripe) {
-                  const { error: confirmError } = await stripe.confirmCardPayment(piResult.client_secret);
-                  if (confirmError) {
+                  const nextActionResult = await stripe.handleNextAction({ clientSecret: piResult.client_secret });
+                  if (nextActionResult.error) {
                     setTipStatus('failed');
                     tipOutcome = 'failed';
-                  } else {
+                  } else if (nextActionResult.paymentIntent?.status === 'succeeded') {
                     setTipStatus('succeeded');
                     setTipClientSecret(null);
                     tipOutcome = 'succeeded';
+                  } else if (nextActionResult.paymentIntent?.status === 'processing') {
+                    setTipStatus('processing');
+                    tipOutcome = 'processing';
+                  } else {
+                    // Non-terminal / unexpected — treat as processing, webhook is authoritative
+                    setTipStatus('processing');
+                    tipOutcome = 'processing';
                   }
                 } else {
                   setTipStatus('failed');
@@ -199,6 +260,7 @@ export function ServiceCompletion() {
                 tipOutcome = 'failed';
               }
             }
+            } // end tipToken else
           }
         } catch (tipErr: any) {
           console.warn('Tip processing error:', tipErr?.message);
@@ -212,17 +274,29 @@ export function ServiceCompletion() {
         await rateJob(jobId, rating, feedback);
       }
 
-      // Navigate away ONLY when no actionable tip retry is needed
+      // Navigate away when tip is not blocking
       if (tipOutcome === 'idle' || tipOutcome === 'succeeded') {
         navigate('/home');
+      } else if (tipOutcome === 'failed') {
+        // Tip failed — show error with recovery options, don't trap the user
+        setSubmitError('Your tip could not be processed. You can retry or continue without tipping.');
+      } else if (tipOutcome === 'processing') {
+        setSubmitError('Tip payment is still processing. Please wait a moment and try again.');
       }
-      // failed, requires_action, processing → stay on page
+      // requires_action is handled inline by Stripe.js handleNextAction above
     } catch (err) {
       console.warn('Failed to submit:', err);
       setSubmitError('Could not submit. Please try again.');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleContinueWithoutTip = async () => {
+    // Clear tip state and navigate home — rating/feedback already saved
+    setTipStatus('idle');
+    setSubmitError('');
+    navigate('/home');
   };
 
   return (
@@ -251,7 +325,8 @@ export function ServiceCompletion() {
           <p className="text-lg" style={{ color: subColor }}>Your vehicle is ready to go</p>
         </motion.div>
 
-        {/* After photo */}
+        {/* After photo — only when job is completed */}
+        {jobReady === true && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -297,8 +372,27 @@ export function ServiceCompletion() {
             )}
           </div>
         </motion.div>
+        )}
 
-        {/* Receipt */}
+        {/* Waiting state — shown when job is not yet completed */}
+        {jobReady !== true && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="rounded-2xl p-6 mb-6 text-center"
+            style={{
+              background: isDark ? 'rgba(255,165,0,0.1)' : 'rgba(255,165,0,0.08)',
+              border: `1px solid ${isDark ? 'rgba(255,165,0,0.3)' : 'rgba(255,165,0,0.25)'}`,
+            }}
+          >
+            <p className="font-semibold text-base" style={{ color: isDark ? '#FFB347' : '#D97706' }}>Waiting for provider to complete</p>
+            <p className="text-sm mt-2" style={{ color: subColor }}>Rating, tipping, and receipt will be available once the provider finishes the job.</p>
+          </motion.div>
+        )}
+
+        {/* Receipt — only when job is completed */}
+        {jobReady === true && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -417,8 +511,10 @@ export function ServiceCompletion() {
             </motion.div>
           )}
         </motion.div>
+        )}
 
-        {/* Rating */}
+        {/* Rating — only when job is completed */}
+        {jobReady === true && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -488,6 +584,7 @@ export function ServiceCompletion() {
             }}
           />
         </motion.div>
+        )}
 
         {/* Report issue */}
         <motion.button
@@ -505,7 +602,8 @@ export function ServiceCompletion() {
         </motion.button>
       </div>
 
-      {/* Fixed bottom button */}
+      {/* Fixed bottom button — only when job is completed */}
+      {jobReady === true && (
       <div className="fixed bottom-0 left-0 right-0 z-20 p-6" style={{ backgroundColor: isDark ? '#0A1626' : '#FFFFFF', borderTop: '1px solid ' + cardBorder, paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
         <motion.button
           whileHover={{ scale: 1.02 }}
@@ -525,7 +623,17 @@ export function ServiceCompletion() {
         {submitError && (
           <p className="text-center mt-3 text-sm text-red-400">{submitError}</p>
         )}
+        {tipStatus === 'failed' && (
+          <button
+            onClick={handleContinueWithoutTip}
+            className="w-full mt-3 rounded-2xl py-3 font-semibold text-sm"
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F5F9FF', color: isDark ? 'rgba(255,255,255,0.7)' : '#6B7280' }}
+          >
+            Continue Without Tip
+          </button>
+        )}
       </div>
+      )}
     </div>
   );
 }

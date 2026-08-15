@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
     // --- Idempotency: check existing checkout ---
     const { data: existingCheckout } = await supabaseAdmin
       .from('checkouts')
-      .select('id, status, payment_intent_id, total_amount, service_id, vehicle_id, is_hazardous, scheduled_for, currency, user_id, attempt_number')
+      .select('id, status, payment_intent_id, payment_method_id, total_amount, service_id, vehicle_id, is_hazardous, scheduled_for, currency, user_id, attempt_number')
       .eq('id', checkoutId)
       .eq('user_id', user.id)
       .maybeSingle();
@@ -262,6 +262,13 @@ Deno.serve(async (req) => {
         }
 
         if (pi.status === 'requires_action' || pi.status === 'requires_confirmation' || pi.status === 'processing') {
+          // Payment method consistency: reject if the caller's card differs from the in-flight PI
+          if (existingCheckout.payment_method_id && paymentMethodId !== existingCheckout.payment_method_id) {
+            return new Response(JSON.stringify({
+              error: 'Payment is in progress with a different card. Please continue with the original card or start a new checkout.',
+              code: 'PAYMENT_METHOD_MISMATCH',
+            }), { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          }
           // Still in progress — return clientSecret for frontend to continue
           return new Response(JSON.stringify({
             paymentIntentId: pi.id,
@@ -393,6 +400,8 @@ Deno.serve(async (req) => {
     intentBody.append('payment_method', paymentMethodId);
     intentBody.append('payment_method_types[]', 'card');
     intentBody.append('confirm', 'true');
+    // Server-confirmed with Stripe.js handling next actions (3DS/SCA)
+    intentBody.append('use_stripe_sdk', 'true');
     intentBody.append('off_session', 'false');
     if (savePaymentMethod) {
       intentBody.append('setup_future_usage', 'off_session');
