@@ -3271,6 +3271,34 @@ jobs:
             RAISE NOTICE 'GEO-22 PASSED: valid provider returned from dispatch';
           END $$;
 
+          -- GEO-23: get_nearby_providers with NULL service_id → returns zero providers
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM get_nearby_providers(38.8977, -77.0365, 50, NULL);
+            ASSERT v_count = 0, 'GEO-23 FAILED: NULL service_id must return no providers';
+            RAISE NOTICE 'GEO-23 PASSED: NULL service_id returns no providers from dispatch';
+          END $$;
+
+          -- GEO-24: get_nearby_providers with wrong service_id → returns zero providers
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM get_nearby_providers(38.8977, -77.0365, 50, 'nonexistent-svc');
+            ASSERT v_count = 0, 'GEO-24 FAILED: wrong service_id must return no providers';
+            RAISE NOTICE 'GEO-24 PASSED: wrong service_id returns no providers from dispatch';
+          END $$;
+
+          -- GEO-25: get_nearby_providers with valid service_id → returns correct provider
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM get_nearby_providers(38.8977, -77.0365, 50, 'test-svc-geo')
+              WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            ASSERT v_count = 1, 'GEO-25 FAILED: valid service_id must return eligible provider';
+            RAISE NOTICE 'GEO-25 PASSED: valid service_id returns correct provider from dispatch';
+          END $$;
+
           -- Cleanup
           DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM notifications WHERE user_id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
@@ -3282,7 +3310,7 @@ jobs:
           DELETE FROM auth.users WHERE id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 22 server-side geofence enforcement tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 25 server-side geofence enforcement tests passed.'; END $$;
           SQL
       - name: Test account deletion lifecycle (DEL-001)
         run: |

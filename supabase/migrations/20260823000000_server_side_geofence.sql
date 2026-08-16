@@ -414,6 +414,11 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Fail closed: dispatch must have an authoritative service
+  IF p_service_id IS NULL THEN
+    RETURN;
+  END IF;
+
   SELECT COALESCE((value)::numeric, 50) INTO v_max_radius
   FROM platform_settings WHERE key = 'max_job_radius';
   IF v_max_radius IS NULL THEN v_max_radius := 50; END IF;
@@ -430,7 +435,7 @@ BEGIN
     -- Exclude providers with invalid coordinates
     AND is_valid_latitude(pl.latitude)
     AND is_valid_longitude(pl.longitude)
-    AND (p_service_id IS NULL OR p_service_id = ANY(pp.services))
+    AND p_service_id = ANY(pp.services)
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.provider_id = pl.provider_id
         AND j.status IN ('accepted','en_route','enroute','arrived','in_progress','inprogress'))
     AND EXISTS (SELECT 1 FROM profiles p WHERE p.id = pl.provider_id AND p.status = 'active')
