@@ -3203,11 +3203,11 @@ describe('Server-side geofence: shared haversine helper', () => {
     expect(migSrc).toContain('IMMUTABLE STRICT');
   });
 
-  it('is_valid_latitude enforces -90..90 range', () => {
+  it('is_valid_latitude enforces -90..90 range (zero is valid)', () => {
     expect(migSrc).toContain('is_valid_latitude');
     expect(migSrc).toContain('>= -90');
     expect(migSrc).toContain('<= 90');
-    expect(migSrc).toContain('!= 0');
+    expect(migSrc).not.toContain('v != 0');
   });
 
   it('is_valid_longitude enforces -180..180 range', () => {

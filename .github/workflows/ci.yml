@@ -3129,6 +3129,148 @@ jobs:
             RAISE NOTICE 'GEO-14 PASSED: scheduled job accepted offline with fresh location';
           END $$;
 
+          -- Reset for zero-coordinate + service-null + dispatch tests (as superuser)
+          DO $$
+          BEGIN
+            UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now(), scheduled_for = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM notifications WHERE user_id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
+            UPDATE provider_profiles SET is_online = true, services = ARRAY['test-svc-geo'] WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE provider_locations SET latitude = 38.9072, longitude = -77.0369, is_online = true, updated_at = now() WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+          END $$;
+
+          -- GEO-15: Latitude 0, valid longitude → accepted as valid coordinate
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET latitude = 0, longitude = -77.0369 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE jobs SET pickup_latitude = 0, pickup_longitude = -77.0369 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'GEO-15 FAILED: latitude 0 must be valid: ' || result::text;
+            RAISE NOTICE 'GEO-15 PASSED: latitude 0 accepted as valid coordinate';
+          END $$;
+
+          -- Reset
+          DO $$
+          BEGIN
+            UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+          END $$;
+
+          -- GEO-16: Valid latitude, longitude 0 → accepted as valid coordinate
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET latitude = 38.9072, longitude = 0 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE jobs SET pickup_latitude = 38.9072, pickup_longitude = 0 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'GEO-16 FAILED: longitude 0 must be valid: ' || result::text;
+            RAISE NOTICE 'GEO-16 PASSED: longitude 0 accepted as valid coordinate';
+          END $$;
+
+          -- Reset
+          DO $$
+          BEGIN
+            UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+            UPDATE provider_locations SET latitude = 38.9072, longitude = -77.0369 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE jobs SET pickup_latitude = 38.8977, pickup_longitude = -77.0365 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          END $$;
+
+          -- GEO-17: Job with service_id NULL → rejected with JOB_SERVICE_MISSING
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET service_id = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'false', 'GEO-17 FAILED: null service job must reject: ' || result::text;
+            ASSERT result->>'error' = 'JOB_SERVICE_MISSING', 'GEO-17 FAILED: wrong error: ' || result::text;
+            RAISE NOTICE 'GEO-17 PASSED: job with null service_id rejected';
+          END $$;
+
+          -- GEO-17b: Verify job stays pending/unassigned after null-service rejection
+          DO $$
+          DECLARE v_status TEXT; v_pid UUID;
+          BEGIN
+            SELECT status, provider_id INTO v_status, v_pid FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_status = 'pending', 'GEO-17b FAILED: job must remain pending, got: ' || COALESCE(v_status, 'NULL');
+            ASSERT v_pid IS NULL, 'GEO-17b FAILED: provider_id must remain NULL';
+            RAISE NOTICE 'GEO-17b PASSED: job unchanged after null-service rejection';
+          END $$;
+
+          -- GEO-17c: No acceptance event/notification for null-service rejection
+          DO $$
+          DECLARE v_events INT; v_notifs INT;
+          BEGIN
+            SELECT count(*) INTO v_events FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid AND event_type = 'job_accepted';
+            ASSERT v_events = 0, 'GEO-17c FAILED: null-service rejection must create no events';
+            SELECT count(*) INTO v_notifs FROM notifications WHERE action_url LIKE '%aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa%';
+            ASSERT v_notifs = 0, 'GEO-17c FAILED: null-service rejection must create no notifications';
+            RAISE NOTICE 'GEO-17c PASSED: no events/notifications for null-service rejection';
+          END $$;
+
+          -- GEO-18: Job with service_id NULL excluded from eligible jobs
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT count(*) INTO v_count FROM get_eligible_pending_jobs_for_provider() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_count = 0, 'GEO-18 FAILED: null-service job must not appear in eligible jobs';
+            RAISE NOTICE 'GEO-18 PASSED: null-service job excluded from eligible jobs';
+          END $$;
+
+          -- Restore service for remaining tests
+          DO $$ BEGIN UPDATE jobs SET service_id = 'test-svc-geo' WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid; END $$;
+
+          -- GEO-19: get_nearby_providers with invalid pickup lat (91) → returns no providers
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM get_nearby_providers(91, -77.0365, 50, 'test-svc-geo');
+            ASSERT v_count = 0, 'GEO-19 FAILED: invalid pickup lat must return no providers';
+            RAISE NOTICE 'GEO-19 PASSED: invalid pickup lat (91) returns no providers';
+          END $$;
+
+          -- GEO-20: get_nearby_providers with invalid pickup lng (181) → returns no providers
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            SELECT count(*) INTO v_count FROM get_nearby_providers(38.8977, 181, 50, 'test-svc-geo');
+            ASSERT v_count = 0, 'GEO-20 FAILED: invalid pickup lng must return no providers';
+            RAISE NOTICE 'GEO-20 PASSED: invalid pickup lng (181) returns no providers';
+          END $$;
+
+          -- GEO-21: Provider with invalid coordinates excluded from get_nearby_providers
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            UPDATE provider_locations SET latitude = 91 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            SELECT count(*) INTO v_count FROM get_nearby_providers(38.8977, -77.0365, 50, 'test-svc-geo')
+              WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            ASSERT v_count = 0, 'GEO-21 FAILED: provider with invalid lat must be excluded';
+            RAISE NOTICE 'GEO-21 PASSED: provider with invalid coordinates excluded from dispatch';
+          END $$;
+
+          -- GEO-22: get_nearby_providers with valid pickup, valid provider → returns provider
+          DO $$
+          DECLARE v_count INT;
+          BEGIN
+            UPDATE provider_locations SET latitude = 38.9072, longitude = -77.0369, is_online = true, updated_at = now() WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            SELECT count(*) INTO v_count FROM get_nearby_providers(38.8977, -77.0365, 50, 'test-svc-geo')
+              WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            ASSERT v_count = 1, 'GEO-22 FAILED: valid provider must appear in dispatch';
+            RAISE NOTICE 'GEO-22 PASSED: valid provider returned from dispatch';
+          END $$;
+
           -- Cleanup
           DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM notifications WHERE user_id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
@@ -3140,7 +3282,7 @@ jobs:
           DELETE FROM auth.users WHERE id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid);
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
-          DO $$ BEGIN RAISE NOTICE 'All 14 server-side geofence enforcement tests passed.'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'All 22 server-side geofence enforcement tests passed.'; END $$;
           SQL
       - name: Test account deletion lifecycle (DEL-001)
         run: |

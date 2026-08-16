@@ -41,12 +41,12 @@ COMMENT ON FUNCTION public.haversine_distance_miles IS
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.is_valid_latitude(v DOUBLE PRECISION)
 RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
-  SELECT v IS NOT NULL AND v >= -90 AND v <= 90 AND v != 0;
+  SELECT v IS NOT NULL AND v >= -90 AND v <= 90;
 $$;
 
 CREATE OR REPLACE FUNCTION public.is_valid_longitude(v DOUBLE PRECISION)
 RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
-  SELECT v IS NOT NULL AND v >= -180 AND v <= 180 AND v != 0;
+  SELECT v IS NOT NULL AND v >= -180 AND v <= 180;
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -161,16 +161,18 @@ BEGIN
       'message', 'Job has missing or invalid pickup location');
   END IF;
 
-  -- Service eligibility: fail closed on null/empty provider services
-  IF v_job.service_id IS NOT NULL THEN
-    IF v_provider_services IS NULL OR array_length(v_provider_services, 1) IS NULL THEN
-      RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
-        'message', 'Your service configuration is incomplete');
-    END IF;
-    IF NOT (v_job.service_id = ANY(v_provider_services)) THEN
-      RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
-        'message', 'You do not offer the requested service');
-    END IF;
+  -- Service eligibility: fail closed — job must have an authoritative service
+  IF v_job.service_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'JOB_SERVICE_MISSING',
+      'message', 'Job has no authoritative requested service');
+  END IF;
+  IF v_provider_services IS NULL OR array_length(v_provider_services, 1) IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
+      'message', 'Your service configuration is incomplete');
+  END IF;
+  IF NOT (v_job.service_id = ANY(v_provider_services)) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
+      'message', 'You do not offer the requested service');
   END IF;
 
   -- Load provider location
@@ -378,8 +380,9 @@ BEGIN
     -- Valid pickup coordinates (real ranges)
     AND is_valid_latitude(j.pickup_latitude)
     AND is_valid_longitude(j.pickup_longitude)
-    -- Service eligibility: fail closed — job service must be in provider's list
-    AND (j.service_id IS NULL OR j.service_id = ANY(v_provider_services))
+    -- Service eligibility: fail closed — job must have a service in provider's list
+    AND j.service_id IS NOT NULL
+    AND j.service_id = ANY(v_provider_services)
     -- Distance within max radius
     AND haversine_distance_miles(
           v_provider_loc.latitude, v_provider_loc.longitude,
@@ -406,6 +409,11 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE v_max_radius DOUBLE PRECISION; v_effective_radius DOUBLE PRECISION;
 BEGIN
+  -- Fail closed: invalid pickup coordinates → return no providers
+  IF NOT is_valid_latitude(p_pickup_lat) OR NOT is_valid_longitude(p_pickup_lng) THEN
+    RETURN;
+  END IF;
+
   SELECT COALESCE((value)::numeric, 50) INTO v_max_radius
   FROM platform_settings WHERE key = 'max_job_radius';
   IF v_max_radius IS NULL THEN v_max_radius := 50; END IF;
@@ -419,6 +427,9 @@ BEGIN
   WHERE pl.is_online = true AND pp.is_online = true
     AND pp.is_verified = true
     AND pl.updated_at > NOW() - INTERVAL '5 minutes'
+    -- Exclude providers with invalid coordinates
+    AND is_valid_latitude(pl.latitude)
+    AND is_valid_longitude(pl.longitude)
     AND (p_service_id IS NULL OR p_service_id = ANY(pp.services))
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.provider_id = pl.provider_id
         AND j.status IN ('accepted','en_route','enroute','arrived','in_progress','inprogress'))
