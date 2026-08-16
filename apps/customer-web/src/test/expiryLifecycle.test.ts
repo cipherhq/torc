@@ -2997,3 +2997,293 @@ describe('Customer completion navigation safety', () => {
     expect(ltSrc).toContain('Waiting for provider to finish');
   });
 });
+
+// =============================================================================
+// SERVER-SIDE GEOFENCE + MATCHING HARDENING
+// =============================================================================
+
+describe('Server-side geofence: accept_job distance validation', () => {
+  const migSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260823000000_server_side_geofence.sql'), 'utf-8'
+  );
+  const acceptStart = migSrc.indexOf('CREATE OR REPLACE FUNCTION public.accept_job');
+  const acceptEnd = migSrc.indexOf('$$;', acceptStart) + 3;
+  const acceptBody = migSrc.slice(acceptStart, acceptEnd);
+
+  it('accept_job validates pickup coordinates exist and are non-zero', () => {
+    expect(acceptBody).toContain('INVALID_PICKUP_COORDINATES');
+    expect(acceptBody).toContain('pickup_latitude IS NULL');
+    expect(acceptBody).toContain('pickup_latitude = 0');
+  });
+
+  it('accept_job validates provider location exists', () => {
+    expect(acceptBody).toContain('PROVIDER_LOCATION_MISSING');
+    expect(acceptBody).toContain('provider_locations');
+  });
+
+  it('accept_job validates provider location is not stale', () => {
+    expect(acceptBody).toContain('PROVIDER_LOCATION_STALE');
+    expect(acceptBody).toContain("INTERVAL '5 minutes'");
+  });
+
+  it('accept_job validates provider coordinates are valid (non-zero)', () => {
+    expect(acceptBody).toContain('PROVIDER_LOCATION_INVALID');
+    expect(acceptBody).toContain('v_provider_loc.latitude = 0');
+  });
+
+  it('accept_job computes haversine distance and rejects out-of-range', () => {
+    expect(acceptBody).toContain('haversine_distance_miles');
+    expect(acceptBody).toContain('PROVIDER_OUT_OF_RANGE');
+    expect(acceptBody).toContain('v_distance > v_max_radius');
+  });
+
+  it('accept_job uses authoritative max_job_radius from platform_settings', () => {
+    expect(acceptBody).toContain("key = 'max_job_radius'");
+    expect(acceptBody).toContain('v_max_radius');
+  });
+
+  it('accept_job validates service eligibility', () => {
+    expect(acceptBody).toContain('SERVICE_NOT_OFFERED');
+    expect(acceptBody).toContain('v_provider_services');
+  });
+
+  it('accept_job requires provider online for immediate jobs', () => {
+    expect(acceptBody).toContain('PROVIDER_NOT_ONLINE');
+    expect(acceptBody).toContain('is_online IS NOT TRUE');
+  });
+
+  it('accept_job allows scheduled jobs without online requirement', () => {
+    // Scheduled jobs (scheduled_for > now + 10 min) skip is_online check
+    expect(acceptBody).toContain('scheduled_for');
+    expect(acceptBody).toContain("INTERVAL '10 minutes'");
+    // The else branch for scheduled does NOT check is_online
+    const scheduledBranch = acceptBody.slice(acceptBody.indexOf('SCHEDULED JOB'));
+    expect(scheduledBranch).not.toContain('PROVIDER_NOT_ONLINE');
+  });
+
+  it('rejected acceptance does not set provider_id or change status', () => {
+    // All validation returns BEFORE the UPDATE statement
+    const updatePos = acceptBody.indexOf('UPDATE jobs SET provider_id');
+    const outOfRangePos = acceptBody.indexOf('PROVIDER_OUT_OF_RANGE');
+    const servicePos = acceptBody.indexOf('SERVICE_NOT_OFFERED');
+    const locationPos = acceptBody.indexOf('PROVIDER_LOCATION_MISSING');
+    expect(outOfRangePos).toBeLessThan(updatePos);
+    expect(servicePos).toBeLessThan(updatePos);
+    expect(locationPos).toBeLessThan(updatePos);
+  });
+
+  it('rejected acceptance creates no job_accepted event', () => {
+    // job_accepted event is only after UPDATE
+    const eventInsert = acceptBody.indexOf("'job_accepted'");
+    const updatePos = acceptBody.indexOf('UPDATE jobs SET provider_id');
+    expect(eventInsert).toBeGreaterThan(updatePos);
+  });
+
+  it('distance is logged in job_accepted event metadata', () => {
+    expect(acceptBody).toContain('distance_miles');
+    const eventSection = acceptBody.slice(acceptBody.indexOf('INSERT INTO job_events'));
+    expect(eventSection).toContain('distance_miles');
+  });
+
+  it('preserves all existing protections', () => {
+    expect(acceptBody).toContain('auth.uid()');
+    expect(acceptBody).toContain('UNAUTHORIZED');
+    expect(acceptBody).toContain('PROVIDER_SUSPENDED');
+    expect(acceptBody).toContain('PROVIDER_NOT_VERIFIED');
+    expect(acceptBody).toContain('PROVIDER_BUSY');
+    expect(acceptBody).toContain('JOB_NOT_FOUND');
+    expect(acceptBody).toContain('JOB_ALREADY_ACCEPTED');
+    expect(acceptBody).toContain('JOB_EXPIRY_IN_PROGRESS');
+    expect(acceptBody).toContain('pg_advisory_xact_lock');
+    expect(acceptBody).toContain('FOR UPDATE');
+    expect(acceptBody).toContain('already_accepted');
+  });
+
+  it('US Customer / UK Provider forged accept_job is rejected by distance', () => {
+    // With max_job_radius default 50 and US→UK ~3500 miles,
+    // v_distance > v_max_radius triggers PROVIDER_OUT_OF_RANGE
+    expect(acceptBody).toContain('PROVIDER_OUT_OF_RANGE');
+    expect(acceptBody).toContain('distance_miles');
+    expect(acceptBody).toContain('max_radius_miles');
+  });
+});
+
+describe('Server-side geofence: get_eligible_pending_jobs_for_provider', () => {
+  const migSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260823000000_server_side_geofence.sql'), 'utf-8'
+  );
+  const rpcStart = migSrc.indexOf('CREATE OR REPLACE FUNCTION public.get_eligible_pending_jobs_for_provider');
+  const rpcEnd = migSrc.indexOf('$$;', rpcStart) + 3;
+  const rpcBody = migSrc.slice(rpcStart, rpcEnd);
+
+  it('derives provider identity from auth.uid(), not caller parameter', () => {
+    expect(rpcBody).toContain('auth.uid()');
+    // Function has no provider_id parameter
+    expect(rpcBody).toContain('get_eligible_pending_jobs_for_provider()');
+    expect(rpcBody).not.toMatch(/get_eligible_pending_jobs_for_provider\([^)]+\)/);
+  });
+
+  it('checks provider is active', () => {
+    expect(rpcBody).toContain("status IS DISTINCT FROM 'active'");
+  });
+
+  it('checks provider is verified', () => {
+    expect(rpcBody).toContain('is_verified IS NOT TRUE');
+  });
+
+  it('requires fresh online provider location', () => {
+    expect(rpcBody).toContain('is_online IS NOT TRUE');
+    expect(rpcBody).toContain("INTERVAL '5 minutes'");
+  });
+
+  it('checks provider is not busy', () => {
+    expect(rpcBody).toContain("'accepted','en_route','enroute','arrived','in_progress','inprogress'");
+  });
+
+  it('filters by distance using haversine and max_job_radius', () => {
+    expect(rpcBody).toContain('haversine_distance_miles');
+    expect(rpcBody).toContain('v_max_radius');
+    expect(rpcBody).toContain("key = 'max_job_radius'");
+  });
+
+  it('filters by service eligibility', () => {
+    expect(rpcBody).toContain('ANY(v_provider_services)');
+  });
+
+  it('only returns pending unassigned jobs', () => {
+    expect(rpcBody).toContain("j.status = 'pending'");
+    expect(rpcBody).toContain('j.provider_id IS NULL');
+  });
+
+  it('validates pickup coordinates', () => {
+    expect(rpcBody).toContain('j.pickup_latitude IS NOT NULL');
+    expect(rpcBody).toContain('j.pickup_latitude != 0');
+  });
+
+  it('returns distance_miles for client display', () => {
+    expect(rpcBody).toContain('distance_miles');
+  });
+
+  it('is SECURITY DEFINER and granted to authenticated only', () => {
+    const grants = migSrc.slice(rpcEnd);
+    expect(grants).toContain('REVOKE EXECUTE ON FUNCTION public.get_eligible_pending_jobs_for_provider() FROM PUBLIC');
+    expect(grants).toContain('GRANT  EXECUTE ON FUNCTION public.get_eligible_pending_jobs_for_provider() TO authenticated');
+  });
+});
+
+describe('Server-side geofence: shared haversine helper', () => {
+  const migSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260823000000_server_side_geofence.sql'), 'utf-8'
+  );
+
+  it('haversine_distance_miles is defined as IMMUTABLE STRICT', () => {
+    expect(migSrc).toContain('haversine_distance_miles');
+    expect(migSrc).toContain('IMMUTABLE STRICT');
+  });
+
+  it('get_nearby_providers uses the shared helper', () => {
+    const gnpStart = migSrc.indexOf('CREATE OR REPLACE FUNCTION public.get_nearby_providers');
+    const gnpEnd = migSrc.indexOf('$$;', gnpStart);
+    const gnpBody = migSrc.slice(gnpStart, gnpEnd);
+    expect(gnpBody).toContain('haversine_distance_miles');
+  });
+});
+
+describe('Server-side geofence: Wave 3 bounded dispatch', () => {
+  const matchingSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/customer-web/src/pages/customer/Matching.tsx'), 'utf-8'
+  );
+
+  it('Wave 3 uses get_nearby_providers, not global broadcast', () => {
+    expect(matchingSrc).toContain("p_radius_miles: 500"); // capped server-side
+    expect(matchingSrc).toContain("get_nearby_providers");
+    // No global broadcast channel
+    expect(matchingSrc).not.toContain("'new-job-broadcast'");
+    expect(matchingSrc).not.toContain("'new-job-rebroadcast'");
+  });
+
+  it('Wave 1 and Wave 2 preserved with existing radii', () => {
+    expect(matchingSrc).toContain('p_radius_miles: 5');
+    expect(matchingSrc).toContain('p_radius_miles: 15');
+  });
+});
+
+describe('Server-side geofence: ProviderHome eligible-job source', () => {
+  const phSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'apps/provider-web/src/pages/provider/ProviderHome.tsx'), 'utf-8'
+  );
+
+  it('uses server-authoritative RPC instead of direct table query', () => {
+    expect(phSrc).toContain("supabase.rpc('get_eligible_pending_jobs_for_provider')");
+    // Should NOT directly query jobs table for pending jobs
+    const loadPendingStart = phSrc.indexOf('const loadPending');
+    const loadPendingEnd = phSrc.indexOf('}, [', loadPendingStart);
+    const loadPendingBody = phSrc.slice(loadPendingStart, loadPendingEnd);
+    expect(loadPendingBody).not.toContain(".from('jobs')");
+    expect(loadPendingBody).not.toContain(".eq('status', 'pending')");
+  });
+
+  it('does not subscribe to global broadcast channels', () => {
+    expect(phSrc).not.toContain("'new-job-broadcast'");
+    expect(phSrc).not.toContain("'new-job-rebroadcast'");
+  });
+
+  it('preserves per-provider targeted channel for dispatch and tips', () => {
+    expect(phSrc).toContain('provider-job-${user.id}');
+    expect(phSrc).toContain('tip_received');
+  });
+});
+
+describe('Server-side geofence: jobs RLS tightened', () => {
+  const migSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260823000000_server_side_geofence.sql'), 'utf-8'
+  );
+
+  it('drops blanket "Providers can view pending jobs" policy', () => {
+    expect(migSrc).toContain('DROP POLICY IF EXISTS "Providers can view pending jobs"');
+  });
+
+  it('replaces with assigned-or-own-jobs policy', () => {
+    expect(migSrc).toContain('Providers can view assigned or own jobs');
+    expect(migSrc).toContain('auth.uid() = provider_id');
+  });
+
+  it('preserves customer job visibility', () => {
+    expect(migSrc).toContain('auth.uid() = customer_id');
+  });
+});
+
+describe('Server-side geofence: existing lifecycle preservation', () => {
+  const migSrc = fs.readFileSync(
+    path.resolve(REPO_ROOT, 'supabase/migrations/20260823000000_server_side_geofence.sql'), 'utf-8'
+  );
+
+  it('no-provider expiry/refund lifecycle unchanged', () => {
+    // accept_job still checks expiry operations
+    const acceptBody = migSrc.slice(
+      migSrc.indexOf('CREATE OR REPLACE FUNCTION public.accept_job'),
+      migSrc.indexOf('$$;', migSrc.indexOf('CREATE OR REPLACE FUNCTION public.accept_job'))
+    );
+    expect(acceptBody).toContain('JOB_EXPIRY_IN_PROGRESS');
+    expect(acceptBody).toContain('job_expiry_refund_operations');
+  });
+
+  it('get_nearby_providers preserves existing filters', () => {
+    const gnpStart = migSrc.indexOf('CREATE OR REPLACE FUNCTION public.get_nearby_providers');
+    const gnpEnd = migSrc.indexOf('$$;', gnpStart);
+    const gnpBody = migSrc.slice(gnpStart, gnpEnd);
+    expect(gnpBody).toContain('is_online = true');
+    expect(gnpBody).toContain('is_verified = true');
+    expect(gnpBody).toContain("INTERVAL '5 minutes'");
+    expect(gnpBody).toContain("status = 'active'");
+  });
+
+  it('atomic acceptance with advisory lock preserved', () => {
+    const acceptBody = migSrc.slice(
+      migSrc.indexOf('CREATE OR REPLACE FUNCTION public.accept_job'),
+      migSrc.indexOf('$$;', migSrc.indexOf('CREATE OR REPLACE FUNCTION public.accept_job'))
+    );
+    expect(acceptBody).toContain('pg_advisory_xact_lock');
+    expect(acceptBody).toContain('FOR UPDATE');
+  });
+});
