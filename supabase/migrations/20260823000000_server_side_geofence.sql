@@ -7,10 +7,13 @@
 --
 -- Changes:
 --   1. haversine_distance_miles() — shared helper, single source of truth
---   2. accept_job() — adds distance, freshness, service, and coordinate validation
---   3. get_eligible_pending_jobs_for_provider() — server-authoritative pending-job
---      source for ProviderHome polling (replaces unrestricted direct table query)
---   4. Jobs RLS — tighten "Providers can view pending jobs" to prevent bypass
+--   2. is_valid_latitude/longitude() — range validation helpers
+--   3. accept_job() — adds distance, freshness, service, coordinate, and
+--      online-state validation with fail-closed semantics
+--   4. get_eligible_pending_jobs_for_provider() — server-authoritative
+--      pending-job source for ProviderHome (replaces unrestricted polling)
+--   5. get_nearby_providers() — refactored to use shared helpers
+--   6. Jobs RLS — tighten "Providers can view pending jobs" to prevent bypass
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -34,7 +37,25 @@ COMMENT ON FUNCTION public.haversine_distance_miles IS
   'Haversine great-circle distance in miles. Used by matching and acceptance validation.';
 
 -- ---------------------------------------------------------------------------
--- 2. accept_job — with server-authoritative geographic validation
+-- 2. Coordinate range validation helpers
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.is_valid_latitude(v DOUBLE PRECISION)
+RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
+  SELECT v IS NOT NULL AND v >= -90 AND v <= 90 AND v != 0;
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_valid_longitude(v DOUBLE PRECISION)
+RETURNS BOOLEAN LANGUAGE sql IMMUTABLE AS $$
+  SELECT v IS NOT NULL AND v >= -180 AND v <= 180 AND v != 0;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 3. accept_job — with server-authoritative geographic validation
+-- ---------------------------------------------------------------------------
+-- Freshness interval used for BOTH immediate and scheduled jobs.
+-- Scheduled jobs do not require is_online=true, but geography must be based
+-- on recent location to prevent acceptance using arbitrarily stale positions
+-- (e.g., provider was in US last month, now in UK, accepts a US scheduled job).
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.accept_job(
   p_job_id UUID,
@@ -53,10 +74,12 @@ DECLARE
   v_provider_status TEXT;
   v_is_verified BOOLEAN;
   v_provider_loc RECORD;
+  v_provider_profile_online BOOLEAN;
   v_max_radius DOUBLE PRECISION;
   v_distance DOUBLE PRECISION;
   v_provider_services TEXT[];
   v_freshness_interval INTERVAL := INTERVAL '5 minutes';
+  v_is_immediate BOOLEAN;
 BEGIN
   -- SECURITY: Verify caller is the provider they claim to be
   IF p_provider_id != auth.uid() THEN
@@ -77,9 +100,9 @@ BEGIN
       'message', 'Provider account is not in active status');
   END IF;
 
-  -- PROV-002: Check verification
-  SELECT is_verified, services
-  INTO v_is_verified, v_provider_services
+  -- PROV-002: Check verification + load services
+  SELECT is_verified, services, is_online
+  INTO v_is_verified, v_provider_services, v_provider_profile_online
   FROM provider_profiles WHERE id = p_provider_id;
 
   IF v_is_verified IS NOT TRUE THEN
@@ -131,18 +154,23 @@ BEGIN
   -- SERVER-AUTHORITATIVE GEOGRAPHIC + SERVICE VALIDATION
   -- ===================================================================
 
-  -- Validate job pickup coordinates exist
-  IF v_job.pickup_latitude IS NULL OR v_job.pickup_longitude IS NULL
-     OR v_job.pickup_latitude = 0 OR v_job.pickup_longitude = 0 THEN
+  -- Validate job pickup coordinates (real lat/lng ranges)
+  IF NOT is_valid_latitude(v_job.pickup_latitude)
+     OR NOT is_valid_longitude(v_job.pickup_longitude) THEN
     RETURN jsonb_build_object('success', false, 'error', 'INVALID_PICKUP_COORDINATES',
       'message', 'Job has missing or invalid pickup location');
   END IF;
 
-  -- Validate service eligibility
-  IF v_job.service_id IS NOT NULL AND v_provider_services IS NOT NULL
-     AND NOT (v_job.service_id = ANY(v_provider_services)) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
-      'message', 'You do not offer the requested service');
+  -- Service eligibility: fail closed on null/empty provider services
+  IF v_job.service_id IS NOT NULL THEN
+    IF v_provider_services IS NULL OR array_length(v_provider_services, 1) IS NULL THEN
+      RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
+        'message', 'Your service configuration is incomplete');
+    END IF;
+    IF NOT (v_job.service_id = ANY(v_provider_services)) THEN
+      RETURN jsonb_build_object('success', false, 'error', 'SERVICE_NOT_OFFERED',
+        'message', 'You do not offer the requested service');
+    END IF;
   END IF;
 
   -- Load provider location
@@ -151,38 +179,42 @@ BEGIN
   FROM provider_locations
   WHERE provider_id = p_provider_id;
 
-  -- For immediate jobs: require fresh online location
-  -- For scheduled jobs (scheduled_for in the future): require location exists
-  -- but allow acceptance while not actively online
-  IF v_job.scheduled_for IS NULL OR v_job.scheduled_for <= NOW() + INTERVAL '10 minutes' THEN
-    -- IMMEDIATE JOB: strict location requirements
-    IF v_provider_loc IS NULL THEN
-      RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_MISSING',
-        'message', 'Your location is not available. Please ensure location services are enabled.');
-    END IF;
-    IF v_provider_loc.latitude IS NULL OR v_provider_loc.longitude IS NULL
-       OR v_provider_loc.latitude = 0 OR v_provider_loc.longitude = 0 THEN
-      RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_INVALID',
-        'message', 'Your location coordinates are invalid');
-    END IF;
-    IF v_provider_loc.updated_at < NOW() - v_freshness_interval THEN
-      RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_STALE',
-        'message', 'Your location has not been updated recently. Please go online to refresh.');
-    END IF;
+  -- Determine if immediate or scheduled
+  v_is_immediate := (v_job.scheduled_for IS NULL OR v_job.scheduled_for <= NOW() + INTERVAL '10 minutes');
+
+  -- Provider location must exist for ALL job types
+  IF v_provider_loc IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_MISSING',
+      'message', 'Your location is not available. Please ensure location services are enabled.');
+  END IF;
+
+  -- Validate coordinates are real lat/lng ranges
+  IF NOT is_valid_latitude(v_provider_loc.latitude)
+     OR NOT is_valid_longitude(v_provider_loc.longitude) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_INVALID',
+      'message', 'Your location coordinates are invalid');
+  END IF;
+
+  -- Location freshness required for BOTH immediate and scheduled jobs.
+  -- Scheduled jobs don't require is_online, but geography must use recent data
+  -- to prevent acceptance using arbitrarily stale location from another country.
+  IF v_provider_loc.updated_at < NOW() - v_freshness_interval THEN
+    RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_STALE',
+      'message', 'Your location has not been updated recently. Please go online to refresh.');
+  END IF;
+
+  -- IMMEDIATE JOBS: require consistent online state across both tables
+  IF v_is_immediate THEN
     IF v_provider_loc.is_online IS NOT TRUE THEN
       RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_NOT_ONLINE',
         'message', 'You must be online to accept immediate jobs');
     END IF;
-  ELSE
-    -- SCHEDULED JOB: require location exists for distance check, but allow offline
-    IF v_provider_loc IS NULL
-       OR v_provider_loc.latitude IS NULL OR v_provider_loc.longitude IS NULL
-       OR v_provider_loc.latitude = 0 OR v_provider_loc.longitude = 0 THEN
-      RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_LOCATION_MISSING',
-        'message', 'Location is required to verify service area eligibility');
+    IF v_provider_profile_online IS NOT TRUE THEN
+      RETURN jsonb_build_object('success', false, 'error', 'PROVIDER_NOT_ONLINE',
+        'message', 'You must be online to accept immediate jobs');
     END IF;
-    -- Use last known location for distance check (no freshness requirement for scheduled)
   END IF;
+  -- SCHEDULED JOBS: no is_online requirement (provider may accept while offline)
 
   -- Load authoritative max radius
   SELECT COALESCE((value)::numeric, 50) INTO v_max_radius
@@ -242,10 +274,12 @@ REVOKE EXECUTE ON FUNCTION public.accept_job(UUID, UUID) FROM anon;
 GRANT  EXECUTE ON FUNCTION public.accept_job(UUID, UUID) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 3. get_eligible_pending_jobs_for_provider — replaces unrestricted polling
+-- 4. get_eligible_pending_jobs_for_provider — replaces unrestricted polling
 -- ---------------------------------------------------------------------------
 -- Provider identity comes from auth.uid(), NOT a caller-supplied parameter.
 -- Returns only jobs the provider is genuinely eligible to receive.
+-- Requires: active, verified, online, fresh location, not busy, valid coords,
+--           service match (fail closed on null/empty services), distance check.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_eligible_pending_jobs_for_provider()
 RETURNS TABLE(
@@ -267,6 +301,7 @@ AS $$
 DECLARE
   v_provider_id UUID;
   v_provider_loc RECORD;
+  v_provider_profile_online BOOLEAN;
   v_max_radius DOUBLE PRECISION;
   v_provider_services TEXT[];
   v_is_verified BOOLEAN;
@@ -283,26 +318,33 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Check provider is verified
-  SELECT pp.is_verified, pp.services
-  INTO v_is_verified, v_provider_services
+  -- Check provider is verified + load services and profile online state
+  SELECT pp.is_verified, pp.services, pp.is_online
+  INTO v_is_verified, v_provider_services, v_provider_profile_online
   FROM provider_profiles pp WHERE pp.id = v_provider_id;
 
   IF v_is_verified IS NOT TRUE THEN
     RETURN;
   END IF;
 
-  -- Load provider location (must be online and fresh for immediate visibility)
+  -- Fail closed: provider must have non-null/non-empty services
+  IF v_provider_services IS NULL OR array_length(v_provider_services, 1) IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Load provider location (must be online and fresh)
   SELECT pl.latitude, pl.longitude, pl.is_online, pl.updated_at
   INTO v_provider_loc
   FROM provider_locations pl WHERE pl.provider_id = v_provider_id;
 
+  -- Validate location: exists, valid ranges, online (both tables), fresh
   IF v_provider_loc IS NULL
-     OR v_provider_loc.latitude IS NULL OR v_provider_loc.longitude IS NULL
-     OR v_provider_loc.latitude = 0 OR v_provider_loc.longitude = 0
+     OR NOT is_valid_latitude(v_provider_loc.latitude)
+     OR NOT is_valid_longitude(v_provider_loc.longitude)
      OR v_provider_loc.is_online IS NOT TRUE
+     OR v_provider_profile_online IS NOT TRUE
      OR v_provider_loc.updated_at < NOW() - INTERVAL '5 minutes' THEN
-    RETURN;  -- no valid fresh location: no eligible jobs
+    RETURN;  -- no valid fresh online location: no eligible jobs
   END IF;
 
   -- Check provider is not busy
@@ -333,11 +375,11 @@ BEGIN
   WHERE j.status = 'pending'
     AND j.provider_id IS NULL
     AND j.created_at > NOW() - INTERVAL '2 hours'
-    AND j.pickup_latitude IS NOT NULL AND j.pickup_longitude IS NOT NULL
-    AND j.pickup_latitude != 0 AND j.pickup_longitude != 0
-    -- Service eligibility
-    AND (j.service_id IS NULL OR v_provider_services IS NULL
-         OR j.service_id = ANY(v_provider_services))
+    -- Valid pickup coordinates (real ranges)
+    AND is_valid_latitude(j.pickup_latitude)
+    AND is_valid_longitude(j.pickup_longitude)
+    -- Service eligibility: fail closed — job service must be in provider's list
+    AND (j.service_id IS NULL OR j.service_id = ANY(v_provider_services))
     -- Distance within max radius
     AND haversine_distance_miles(
           v_provider_loc.latitude, v_provider_loc.longitude,
@@ -353,7 +395,7 @@ REVOKE EXECUTE ON FUNCTION public.get_eligible_pending_jobs_for_provider() FROM 
 GRANT  EXECUTE ON FUNCTION public.get_eligible_pending_jobs_for_provider() TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 4. Update get_nearby_providers to use shared haversine helper
+-- 5. Update get_nearby_providers to use shared helpers
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_nearby_providers(
   p_pickup_lat DOUBLE PRECISION, p_pickup_lng DOUBLE PRECISION,
@@ -391,20 +433,10 @@ REVOKE EXECUTE ON FUNCTION public.get_nearby_providers(DOUBLE PRECISION, DOUBLE 
 GRANT  EXECUTE ON FUNCTION public.get_nearby_providers(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 5. Tighten jobs RLS — remove blanket "Providers can view pending jobs"
--- ---------------------------------------------------------------------------
--- The old policy let any provider SELECT all pending jobs regardless of distance.
--- We drop it because:
---   - Providers should use get_eligible_pending_jobs_for_provider() RPC
---   - The SECURITY DEFINER RPC bypasses RLS, so it still works
---   - Direct table queries for pending unassigned jobs are blocked
---   - Providers can still read their own assigned jobs via "Users can view own jobs"
+-- 6. Tighten jobs RLS — remove blanket "Providers can view pending jobs"
 -- ---------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Providers can view pending jobs" ON public.jobs;
 
--- Replace with a narrow policy: providers can see pending jobs ONLY if assigned to them
--- (covers the edge case of a provider looking at a job they just accepted that's briefly
--- still in a transitional state, plus the idempotent retry path in accept_job)
 CREATE POLICY "Providers can view assigned or own jobs"
   ON public.jobs
   FOR SELECT
@@ -412,9 +444,3 @@ CREATE POLICY "Providers can view assigned or own jobs"
     auth.uid() = provider_id
     OR auth.uid() = customer_id
   );
-
--- Note: "Users can view own jobs" already covers customer_id = auth.uid() OR provider_id = auth.uid().
--- We keep this explicit policy for clarity. The existing "Users can view own jobs" policy
--- from 040_admin_jobs_rls_policy.sql already provides the same coverage, so this is
--- a defensive no-op that documents the intent after dropping the blanket pending policy.
--- If it conflicts, Postgres OR's multiple policies, so it's safe.

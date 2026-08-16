@@ -3010,10 +3010,10 @@ describe('Server-side geofence: accept_job distance validation', () => {
   const acceptEnd = migSrc.indexOf('$$;', acceptStart) + 3;
   const acceptBody = migSrc.slice(acceptStart, acceptEnd);
 
-  it('accept_job validates pickup coordinates exist and are non-zero', () => {
+  it('accept_job validates pickup coordinates with real lat/lng ranges', () => {
     expect(acceptBody).toContain('INVALID_PICKUP_COORDINATES');
-    expect(acceptBody).toContain('pickup_latitude IS NULL');
-    expect(acceptBody).toContain('pickup_latitude = 0');
+    expect(acceptBody).toContain('is_valid_latitude');
+    expect(acceptBody).toContain('is_valid_longitude');
   });
 
   it('accept_job validates provider location exists', () => {
@@ -3021,14 +3021,20 @@ describe('Server-side geofence: accept_job distance validation', () => {
     expect(acceptBody).toContain('provider_locations');
   });
 
-  it('accept_job validates provider location is not stale', () => {
+  it('accept_job validates provider location is not stale for ALL job types', () => {
     expect(acceptBody).toContain('PROVIDER_LOCATION_STALE');
-    expect(acceptBody).toContain("INTERVAL '5 minutes'");
+    expect(acceptBody).toContain("v_freshness_interval");
+    // Freshness is checked before the immediate/scheduled branch
+    const stalePos = acceptBody.indexOf('PROVIDER_LOCATION_STALE');
+    const immediateCheck = acceptBody.indexOf('v_is_immediate');
+    // Stale check comes before the online-state branch
+    expect(stalePos).toBeLessThan(acceptBody.indexOf('PROVIDER_NOT_ONLINE'));
   });
 
-  it('accept_job validates provider coordinates are valid (non-zero)', () => {
+  it('accept_job validates provider coordinates with real lat/lng ranges', () => {
     expect(acceptBody).toContain('PROVIDER_LOCATION_INVALID');
-    expect(acceptBody).toContain('v_provider_loc.latitude = 0');
+    expect(acceptBody).toContain('is_valid_latitude(v_provider_loc.latitude)');
+    expect(acceptBody).toContain('is_valid_longitude(v_provider_loc.longitude)');
   });
 
   it('accept_job computes haversine distance and rejects out-of-range', () => {
@@ -3042,23 +3048,29 @@ describe('Server-side geofence: accept_job distance validation', () => {
     expect(acceptBody).toContain('v_max_radius');
   });
 
-  it('accept_job validates service eligibility', () => {
+  it('accept_job validates service eligibility — fail closed on null/empty', () => {
     expect(acceptBody).toContain('SERVICE_NOT_OFFERED');
-    expect(acceptBody).toContain('v_provider_services');
+    // Fail closed: null services rejects
+    expect(acceptBody).toContain('v_provider_services IS NULL');
+    // Fail closed: empty array rejects
+    expect(acceptBody).toContain('array_length(v_provider_services, 1) IS NULL');
   });
 
-  it('accept_job requires provider online for immediate jobs', () => {
+  it('accept_job requires consistent online state for immediate jobs', () => {
     expect(acceptBody).toContain('PROVIDER_NOT_ONLINE');
-    expect(acceptBody).toContain('is_online IS NOT TRUE');
+    // Checks BOTH provider_locations.is_online and provider_profiles.is_online
+    expect(acceptBody).toContain('v_provider_loc.is_online IS NOT TRUE');
+    expect(acceptBody).toContain('v_provider_profile_online IS NOT TRUE');
   });
 
-  it('accept_job allows scheduled jobs without online requirement', () => {
-    // Scheduled jobs (scheduled_for > now + 10 min) skip is_online check
+  it('accept_job allows scheduled jobs without online but requires fresh location', () => {
     expect(acceptBody).toContain('scheduled_for');
     expect(acceptBody).toContain("INTERVAL '10 minutes'");
-    // The else branch for scheduled does NOT check is_online
-    const scheduledBranch = acceptBody.slice(acceptBody.indexOf('SCHEDULED JOB'));
-    expect(scheduledBranch).not.toContain('PROVIDER_NOT_ONLINE');
+    // Freshness applies to both immediate and scheduled
+    expect(acceptBody).toContain('PROVIDER_LOCATION_STALE');
+    // The SCHEDULED JOB comment branch does NOT check is_online
+    const scheduledComment = acceptBody.indexOf('SCHEDULED JOBS: no is_online');
+    expect(scheduledComment).toBeGreaterThan(-1);
   });
 
   it('rejected acceptance does not set provider_id or change status', () => {
@@ -3155,9 +3167,19 @@ describe('Server-side geofence: get_eligible_pending_jobs_for_provider', () => {
     expect(rpcBody).toContain('j.provider_id IS NULL');
   });
 
-  it('validates pickup coordinates', () => {
-    expect(rpcBody).toContain('j.pickup_latitude IS NOT NULL');
-    expect(rpcBody).toContain('j.pickup_latitude != 0');
+  it('validates pickup coordinates with range helpers', () => {
+    expect(rpcBody).toContain('is_valid_latitude(j.pickup_latitude)');
+    expect(rpcBody).toContain('is_valid_longitude(j.pickup_longitude)');
+  });
+
+  it('fails closed on null/empty provider services', () => {
+    expect(rpcBody).toContain('v_provider_services IS NULL');
+    expect(rpcBody).toContain('array_length(v_provider_services, 1) IS NULL');
+  });
+
+  it('checks consistent online state (both profile and location)', () => {
+    expect(rpcBody).toContain('v_provider_loc.is_online IS NOT TRUE');
+    expect(rpcBody).toContain('v_provider_profile_online IS NOT TRUE');
   });
 
   it('returns distance_miles for client display', () => {
@@ -3179,6 +3201,19 @@ describe('Server-side geofence: shared haversine helper', () => {
   it('haversine_distance_miles is defined as IMMUTABLE STRICT', () => {
     expect(migSrc).toContain('haversine_distance_miles');
     expect(migSrc).toContain('IMMUTABLE STRICT');
+  });
+
+  it('is_valid_latitude enforces -90..90 range', () => {
+    expect(migSrc).toContain('is_valid_latitude');
+    expect(migSrc).toContain('>= -90');
+    expect(migSrc).toContain('<= 90');
+    expect(migSrc).toContain('!= 0');
+  });
+
+  it('is_valid_longitude enforces -180..180 range', () => {
+    expect(migSrc).toContain('is_valid_longitude');
+    expect(migSrc).toContain('>= -180');
+    expect(migSrc).toContain('<= 180');
   });
 
   it('get_nearby_providers uses the shared helper', () => {

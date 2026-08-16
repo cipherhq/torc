@@ -2894,6 +2894,243 @@ jobs:
 
           DO $$ BEGIN RAISE NOTICE 'All 14 SUSP-001 suspension enforcement tests passed.'; END $$;
           SQL
+      - name: Test server-side geofence enforcement
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Setup: users, profiles, services, provider_profiles, provider_locations, jobs
+          INSERT INTO auth.users (id, email) VALUES
+            ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'geo-customer@test.com'),
+            ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'geo-provider-near@test.com'),
+            ('aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'geo-provider-far@test.com')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO profiles (id, role, first_name) VALUES
+            ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'customer', 'GeoCust'),
+            ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'provider', 'NearProv'),
+            ('aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid, 'provider', 'FarProv')
+          ON CONFLICT DO NOTHING;
+          INSERT INTO services (id, name, base_price) VALUES ('test-svc-geo', 'Geo Test', 50) ON CONFLICT DO NOTHING;
+          INSERT INTO provider_profiles (id, is_verified, is_online, services) VALUES
+            ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, true, true, ARRAY['test-svc-geo']),
+            ('aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid, true, true, ARRAY['test-svc-geo'])
+          ON CONFLICT (id) DO UPDATE SET is_verified = true, is_online = true, services = ARRAY['test-svc-geo'];
+          -- Near provider: DC area (38.9072, -77.0369)
+          INSERT INTO provider_locations (provider_id, latitude, longitude, is_online, updated_at) VALUES
+            ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 38.9072, -77.0369, true, now())
+          ON CONFLICT (provider_id) DO UPDATE SET latitude = 38.9072, longitude = -77.0369, is_online = true, updated_at = now();
+          -- Far provider: London UK (51.5074, -0.1278)
+          INSERT INTO provider_locations (provider_id, latitude, longitude, is_online, updated_at) VALUES
+            ('aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid, 51.5074, -0.1278, true, now())
+          ON CONFLICT (provider_id) DO UPDATE SET latitude = 51.5074, longitude = -0.1278, is_online = true, updated_at = now();
+          -- Job: DC pickup (38.8977, -77.0365)
+          INSERT INTO jobs (id, customer_id, service_id, status, payment_status, created_at, pickup_latitude, pickup_longitude) VALUES
+            ('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'test-svc-geo', 'pending', 'paid', now(), 38.8977, -77.0365);
+
+          -- GEO-1: Nearby provider (~0.7 miles) can accept
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'GEO-1 FAILED: nearby provider must accept: ' || result::text;
+            RAISE NOTICE 'GEO-1 PASSED: nearby provider accepted (% miles)', result->>'distance_miles';
+          END $$;
+
+          -- Reset for next tests
+          UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+
+          -- GEO-2: Far US→UK provider (~3500 miles) REJECTED
+          DO $$
+          DECLARE result JSONB; v_status TEXT; v_pid UUID;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'false', 'GEO-2 FAILED: far provider must be rejected: ' || result::text;
+            ASSERT result->>'error' = 'PROVIDER_OUT_OF_RANGE', 'GEO-2 FAILED: wrong error: ' || result::text;
+            -- Verify job unchanged
+            SELECT status, provider_id INTO v_status, v_pid FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_status = 'pending', 'GEO-2 FAILED: job status must remain pending';
+            ASSERT v_pid IS NULL, 'GEO-2 FAILED: provider_id must remain NULL';
+            RAISE NOTICE 'GEO-2 PASSED: US→UK provider rejected (% miles)', result->>'distance_miles';
+          END $$;
+
+          -- GEO-3: No acceptance event or notification created for rejected attempt
+          DO $$
+          DECLARE v_events INT; v_notifs INT;
+          BEGIN
+            SELECT count(*) INTO v_events FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid AND event_type = 'job_accepted';
+            ASSERT v_events = 0, 'GEO-3 FAILED: rejected acceptance must create no events';
+            SELECT count(*) INTO v_notifs FROM notifications WHERE action_url LIKE '%aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa%';
+            ASSERT v_notifs = 0, 'GEO-3 FAILED: rejected acceptance must create no notifications';
+            RAISE NOTICE 'GEO-3 PASSED: no events/notifications for rejected acceptance';
+          END $$;
+
+          -- GEO-4: Null provider services → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_profiles SET services = NULL WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'SERVICE_NOT_OFFERED', 'GEO-4 FAILED: null services must reject: ' || result::text;
+            RAISE NOTICE 'GEO-4 PASSED: null services rejected';
+          END $$;
+
+          -- GEO-5: Empty services array → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_profiles SET services = '{}' WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'SERVICE_NOT_OFFERED', 'GEO-5 FAILED: empty services must reject: ' || result::text;
+            RAISE NOTICE 'GEO-5 PASSED: empty services rejected';
+          END $$;
+
+          -- GEO-6: Wrong service → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_profiles SET services = ARRAY['other-service'] WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'SERVICE_NOT_OFFERED', 'GEO-6 FAILED: wrong service must reject: ' || result::text;
+            RAISE NOTICE 'GEO-6 PASSED: wrong service rejected';
+          END $$;
+
+          -- Restore services
+          UPDATE provider_profiles SET services = ARRAY['test-svc-geo'] WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+
+          -- GEO-7: Invalid provider latitude (91) → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET latitude = 91 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_LOCATION_INVALID', 'GEO-7 FAILED: lat 91 must reject: ' || result::text;
+            RAISE NOTICE 'GEO-7 PASSED: invalid latitude (91) rejected';
+          END $$;
+
+          -- GEO-8: Invalid provider longitude (181) → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET latitude = 38.9072, longitude = 181 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_LOCATION_INVALID', 'GEO-8 FAILED: lng 181 must reject: ' || result::text;
+            RAISE NOTICE 'GEO-8 PASSED: invalid longitude (181) rejected';
+          END $$;
+
+          -- GEO-9: Invalid pickup latitude (-91) → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET longitude = -77.0369 WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE jobs SET pickup_latitude = -91 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'INVALID_PICKUP_COORDINATES', 'GEO-9 FAILED: lat -91 must reject: ' || result::text;
+            RAISE NOTICE 'GEO-9 PASSED: invalid pickup latitude (-91) rejected';
+          END $$;
+
+          -- Restore pickup
+          UPDATE jobs SET pickup_latitude = 38.8977 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+
+          -- GEO-10: Stale immediate location (>5 min) → rejected
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET updated_at = now() - INTERVAL '10 minutes' WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_LOCATION_STALE', 'GEO-10 FAILED: stale location must reject: ' || result::text;
+            RAISE NOTICE 'GEO-10 PASSED: stale immediate location rejected';
+          END $$;
+
+          -- GEO-11: Profile offline / location online mismatch → rejected for immediate
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET updated_at = now() WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE provider_profiles SET is_online = false WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_NOT_ONLINE', 'GEO-11 FAILED: profile offline must reject: ' || result::text;
+            RAISE NOTICE 'GEO-11 PASSED: profile offline / location online mismatch rejected';
+          END $$;
+
+          -- Restore online
+          UPDATE provider_profiles SET is_online = true WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+
+          -- GEO-12: Fresh eligible provider → accepted
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'GEO-12 FAILED: fresh eligible must accept: ' || result::text;
+            RAISE NOTICE 'GEO-12 PASSED: fresh eligible provider accepted';
+          END $$;
+
+          -- Reset for scheduled test
+          UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+
+          -- GEO-13: Scheduled job with stale location → rejected (no arbitrarily stale)
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE jobs SET scheduled_for = now() + INTERVAL '2 hours' WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            UPDATE provider_locations SET updated_at = now() - INTERVAL '1 hour' WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'error' = 'PROVIDER_LOCATION_STALE', 'GEO-13 FAILED: scheduled stale location must reject: ' || result::text;
+            RAISE NOTICE 'GEO-13 PASSED: scheduled job with stale location rejected';
+          END $$;
+
+          -- GEO-14: Scheduled job with fresh location, provider offline → accepted (online not required for scheduled)
+          DO $$
+          DECLARE result JSONB;
+          BEGIN
+            UPDATE provider_locations SET updated_at = now() WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE provider_profiles SET is_online = false WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            UPDATE provider_locations SET is_online = false WHERE provider_id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; $fn$;
+            SET LOCAL role TO 'authenticated';
+            SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid) INTO result;
+            ASSERT result->>'success' = 'true', 'GEO-14 FAILED: scheduled offline with fresh location must accept: ' || result::text;
+            RAISE NOTICE 'GEO-14 PASSED: scheduled job accepted offline with fresh location';
+          END $$;
+
+          -- Cleanup
+          DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          DELETE FROM notifications WHERE user_id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
+          DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          DELETE FROM provider_locations WHERE provider_id IN ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid);
+          DELETE FROM provider_profiles WHERE id IN ('aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid);
+          DELETE FROM profiles WHERE id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid);
+          DELETE FROM services WHERE id = 'test-svc-geo';
+          DELETE FROM auth.users WHERE id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+
+          DO $$ BEGIN RAISE NOTICE 'All 14 server-side geofence enforcement tests passed.'; END $$;
+          SQL
       - name: Test account deletion lifecycle (DEL-001)
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
