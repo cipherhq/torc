@@ -2936,39 +2936,33 @@ jobs:
             RAISE NOTICE 'GEO-1 PASSED: nearby provider accepted (% miles)', result->>'distance_miles';
           END $$;
 
-          -- Reset for next tests (verify superuser context)
+          -- Reset for next tests (as superuser to bypass lifecycle guard and RLS)
           DO $$
-          DECLARE v_cu TEXT; v_su TEXT; v_check_status TEXT;
           BEGIN
-            v_cu := current_user;
-            v_su := session_user;
-            RAISE NOTICE 'GEO-RESET: current_user=% session_user=%', v_cu, v_su;
             UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
             DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
             DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
-            SELECT status INTO v_check_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-            RAISE NOTICE 'GEO-RESET: job status after reset = %', v_check_status;
-            ASSERT v_check_status = 'pending', 'GEO-RESET FAILED: could not reset job to pending, got: ' || COALESCE(v_check_status, 'NULL');
           END $$;
 
           -- GEO-2: Far US→UK provider (~3500 miles) REJECTED
           DO $$
-          DECLARE result JSONB; v_status TEXT; v_pid UUID; v_pre_status TEXT;
+          DECLARE result JSONB;
           BEGIN
-            -- Verify job is pending before test
-            SELECT status INTO v_pre_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-            RAISE NOTICE 'GEO-2 PRE: job status=%, current_user=%', v_pre_status, current_user;
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
             SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid) INTO result;
-            RAISE NOTICE 'GEO-2 RESULT: %', result::text;
             ASSERT result->>'success' = 'false', 'GEO-2 FAILED: far provider must be rejected: ' || result::text;
             ASSERT result->>'error' = 'PROVIDER_OUT_OF_RANGE', 'GEO-2 FAILED: wrong error: ' || result::text;
-            -- Verify job unchanged
-            SELECT status, provider_id INTO v_status, v_pid FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-            ASSERT v_status = 'pending', 'GEO-2 FAILED: job status must remain pending';
-            ASSERT v_pid IS NULL, 'GEO-2 FAILED: provider_id must remain NULL';
             RAISE NOTICE 'GEO-2 PASSED: US→UK provider rejected (% miles)', result->>'distance_miles';
+          END $$;
+          -- GEO-2b: Verify job unchanged (as superuser — RLS blocks provider from seeing unassigned jobs)
+          DO $$
+          DECLARE v_status TEXT; v_pid UUID;
+          BEGIN
+            SELECT status, provider_id INTO v_status, v_pid FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            ASSERT v_status = 'pending', 'GEO-2b FAILED: job status must remain pending, got: ' || COALESCE(v_status, 'NULL');
+            ASSERT v_pid IS NULL, 'GEO-2b FAILED: provider_id must remain NULL';
+            RAISE NOTICE 'GEO-2b PASSED: job unchanged after rejected acceptance';
           END $$;
 
           -- GEO-3: No acceptance event or notification created for rejected attempt
