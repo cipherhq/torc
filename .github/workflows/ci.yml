@@ -2936,12 +2936,19 @@ jobs:
             RAISE NOTICE 'GEO-1 PASSED: nearby provider accepted (% miles)', result->>'distance_miles';
           END $$;
 
-          -- Reset for next tests (as superuser to bypass lifecycle guard trigger)
+          -- Reset for next tests (verify superuser context)
           DO $$
+          DECLARE v_cu TEXT; v_su TEXT; v_check_status TEXT;
           BEGIN
+            v_cu := current_user;
+            v_su := session_user;
+            RAISE NOTICE 'GEO-RESET: current_user=% session_user=%', v_cu, v_su;
             UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
             DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
             DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+            SELECT status INTO v_check_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            RAISE NOTICE 'GEO-RESET: job status after reset = %', v_check_status;
+            ASSERT v_check_status = 'pending', 'GEO-RESET FAILED: could not reset job to pending, got: ' || COALESCE(v_check_status, 'NULL');
           END $$;
 
           -- GEO-2: Far US→UK provider (~3500 miles) REJECTED
