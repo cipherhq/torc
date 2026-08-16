@@ -2936,11 +2936,13 @@ jobs:
             RAISE NOTICE 'GEO-1 PASSED: nearby provider accepted (% miles)', result->>'distance_miles';
           END $$;
 
-          -- Reset for next tests (must reset role first since SET LOCAL persists in psql session)
-          RESET role;
-          UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-          DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-          DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+          -- Reset for next tests (as superuser to bypass lifecycle guard trigger)
+          DO $$
+          BEGIN
+            UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+          END $$;
 
           -- GEO-2: Far US→UK provider (~3500 miles) REJECTED
           DO $$
@@ -3005,9 +3007,8 @@ jobs:
             RAISE NOTICE 'GEO-6 PASSED: wrong service rejected';
           END $$;
 
-          -- Restore services
-          RESET role;
-          UPDATE provider_profiles SET services = ARRAY['test-svc-geo'] WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+          -- Restore services (as superuser)
+          DO $$ BEGIN UPDATE provider_profiles SET services = ARRAY['test-svc-geo'] WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; END $$;
 
           -- GEO-7: Invalid provider latitude (91) → rejected
           DO $$
@@ -3046,9 +3047,8 @@ jobs:
             RAISE NOTICE 'GEO-9 PASSED: invalid pickup latitude (-91) rejected';
           END $$;
 
-          -- Restore pickup
-          RESET role;
-          UPDATE jobs SET pickup_latitude = 38.8977 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+          -- Restore pickup (as superuser)
+          DO $$ BEGIN UPDATE jobs SET pickup_latitude = 38.8977 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid; END $$;
 
           -- GEO-10: Stale immediate location (>5 min) → rejected
           DO $$
@@ -3075,9 +3075,8 @@ jobs:
             RAISE NOTICE 'GEO-11 PASSED: profile offline / location online mismatch rejected';
           END $$;
 
-          -- Restore online
-          RESET role;
-          UPDATE provider_profiles SET is_online = true WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
+          -- Restore online (as superuser)
+          DO $$ BEGIN UPDATE provider_profiles SET is_online = true WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid; END $$;
 
           -- GEO-12: Fresh eligible provider → accepted
           DO $$
@@ -3090,11 +3089,13 @@ jobs:
             RAISE NOTICE 'GEO-12 PASSED: fresh eligible provider accepted';
           END $$;
 
-          -- Reset for scheduled test
-          RESET role;
-          UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-          DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
-          DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+          -- Reset for scheduled test (as superuser)
+          DO $$
+          BEGIN
+            UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL, updated_at = now() WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
+          END $$;
 
           -- GEO-13: Scheduled job with stale location → rejected (no arbitrarily stale)
           DO $$
@@ -3124,7 +3125,6 @@ jobs:
           END $$;
 
           -- Cleanup
-          RESET role;
           DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM notifications WHERE user_id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
           DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
