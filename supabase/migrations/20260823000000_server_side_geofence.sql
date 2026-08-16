@@ -366,7 +366,7 @@ BEGIN
   RETURN QUERY
   SELECT
     j.id, j.service_id, j.pickup_address,
-    j.pickup_latitude, j.pickup_longitude,
+    j.pickup_latitude::double precision, j.pickup_longitude::double precision,
     j.total_amount, j.base_price,
     j.created_at, j.scheduled_for,
     haversine_distance_miles(
