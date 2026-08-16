@@ -2090,6 +2090,7 @@ jobs:
           DELETE FROM provider_earnings WHERE job_id IN (SELECT id FROM jobs WHERE customer_id = 'cccccccc-1111-1111-1111-cccccccccccc'::uuid);
           DELETE FROM jobs WHERE customer_id = 'cccccccc-1111-1111-1111-cccccccccccc'::uuid;
           DELETE FROM jobs WHERE id IN ('cccccccc-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'cccccccc-0000-0000-0000-bbbbbbbbbbbb'::uuid);
+          DELETE FROM provider_locations WHERE provider_id = 'cccccccc-2222-2222-2222-cccccccccccc'::uuid;
           DELETE FROM provider_profiles WHERE id = 'cccccccc-2222-2222-2222-cccccccccccc'::uuid;
           DELETE FROM profiles WHERE id IN ('cccccccc-1111-1111-1111-cccccccccccc'::uuid, 'cccccccc-2222-2222-2222-cccccccccccc'::uuid, 'cccccccc-3333-3333-3333-cccccccccccc'::uuid);
           DELETE FROM services WHERE id = 'test-svc-cross';
@@ -2359,6 +2360,7 @@ jobs:
           DELETE FROM notifications WHERE user_id IN ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
           DELETE FROM provider_earnings WHERE job_id IN (SELECT id FROM jobs WHERE customer_id = 'dddddddd-1111-1111-1111-dddddddddddd'::uuid);
           DELETE FROM jobs WHERE customer_id = 'dddddddd-1111-1111-1111-dddddddddddd'::uuid;
+          DELETE FROM provider_locations WHERE provider_id IN ('dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
           DELETE FROM provider_profiles WHERE id IN ('dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
           DELETE FROM profiles WHERE id IN ('dddddddd-1111-1111-1111-dddddddddddd'::uuid, 'dddddddd-2222-2222-2222-dddddddddddd'::uuid, 'dddddddd-3333-3333-3333-dddddddddddd'::uuid);
           DELETE FROM services WHERE id = 'test-svc-match';
@@ -2443,6 +2445,7 @@ jobs:
           DELETE FROM notifications WHERE user_id IN ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
           DELETE FROM provider_earnings WHERE job_id IN (SELECT id FROM jobs WHERE customer_id = 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid);
           DELETE FROM jobs WHERE customer_id = 'eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid;
+          DELETE FROM provider_locations WHERE provider_id = 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid;
           DELETE FROM provider_profiles WHERE id = 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid;
           DELETE FROM profiles WHERE id IN ('eeeeeeee-1111-1111-1111-eeeeeeeeeeee'::uuid, 'eeeeeeee-2222-2222-2222-eeeeeeeeeeee'::uuid);
           DELETE FROM services WHERE id = 'test-svc-conc';
