@@ -2953,11 +2953,15 @@ jobs:
 
           -- GEO-2: Far US→UK provider (~3500 miles) REJECTED
           DO $$
-          DECLARE result JSONB; v_status TEXT; v_pid UUID;
+          DECLARE result JSONB; v_status TEXT; v_pid UUID; v_pre_status TEXT;
           BEGIN
+            -- Verify job is pending before test
+            SELECT status INTO v_pre_status FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
+            RAISE NOTICE 'GEO-2 PRE: job status=%, current_user=%', v_pre_status, current_user;
             CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $fn$ SELECT 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid; $fn$;
             SET LOCAL role TO 'authenticated';
             SELECT accept_job('aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-3333-3333-3333-aaaaaaaaaaaa'::uuid) INTO result;
+            RAISE NOTICE 'GEO-2 RESULT: %', result::text;
             ASSERT result->>'success' = 'false', 'GEO-2 FAILED: far provider must be rejected: ' || result::text;
             ASSERT result->>'error' = 'PROVIDER_OUT_OF_RANGE', 'GEO-2 FAILED: wrong error: ' || result::text;
             -- Verify job unchanged
