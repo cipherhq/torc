@@ -598,15 +598,8 @@ export function ProviderHome() {
       announceIncomingJob(job);
     };
 
-    const channel = supabase
-      .channel('new-job-broadcast')
-      .on('broadcast', { event: 'new_job' }, handleNewJob)
-      .subscribe();
-    const rebroadcast = supabase
-      .channel('new-job-rebroadcast')
-      .on('broadcast', { event: 'new_job' }, handleNewJob)
-      .subscribe();
     // Per-provider targeted channel for tiered radius dispatch + tip notifications
+    // Global broadcast channels removed — all dispatch is now geographically targeted
     const providerChannel = supabase
       .channel(`provider-job-${user.id}`)
       .on('broadcast', { event: 'new_job' }, handleNewJob)
@@ -622,53 +615,23 @@ export function ProviderHome() {
 
     return () => {
       stopRequestRingtone();
-      supabase.removeChannel(channel);
-      supabase.removeChannel(rebroadcast);
       supabase.removeChannel(providerChannel);
     };
   }, [isOnline, user, navigate, announceIncomingJob]);
 
-  // Poll for pending jobs (backup in case broadcast is missed)
-  // Only show jobs still pending, never accepted, and less than 2 hours old
+  // Poll for eligible pending jobs via server-authoritative RPC
+  // The RPC enforces: distance <= max_job_radius, service match, location freshness,
+  // provider active/verified/online/not-busy — no distant jobs are exposed.
   const loadPending = useCallback(async () => {
     // Wait until dismissed IDs are loaded from DB to avoid showing dismissed jobs
     if (!dismissalsLoaded.current) return;
 
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
 
-    // Job expiry is handled server-side by the push worker (2-hour window).
-    // Here we just fetch pending jobs within that window.
-    const { data } = await supabase
-      .from('jobs')
-      .select('id, service_id, pickup_address, pickup_latitude, pickup_longitude, total_amount, base_price, created_at')
-      .eq('status', 'pending')
-      .is('provider_id', null)
-      .gte('created_at', twoHoursAgo)
-      .order('created_at', { ascending: false })
-      .limit(10);
+    const { data } = await supabase.rpc('get_eligible_pending_jobs_for_provider');
     if (data) {
-      // Filter out dismissed jobs and jobs for services we don't offer
-      const myServices = providerServicesRef.current;
-      let filtered = data.filter((j: any) => {
-        if (dismissedJobIds.current.has(j.id)) return false;
-        if (myServices.length > 0 && j.service_id && !myServices.includes(j.service_id)) return false;
-        return true;
-      });
-
-      // Sort by proximity to provider when location is available
-      const pos = currentPos;
-      if (pos) {
-        filtered = filtered.sort((a: any, b: any) => {
-          const distA = (a.pickup_latitude && a.pickup_longitude)
-            ? calcDistanceMiles(pos.lat, pos.lng, a.pickup_latitude, a.pickup_longitude)
-            : Infinity;
-          const distB = (b.pickup_latitude && b.pickup_longitude)
-            ? calcDistanceMiles(pos.lat, pos.lng, b.pickup_latitude, b.pickup_longitude)
-            : Infinity;
-          return distA - distB;
-        });
-      }
+      // Filter out dismissed jobs (server handles service/distance/eligibility)
+      let filtered = (data as any[]).filter((j: any) => !dismissedJobIds.current.has(j.id));
 
       // Only announce/ring for TRULY NEW jobs (created in last 2 minutes)
       // Older pending jobs show quietly in the list without popup/sound
@@ -682,7 +645,7 @@ export function ProviderHome() {
       filtered.forEach((j: any) => announcedJobIds.current.add(j.id));
       setPendingRequests(filtered);
     }
-  }, [announceIncomingJob, isOnline, currentPos]);
+  }, [announceIncomingJob, isOnline]);
 
   useEffect(() => {
     if (!isOnline || !user) {

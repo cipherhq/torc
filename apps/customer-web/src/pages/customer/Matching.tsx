@@ -226,13 +226,26 @@ export function Matching() {
       }
     }, 15000);
 
-    // Wave 3: global broadcast after 30 seconds
+    // Wave 3: bounded expansion to max_job_radius after 30 seconds
+    // No global broadcast — only providers within the authoritative max radius
     const wave3Timer = setTimeout(async () => {
       if (!(await isStillPending())) return;
-      const globalCh = supabase.channel('new-job-broadcast');
-      await globalCh.subscribe();
-      await globalCh.send({ type: 'broadcast', event: 'new_job', payload: jobPayload });
-      setTimeout(() => supabase.removeChannel(globalCh), 2000);
+      if (job.pickup_latitude && job.pickup_longitude) {
+        try {
+          // Use a large radius — get_nearby_providers caps at platform max_job_radius
+          const { data: wave3 } = await supabase.rpc('get_nearby_providers', {
+            p_pickup_lat: job.pickup_latitude,
+            p_pickup_lng: job.pickup_longitude,
+            p_radius_miles: 500, // capped server-side by max_job_radius (default 50)
+            p_service_id: job.service_id,
+          });
+          if (wave3?.length) {
+            await notifyProviders(wave3.map((p: any) => p.provider_id));
+          }
+        } catch (e) {
+          console.warn('Wave 3 dispatch error:', e);
+        }
+      }
     }, 30000);
 
     dispatchCleanupRef.current = () => {
