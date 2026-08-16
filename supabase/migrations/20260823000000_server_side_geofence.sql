@@ -315,7 +315,7 @@ BEGIN
   END IF;
 
   -- Check provider is active
-  SELECT status INTO v_provider_status FROM profiles WHERE id = v_provider_id;
+  SELECT p.status INTO v_provider_status FROM profiles p WHERE p.id = v_provider_id;
   IF v_provider_status IS DISTINCT FROM 'active' THEN
     RETURN;
   END IF;
