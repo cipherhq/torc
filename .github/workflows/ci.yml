@@ -2936,7 +2936,8 @@ jobs:
             RAISE NOTICE 'GEO-1 PASSED: nearby provider accepted (% miles)', result->>'distance_miles';
           END $$;
 
-          -- Reset for next tests
+          -- Reset for next tests (must reset role first since SET LOCAL persists in psql session)
+          RESET role;
           UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
@@ -3005,6 +3006,7 @@ jobs:
           END $$;
 
           -- Restore services
+          RESET role;
           UPDATE provider_profiles SET services = ARRAY['test-svc-geo'] WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
 
           -- GEO-7: Invalid provider latitude (91) → rejected
@@ -3045,6 +3047,7 @@ jobs:
           END $$;
 
           -- Restore pickup
+          RESET role;
           UPDATE jobs SET pickup_latitude = 38.8977 WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
 
           -- GEO-10: Stale immediate location (>5 min) → rejected
@@ -3073,6 +3076,7 @@ jobs:
           END $$;
 
           -- Restore online
+          RESET role;
           UPDATE provider_profiles SET is_online = true WHERE id = 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid;
 
           -- GEO-12: Fresh eligible provider → accepted
@@ -3087,6 +3091,7 @@ jobs:
           END $$;
 
           -- Reset for scheduled test
+          RESET role;
           UPDATE jobs SET status = 'pending', provider_id = NULL, accepted_at = NULL WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM notifications WHERE user_id = 'aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid;
@@ -3119,6 +3124,7 @@ jobs:
           END $$;
 
           -- Cleanup
+          RESET role;
           DELETE FROM job_events WHERE job_id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
           DELETE FROM notifications WHERE user_id IN ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa'::uuid, 'aaaaaaaa-2222-2222-2222-aaaaaaaaaaaa'::uuid);
           DELETE FROM jobs WHERE id = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa'::uuid;
