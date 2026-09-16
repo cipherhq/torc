@@ -56,3 +56,13 @@ Thumbs.db
 *.jks
 *.keystore
 **/keystore.properties
+
+# local env files
+.env.*
+!.env.example
+!.env.production
+!.env.internal
+.claude/
+test-results/
+demo-builds/
+*_backup.sql
