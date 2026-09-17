@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.torc.provider',
+  appId: 'com.torctechnologies.provider',
   appName: 'TORC Pro',
   webDir: 'dist',
   server: {
