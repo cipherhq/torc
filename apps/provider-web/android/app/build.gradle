@@ -12,10 +12,10 @@ android {
     namespace = "com.torc.provider"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.torc.provider"
+        applicationId "com.torcapp.provider"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
+        versionCode 11
         versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

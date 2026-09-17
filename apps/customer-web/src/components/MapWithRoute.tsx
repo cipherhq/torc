@@ -103,11 +103,7 @@ export function MapWithRoute({ providerPosition, customerPosition, showRoute = t
             }}
             r="0.5"
             fill="#008CE5"
-          >
-            <animateMotion dur="3s" repeatCount="indefinite">
-              <mpath href="#route-path" />
-            </animateMotion>
-          </motion.circle>
+          />
         </svg>
       )}
 
