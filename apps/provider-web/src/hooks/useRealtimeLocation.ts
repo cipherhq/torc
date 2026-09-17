@@ -103,12 +103,24 @@ export function useRealtimeLocation({ jobId, role, enabled = true }: UseRealtime
   };
 }
 
-export function useWatchPosition(enabled = true) {
+export type DutyStatus = 'OFFLINE' | 'IDLE' | 'EN_ROUTE' | 'ON_JOB';
+
+export function useWatchPosition(enabled = true, dutyStatus: DutyStatus = 'IDLE') {
+  // GPS is fully stopped when disabled or provider is offline
+  const active = enabled && dutyStatus !== 'OFFLINE';
+
   const [position, setPosition] = useState<{ lat: number; lng: number; heading: number | null; speed: number | null } | null>(null);
   const watchIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!active) {
+      // Stop existing watcher when going offline
+      if (watchIdRef.current) {
+        import('../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchIdRef.current));
+        watchIdRef.current = null;
+      }
+      return;
+    }
     let cancelled = false;
 
     async function start() {
@@ -126,9 +138,10 @@ export function useWatchPosition(enabled = true) {
       cancelled = true;
       if (watchIdRef.current) {
         import('../utils/safeLocation').then(({ safeClearWatch }) => safeClearWatch(watchIdRef.current));
+        watchIdRef.current = null;
       }
     };
-  }, [enabled]);
+  }, [active]);
 
   return position;
 }
