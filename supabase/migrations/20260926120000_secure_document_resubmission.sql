@@ -32,6 +32,15 @@ BEGIN
   IF v_document.status <> 'rejected' THEN
     RETURN jsonb_build_object('success', false, 'error', 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED');
   END IF;
+  -- Storage objects are namespaced by provider and document type. Never trust
+  -- a client-supplied path to point at another provider's object.
+  IF split_part(p_file_path, '/', 1) <> v_actor::text
+     OR split_part(p_file_path, '/', 2) <> v_document.type
+     OR p_file_path LIKE '/%'
+     OR p_file_path LIKE '%//%'
+     OR p_file_path ~ '(^|/)\.\.?(/|$)' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'INVALID_STORAGE_PATH');
+  END IF;
   IF p_file_path IS NULL OR length(trim(p_file_path)) = 0
      OR p_file_name IS NULL OR length(trim(p_file_name)) = 0
      OR p_file_size IS NULL OR p_file_size < 0 THEN
@@ -41,7 +50,7 @@ BEGIN
   UPDATE public.documents
   SET file_path = p_file_path,
       file_name = p_file_name,
-      file_url = p_file_url,
+      file_url = NULL,
       mime_type = p_mime_type,
       file_size = p_file_size,
       status = 'pending',

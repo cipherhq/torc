@@ -13,6 +13,11 @@ describe('provider document authority contract', () => {
     expect(source).not.toContain('reviewed_at: null');
   });
 
+  it('sends provider-scoped storage paths and does not submit public URLs', () => {
+    expect(source).toContain('p_file_path: storagePath');
+    expect(source).toContain('p_file_url: null');
+  });
+
   it('does not expose provider expiry mutation or optimistic false state', () => {
     expect(source).toContain('handleUpdateExpiry');
     expect(source).not.toContain(".update({ expires_at");

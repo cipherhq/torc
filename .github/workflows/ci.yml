@@ -351,7 +351,10 @@ jobs:
             provider_id UUID NOT NULL,
             type VARCHAR REFERENCES public.document_types(id),
             file_url TEXT,
+            file_path TEXT,
             file_name VARCHAR,
+            mime_type TEXT,
+            file_size BIGINT,
             status TEXT DEFAULT 'pending',
             admin_notes TEXT,
             expires_at DATE,
@@ -4291,6 +4294,143 @@ jobs:
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
 
           DO $$ BEGIN RAISE NOTICE 'All 11 CANCEL-AUTH-001 tests passed.'; END $$;
+          SQL
+      - name: Apply document review migrations for behavior test
+        run: |
+          set -euo pipefail
+          for f in \
+            supabase/migrations/20260922090000_protect_provider_document_review.sql \
+            supabase/migrations/20260926110000_admin_authoritative_role_change.sql \
+            supabase/migrations/20260926120000_secure_document_resubmission.sql; do
+            echo "Executing behavior-test migration: $f"
+            psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Test provider document resubmission behavior (DOC-RESUBMIT-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Behavioral coverage for the provider document review guard and RPC.
+          INSERT INTO document_types (id, name, is_required, is_active)
+          VALUES ('doc-resubmit', 'Resubmission Test', false, true)
+          ON CONFLICT (id) DO NOTHING;
+          INSERT INTO auth.users (id, email) VALUES
+            ('f1000000-0000-0000-0000-000000000001'::uuid, 'doc-provider-a@test.com'),
+            ('f2000000-0000-0000-0000-000000000002'::uuid, 'doc-provider-b@test.com'),
+            ('f3000000-0000-0000-0000-000000000003'::uuid, 'doc-admin@test.com')
+          ON CONFLICT (id) DO NOTHING;
+          INSERT INTO profiles (id, email, role, status) VALUES
+            ('f1000000-0000-0000-0000-000000000001'::uuid, 'doc-provider-a@test.com', 'provider', 'active'),
+            ('f2000000-0000-0000-0000-000000000002'::uuid, 'doc-provider-b@test.com', 'provider', 'active'),
+            ('f3000000-0000-0000-0000-000000000003'::uuid, 'doc-admin@test.com', 'admin', 'active')
+          ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
+
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f1000000-0000-0000-0000-000000000001'::uuid;
+          $$;
+
+          -- Initial provider upload must be a clean pending row.
+          SET ROLE authenticated;
+          INSERT INTO documents (id, provider_id, type, file_path, file_name, mime_type, file_size, status)
+          VALUES ('f4000000-0000-0000-0000-000000000004'::uuid, 'f1000000-0000-0000-0000-000000000001'::uuid, 'doc-resubmit',
+                  'f1000000-0000-0000-0000-000000000001/doc-resubmit/initial.pdf',
+                  'initial.pdf', 'application/pdf', 10, 'pending');
+          DO $$ DECLARE r documents%ROWTYPE; BEGIN
+            SELECT * INTO r FROM documents WHERE provider_id = 'f1000000-0000-0000-0000-000000000001'::uuid AND type = 'doc-resubmit';
+            ASSERT r.status = 'pending' AND r.reviewed_by IS NULL AND r.reviewed_at IS NULL, 'DOC-1 FAILED';
+            RAISE NOTICE 'DOC-1 PASSED: initial provider upload is clean pending';
+          END $$;
+
+          -- Direct provider attempts to self-approve or forge review/expiry fields.
+          DO $$
+          DECLARE failed boolean;
+          BEGIN
+            failed := false;
+            BEGIN UPDATE documents SET status = 'approved' WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-2 FAILED: provider self-approval was allowed';
+            failed := false;
+            BEGIN UPDATE documents SET reviewed_by = 'f3000000-0000-0000-0000-000000000003'::uuid WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-3 FAILED: provider reviewer forge was allowed';
+            failed := false;
+            BEGIN UPDATE documents SET reviewed_at = now() WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-4 FAILED: provider review timestamp forge was allowed';
+            failed := false;
+            BEGIN UPDATE documents SET expires_at = '2030-01-01'::date WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-5 FAILED: provider expiry mutation was allowed';
+            RAISE NOTICE 'DOC-2..5 PASSED: direct provider review mutations blocked';
+          END $$;
+
+          -- Admin rejection records the reviewer and timestamp.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f3000000-0000-0000-0000-000000000003'::uuid;
+          $$;
+          SET ROLE authenticated;
+          UPDATE documents
+          SET status = 'rejected', rejection_reason = 'Unreadable', reviewed_by = auth.uid(),
+              reviewed_at = now(), expires_at = '2030-01-01'::date
+          WHERE provider_id = 'f1000000-0000-0000-0000-000000000001'::uuid AND type = 'doc-resubmit';
+          DO $$ BEGIN
+            ASSERT (SELECT status = 'rejected' AND reviewed_by = 'f3000000-0000-0000-0000-000000000003'::uuid FROM documents WHERE provider_id = 'f1000000-0000-0000-0000-000000000001'::uuid AND type = 'doc-resubmit'), 'DOC-6 FAILED';
+            RAISE NOTICE 'DOC-6 PASSED: admin rejection records review metadata';
+          END $$;
+
+          -- Another provider cannot resubmit this row.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f2000000-0000-0000-0000-000000000002'::uuid;
+          $$;
+          SET ROLE authenticated;
+          DO $$ DECLARE result jsonb; BEGIN
+            SELECT resubmit_provider_document('f4000000-0000-0000-0000-000000000004'::uuid, 'f2000000-0000-0000-0000-000000000002/doc-resubmit/foreign.pdf', 'foreign.pdf', 'application/pdf', 12) INTO result;
+            ASSERT result->>'error' = 'DOCUMENT_NOT_FOUND', 'DOC-7 FAILED: foreign owner could resubmit';
+            RAISE NOTICE 'DOC-7 PASSED: different provider cannot resubmit document';
+          END $$;
+
+          -- Owner must use its own provider/type namespace; malformed and foreign paths fail.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f1000000-0000-0000-0000-000000000001'::uuid;
+          $$;
+          SET ROLE authenticated;
+          DO $$ DECLARE result jsonb; v_id uuid; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f2000000-0000-0000-0000-000000000002/doc-resubmit/foreign.pdf', 'foreign.pdf', 'application/pdf', 12) INTO result;
+            ASSERT result->>'error' = 'INVALID_STORAGE_PATH', 'DOC-8 FAILED: foreign path accepted';
+            SELECT resubmit_provider_document(v_id, 'malformed-path', 'bad.pdf', 'application/pdf', 12) INTO result;
+            ASSERT result->>'error' = 'INVALID_STORAGE_PATH', 'DOC-9 FAILED: malformed path accepted';
+            RAISE NOTICE 'DOC-8..9 PASSED: storage namespace binding enforced';
+          END $$;
+
+          -- Owner resubmission clears all admin review fields and stores new metadata.
+          DO $$ DECLARE result jsonb; v_id uuid; r documents%ROWTYPE; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/replacement.pdf', 'replacement.pdf', 'application/pdf', 42, 'https://untrusted.invalid/public.pdf') INTO result;
+            ASSERT result->>'success' = 'true', 'DOC-10 FAILED: owner resubmission rejected: ' || result::text;
+            SELECT * INTO r FROM documents WHERE id = v_id;
+            ASSERT r.status = 'pending' AND r.rejection_reason IS NULL AND r.reviewed_by IS NULL AND r.reviewed_at IS NULL AND r.expires_at IS NULL, 'DOC-10 FAILED: review fields not cleared';
+            ASSERT r.file_path = 'f1000000-0000-0000-0000-000000000001/doc-resubmit/replacement.pdf' AND r.file_name = 'replacement.pdf' AND r.file_size = 42 AND r.file_url IS NULL, 'DOC-10 FAILED: replacement metadata incorrect';
+            RAISE NOTICE 'DOC-10 PASSED: rejected document resubmitted to clean pending state';
+          END $$;
+
+          -- Only rejected rows may use the RPC; approved/pending and direct transition remain blocked.
+          DO $$ DECLARE result jsonb; v_id uuid; failed boolean; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/not-allowed.pdf', 'not-allowed.pdf', 'application/pdf', 1) INTO result;
+            ASSERT result->>'error' = 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED', 'DOC-11 FAILED: pending row accepted';
+            UPDATE documents SET status = 'approved' WHERE id = v_id;
+            SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/not-allowed.pdf', 'not-allowed.pdf', 'application/pdf', 1) INTO result;
+            ASSERT result->>'error' = 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED', 'DOC-12 FAILED: approved row accepted';
+            failed := false;
+            BEGIN UPDATE documents SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = v_id; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-13 FAILED: direct protected transition was allowed';
+            RAISE NOTICE 'DOC-11..13 PASSED: RPC and direct transition state guards enforced';
+          END $$;
+
+          SET ROLE postgres;
+          DELETE FROM documents WHERE provider_id IN ('f1000000-0000-0000-0000-000000000001'::uuid, 'f2000000-0000-0000-0000-000000000002'::uuid);
+          DELETE FROM profiles WHERE id IN ('f1000000-0000-0000-0000-000000000001'::uuid, 'f2000000-0000-0000-0000-000000000002'::uuid, 'f3000000-0000-0000-0000-000000000003'::uuid);
+          DELETE FROM auth.users WHERE id IN ('f1000000-0000-0000-0000-000000000001'::uuid, 'f2000000-0000-0000-0000-000000000002'::uuid, 'f3000000-0000-0000-0000-000000000003'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+          DO $$ BEGIN RAISE NOTICE 'All 13 DOC-RESUBMIT-001 PostgreSQL behavior tests passed.'; END $$;
           SQL
       - name: Test claim-token ownership RPCs
         run: |

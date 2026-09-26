@@ -10,8 +10,8 @@ export interface AdminSession {
 // approval, team-management, analytics and audit mutation surfaces remain
 // administrator-only at the route layer (DB policies remain authoritative).
 export const SUPPORT_ALLOWED_PATHS = new Set([
-  '/dashboard', '/notifications', '/jobs', '/live-dispatch',
-  '/users', '/providers', '/documents', '/directory', '/support-tickets',
+  '/dashboard', '/jobs', '/live-dispatch',
+  '/users', '/providers', '/documents', '/support-tickets',
 ]);
 
 export function canAccessAdminPath(role: AdminSession['role'], pathname: string): boolean {
