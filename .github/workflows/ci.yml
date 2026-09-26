@@ -4477,6 +4477,12 @@ jobs:
           CREATE POLICY "Fixture staff can manage tickets" ON public.support_tickets FOR ALL TO authenticated
             USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'support')))
             WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'support')));
+          DROP POLICY IF EXISTS "Fixture requester can view tickets" ON public.support_tickets;
+          CREATE POLICY "Fixture requester can view tickets" ON public.support_tickets FOR SELECT TO authenticated
+            USING (requester_id = auth.uid());
+          DROP POLICY IF EXISTS "Fixture requester can create tickets" ON public.support_tickets;
+          CREATE POLICY "Fixture requester can create tickets" ON public.support_tickets FOR INSERT TO authenticated
+            WITH CHECK (requester_id = auth.uid());
           CREATE OR REPLACE FUNCTION public.is_support_or_admin(actor_id uuid)
           RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public AS $$
             SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = actor_id AND role IN ('admin', 'support'));
