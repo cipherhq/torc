@@ -462,7 +462,7 @@ jobs:
           CREATE TABLE IF NOT EXISTS public.support_tickets (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             requester_id UUID,
-            requester_role public.user_role,
+            requester_role TEXT,
             subject TEXT,
             description TEXT,
             priority TEXT,
