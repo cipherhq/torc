@@ -357,9 +357,11 @@ jobs:
             file_size BIGINT,
             status TEXT DEFAULT 'pending',
             admin_notes TEXT,
+            rejection_reason TEXT,
             expires_at DATE,
             reviewed_by UUID,
             reviewed_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ DEFAULT now(),
             created_at TIMESTAMPTZ DEFAULT now(),
             UNIQUE(provider_id, type)
           );
@@ -4411,18 +4413,37 @@ jobs:
             RAISE NOTICE 'DOC-10 PASSED: rejected document resubmitted to clean pending state';
           END $$;
 
-          -- Only rejected rows may use the RPC; approved/pending and direct transition remain blocked.
-          DO $$ DECLARE result jsonb; v_id uuid; failed boolean; BEGIN
+          -- Only rejected rows may use the RPC; pending rows are rejected.
+          DO $$ DECLARE result jsonb; v_id uuid; BEGIN
             SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
             SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/not-allowed.pdf', 'not-allowed.pdf', 'application/pdf', 1) INTO result;
             ASSERT result->>'error' = 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED', 'DOC-11 FAILED: pending row accepted';
-            UPDATE documents SET status = 'approved' WHERE id = v_id;
+            RAISE NOTICE 'DOC-11 PASSED: pending row cannot be resubmitted';
+          END $$;
+
+          -- Only an admin can create an approved/reviewed row for the next state-guard assertion.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f3000000-0000-0000-0000-000000000003'::uuid;
+          $$;
+          SET ROLE authenticated;
+          UPDATE documents
+          SET status = 'approved', reviewed_by = auth.uid(), reviewed_at = now()
+          WHERE id = 'f4000000-0000-0000-0000-000000000004'::uuid;
+
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f1000000-0000-0000-0000-000000000001'::uuid;
+          $$;
+          SET ROLE authenticated;
+          DO $$ DECLARE result jsonb; v_id uuid; failed boolean; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
             SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/not-allowed.pdf', 'not-allowed.pdf', 'application/pdf', 1) INTO result;
             ASSERT result->>'error' = 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED', 'DOC-12 FAILED: approved row accepted';
             failed := false;
             BEGIN UPDATE documents SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = v_id; EXCEPTION WHEN OTHERS THEN failed := true; END;
             ASSERT failed, 'DOC-13 FAILED: direct protected transition was allowed';
-            RAISE NOTICE 'DOC-11..13 PASSED: RPC and direct transition state guards enforced';
+            RAISE NOTICE 'DOC-12..13 PASSED: approved RPC and direct transition state guards enforced';
           END $$;
 
           SET ROLE postgres;
