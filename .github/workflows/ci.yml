@@ -4303,7 +4303,8 @@ jobs:
           for f in \
             supabase/migrations/20260922090000_protect_provider_document_review.sql \
             supabase/migrations/20260926110000_admin_authoritative_role_change.sql \
-            supabase/migrations/20260926120000_secure_document_resubmission.sql; do
+            supabase/migrations/20260926120000_secure_document_resubmission.sql \
+            supabase/migrations/20260926202107_harden_resubmit_provider_document_grants.sql; do
             echo "Executing behavior-test migration: $f"
             psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
           done
