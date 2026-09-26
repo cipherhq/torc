@@ -5644,6 +5644,33 @@ jobs:
             fi
           done
           echo "OK: no secrets in native configs"
+      - name: Verify iOS identity chain matches Firebase configuration
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import plistlib
+          import re
+          from pathlib import Path
+
+          apps = {
+              "customer-web": "com.torctechnologies.customer",
+              "provider-web": "com.torctechnologies.provider",
+          }
+          for app, expected in apps.items():
+              capacitor = Path(f"apps/{app}/capacitor.config.ts").read_text()
+              capacitor_ids = re.findall(r"\bappId\s*:\s*['\"]([^'\"]+)", capacitor)
+              xcode = Path(f"apps/{app}/ios/App/App.xcodeproj/project.pbxproj").read_text()
+              xcode_ids = sorted(set(re.findall(r"PRODUCT_BUNDLE_IDENTIFIER\s*=\s*([^;]+);", xcode)))
+              plist = plistlib.loads(Path(f"apps/{app}/ios/App/App/GoogleService-Info.plist").read_bytes())
+              firebase_id = plist.get("BUNDLE_ID")
+              if capacitor_ids != [expected]:
+                  raise SystemExit(f"FAIL: {app} Capacitor appId={capacitor_ids!r}; expected {expected}")
+              if xcode_ids != [expected]:
+                  raise SystemExit(f"FAIL: {app} Xcode PRODUCT_BUNDLE_IDENTIFIER={xcode_ids!r}; expected {expected}")
+              if firebase_id != expected:
+                  raise SystemExit(f"FAIL: {app} Firebase BUNDLE_ID={firebase_id!r}; expected {expected}")
+              print(f"OK: {app} Capacitor/Xcode/Firebase identity={expected}")
+          PY
       - name: Verify Android targetSdk meets release requirement (>= 36)
         run: |
           set -euo pipefail
