@@ -462,7 +462,11 @@ jobs:
           CREATE TABLE IF NOT EXISTS public.support_tickets (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             requester_id UUID,
-            requester_role public.user_role
+            requester_role public.user_role,
+            subject TEXT,
+            description TEXT,
+            priority TEXT,
+            status TEXT
           );
           \i supabase/migrations/20260924210000_support_roles_service_regions.sql
           GRANT ALL ON TABLE public.service_availability_rules TO anon, authenticated;
