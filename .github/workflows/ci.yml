@@ -117,6 +117,11 @@ jobs:
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
           CREATE SCHEMA IF NOT EXISTS auth;
+          DO $$
+          BEGIN
+            CREATE TYPE public.user_role AS ENUM ('customer', 'provider', 'admin');
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END $$;
           CREATE TABLE IF NOT EXISTS auth.users (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             email TEXT,
@@ -170,7 +175,7 @@ jobs:
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" <<'SQL'
           CREATE TABLE IF NOT EXISTS public.profiles (
             id UUID PRIMARY KEY REFERENCES auth.users(id),
-            role TEXT,
+            role public.user_role,
             email TEXT,
             first_name TEXT,
             last_name TEXT,
@@ -454,14 +459,6 @@ jobs:
           -- The ephemeral database does not reproduce Supabase default grants by itself.
           -- Create the prerequisite enum, apply the real table migration, then deliberately
           -- simulate broad existing grants before applying the forward ACL hardening migration.
-          DO $$
-          BEGIN
-            CREATE TYPE public.user_role AS ENUM ('customer', 'provider', 'admin');
-          EXCEPTION WHEN duplicate_object THEN NULL;
-          END $$;
-          ALTER TABLE public.profiles
-            ALTER COLUMN role TYPE public.user_role
-            USING CASE WHEN role IS NULL THEN NULL ELSE role::public.user_role END;
           \i supabase/migrations/20260924210000_support_roles_service_regions.sql
           GRANT ALL ON TABLE public.service_availability_rules TO anon, authenticated;
           CREATE TEMP TABLE service_availability_acl_before AS
