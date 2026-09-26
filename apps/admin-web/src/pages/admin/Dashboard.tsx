@@ -34,9 +34,28 @@ export function canQueryAdminDashboardFinancials(role: 'admin' | 'support') {
 
 export function visibleDashboardActionLabels(role: 'admin' | 'support') {
   const adminOnly = new Set(['Manage Payouts', 'Financial Hub', 'Reporting Hub']);
-  return role === 'support' ? ['Approve Providers', 'Manage Users', 'Review Documents', 'Live Dispatch', 'Service Pricing', 'Support Tickets'] : [
+  return role === 'support' ? ['Approve Providers', 'Manage Users', 'Review Documents', 'Live Dispatch', 'Support Tickets'] : [
     'Approve Providers', 'Manage Users', 'Review Documents', 'Manage Payouts', 'Live Dispatch', 'Service Pricing', 'Support Tickets', 'Financial Hub', 'Reporting Hub',
   ].filter((label) => !adminOnly.has(label) || role === 'admin');
+}
+
+export function providerPerformanceShowsEarnings(role: 'admin' | 'support') {
+  return role === 'admin';
+}
+
+export function getProviderPerformanceRows(rows: any[], role: 'admin' | 'support') {
+  return rows
+    .map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      rating: Number(row.rating || 0),
+      jobs: Number(row.jobs || 0),
+      ...(role === 'admin' ? { earnings: Number(row.earnings || 0) } : {}),
+    }))
+    .sort((a, b) => role === 'admin'
+      ? (b.earnings - a.earnings || b.rating - a.rating)
+      : (b.rating - a.rating || b.jobs - a.jobs))
+    .slice(0, 5);
 }
 
 export function AdminDashboard() {
@@ -121,8 +140,10 @@ export function AdminDashboard() {
         let providerProfileRows: any[] = [];
         try {
           const { data, error } = await supabase
-            .from('provider_profiles')
-            .select('id, is_online, is_verified, created_at');
+          .from('provider_profiles')
+            .select(isSupport
+              ? 'id, is_online, is_verified, created_at, rating, total_jobs'
+              : 'id, is_online, is_verified, created_at, rating, total_jobs, total_earnings');
           if (error) throw error;
           providerProfileRows = data || [];
         } catch {
@@ -234,10 +255,9 @@ export function AdminDashboard() {
           .map((row: any) => {
             const profile = providerRoleMap.get(row.id) || {};
             return { id: row.id, name: profile.full_name || profile.email || row.id.slice(0, 8), rating: Number(row.rating || 0), jobs: Number(row.total_jobs || 0), earnings: Number(row.total_earnings || 0) };
-          })
-          .sort((a: any, b: any) => b.earnings - a.earnings || b.rating - a.rating)
-          .slice(0, 5);
-        setTopProviderRows(providerStats);
+          });
+        const visibleProviderStats = getProviderPerformanceRows(providerStats, role);
+        setTopProviderRows(visibleProviderStats);
 
         const { data: urgentTickets } = await supabase
           .from('support_tickets')
@@ -533,7 +553,7 @@ export function AdminDashboard() {
                   <p className="text-xs text-gray-400 font-semibold">#{index + 1} · {row.rating.toFixed(1)} ★</p>
                   <p className="text-gray-900 font-semibold truncate mt-1">{row.name}</p>
                   <p className="text-gray-500 text-xs mt-2">{row.jobs} jobs</p>
-                  <p className="text-[#008CE5] font-bold mt-1">${row.earnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  {providerPerformanceShowsEarnings(role) && <p className="text-[#008CE5] font-bold mt-1">${row.earnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
                 </div>
               ))}
             </div>
