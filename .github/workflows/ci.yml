@@ -501,7 +501,7 @@ jobs:
             ), 'SERVICE-ACL-016 FAILED: PUBLIC ACL still grants table privileges';
             ASSERT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'service_availability_rules' AND policyname = 'Anyone can view active service availability'), 'SERVICE-ACL-017 FAILED: SELECT policy missing';
             ASSERT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'service_availability_rules' AND policyname = 'Admins manage service availability'), 'SERVICE-ACL-018 FAILED: admin policy missing';
-            ASSERT (SELECT rowsecurity FROM pg_class WHERE oid = 'public.service_availability_rules'::regclass), 'SERVICE-ACL-019 FAILED: RLS disabled';
+            ASSERT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.service_availability_rules'::regclass), 'SERVICE-ACL-019 FAILED: RLS disabled';
             ASSERT (SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'service_availability_rules' AND indexname IN ('service_availability_rules_service_idx', 'service_availability_rules_location_idx')) = 2, 'SERVICE-ACL-020 FAILED: expected indexes missing';
             RAISE NOTICE 'All 20 SERVICE-ACL-001 regression assertions passed.';
           END $$;
