@@ -140,9 +140,14 @@ export function ProviderDocuments() {
       documentConfig.forEach(dc => { next[dc.id] = null; });
       // Also include fallback keys so old documents still show
       fallbackConfig.forEach(dc => { if (!(dc.id in next)) next[dc.id] = null; });
-      (data || []).forEach((row: any) => {
-        next[row.type] = row as DocumentRecord;
-      });
+      await Promise.all((data || []).map(async (row: any) => {
+        let fileUrl = row.file_url || null;
+        if (row.file_path) {
+          const signed = await supabase.storage.from('provider-documents').createSignedUrl(row.file_path, 300);
+          fileUrl = signed.data?.signedUrl || null;
+        }
+        next[row.type] = { ...row, file_url: fileUrl } as DocumentRecord;
+      }));
       setDocuments(next);
     } catch (error: any) {
       console.warn('Failed to load provider documents:', error);
@@ -198,14 +203,31 @@ export function ProviderDocuments() {
       // From this point, any failure must attempt cleanup of storagePath
       uploadedPath = storagePath;
 
-      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
-      const fileUrl = publicData?.publicUrl || null;
+      // Rejected rows are resubmitted through a server-authoritative RPC. This
+      // clears reviewer metadata atomically; providers cannot forge review data
+      // through a direct table update.
+      const existingDocument = documents[docId];
+      if (existingDocument?.status === 'rejected' && existingDocument.id) {
+        const { error: resubmitError } = await supabase.rpc('resubmit_provider_document', {
+          p_document_id: existingDocument.id,
+          p_file_path: storagePath,
+          p_file_name: file.name,
+          p_mime_type: file.type,
+          p_file_size: file.size,
+          p_file_url: null,
+        });
+        if (resubmitError) throw resubmitError;
+        dbPersisted = true;
+        oldReplacedPath = existingPath.path;
+        await loadDocuments();
+        return;
+      }
 
       const basePayload = {
         provider_id: providerId,
         type: docId,
         file_name: file.name,
-        file_url: fileUrl,
+        file_url: null,
         mime_type: file.type,
         file_size: file.size,
         status: 'pending',
@@ -375,12 +397,26 @@ export function ProviderDocuments() {
 
       uploadedPath = storagePath;
 
-      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
-      const fileUrl = publicData?.publicUrl || null;
+      const existingDocument = documents[docId];
+      if (existingDocument?.status === 'rejected' && existingDocument.id) {
+        const { error: resubmitError } = await supabase.rpc('resubmit_provider_document', {
+          p_document_id: existingDocument.id,
+          p_file_path: storagePath,
+          p_file_name: fileName,
+          p_mime_type: mimeType,
+          p_file_size: blob.size,
+          p_file_url: null,
+        });
+        if (resubmitError) throw resubmitError;
+        dbPersisted = true;
+        oldReplacedPath = existingPath.path;
+        await loadDocuments();
+        return;
+      }
 
       const payload = {
         provider_id: providerId, type: docId, file_name: fileName,
-        file_url: fileUrl, file_path: storagePath, mime_type: mimeType,
+        file_url: null, file_path: storagePath, mime_type: mimeType,
         file_size: blob.size, status: 'pending', rejection_reason: null,
       };
 
@@ -445,24 +481,10 @@ export function ProviderDocuments() {
     }
   }
 
-  async function handleUpdateExpiry(docType: string, expiryDate: string | null) {
-    if (!user) return;
-    try {
-      const authUser = await getActiveProviderUser();
-      await supabase
-        .from('documents')
-        .update({ expires_at: expiryDate || null })
-        .eq('provider_id', authUser.id)
-        .eq('type', docType);
-      // Update local state
-      setDocuments(prev => {
-        const doc = prev[docType];
-        if (!doc) return prev;
-        return { ...prev, [docType]: { ...doc, expires_at: expiryDate } };
-      });
-    } catch (error: any) {
-      console.warn('Failed to update expiry date:', error);
-    }
+  // Expiry is assigned and changed only by authorized Admin review. Keep this
+  // handler as a defensive no-op for stale UI events from older clients.
+  async function handleUpdateExpiry(_docType: string, _expiryDate: string | null) {
+    setPageError('Expiry dates are managed by TORC administrators.');
   }
 
   const handleSubmit = async () => {
@@ -673,19 +695,19 @@ export function ProviderDocuments() {
                         <input
                           type="date"
                           value={upload.expires_at || ''}
-                          onChange={(e) => handleUpdateExpiry(doc.id, e.target.value || null)}
-                          disabled={isLocked}
-                          placeholder="Select date"
+                          readOnly
+                          disabled
+                          aria-label={`${doc.name} expiry date (managed by TORC)`}
                           className="w-full rounded-xl text-sm outline-none transition-colors"
                           style={{
                             height: '48px',
                             paddingLeft: '42px',
                             paddingRight: '14px',
-                            backgroundColor: isLocked ? (isDark ? 'rgba(255,255,255,0.03)' : '#F3F4F6') : (isDark ? 'rgba(255,255,255,0.06)' : '#FFFFFF'),
-                            border: `1.5px solid ${isLocked ? (isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB') : (isDark ? 'rgba(255,255,255,0.12)' : '#D3E0F2')}`,
-                            color: isLocked ? (isDark ? 'rgba(255,255,255,0.25)' : '#9CA3AF') : upload.expires_at ? (isDark ? '#FFFFFF' : '#14263D') : (isDark ? 'rgba(255,255,255,0.35)' : '#9CA3AF'),
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F3F4F6',
+                            border: `1.5px solid ${isDark ? 'rgba(255,255,255,0.06)' : '#E5E7EB'}`,
+                            color: isDark ? 'rgba(255,255,255,0.25)' : '#9CA3AF',
                             colorScheme: isDark ? 'dark' : 'light',
-                            opacity: isLocked ? 0.6 : 1,
+                            opacity: 0.8,
                           }}
                         />
                       </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { AdminLayout } from '../../components/AdminLayout';
+import { AdminLayout, useAdminRole } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import {
   Users, Search, RefreshCw, UserCheck, UserX, Shield, Mail, Phone,
@@ -45,6 +45,8 @@ interface UserJob {
 type FilterTab = 'all' | 'customers' | 'providers' | 'admins' | 'suspended';
 
 export function AdminUsers() {
+  const adminRole = useAdminRole();
+  const canMutate = adminRole === 'admin';
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -264,26 +266,19 @@ export function AdminUsers() {
           last_name: editForm.last_name,
           full_name: `${editForm.first_name} ${editForm.last_name}`.trim(),
           phone: editForm.phone,
-          role: editForm.role,
           updated_at: new Date().toISOString(),
         })
         .eq('id', editingUser.id);
 
       if (updateError) throw updateError;
 
-      const { data: session } = await supabase.auth.getSession();
-      if (session?.session?.user?.id) {
-        await supabase.from('admin_audit_logs').insert({
-          actor_id: session.session.user.id,
-          action: 'edit_user',
-          entity_type: 'profile',
-          entity_id: editingUser.id,
-          details: {
-            changes: editForm,
-            previous_role: editingUser.role,
-            new_role: editForm.role,
-          },
+      if (editingUser.role !== editForm.role) {
+        const { data: roleResult, error: roleError } = await supabase.rpc('admin_change_profile_role', {
+          p_user_id: editingUser.id,
+          p_new_role: editForm.role,
         });
+        if (roleError) throw roleError;
+        if (!roleResult?.success) throw new Error(roleResult?.message || roleResult?.error || 'Role change was rejected');
       }
 
       setProfiles(prev =>
@@ -608,7 +603,7 @@ export function AdminUsers() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex flex-wrap items-center gap-3 mt-5 pt-4 border-t border-gray-100">
+                      {canMutate && <div className="flex flex-wrap items-center gap-3 mt-5 pt-4 border-t border-gray-100">
                         <motion.button
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
@@ -643,7 +638,7 @@ export function AdminUsers() {
                           </motion.button>
                         )}
 
-                      </div>
+                      </div>}
 
                       {/* User ID */}
                       <p className="text-gray-500 text-xs mt-3">ID: {profile.id}</p>

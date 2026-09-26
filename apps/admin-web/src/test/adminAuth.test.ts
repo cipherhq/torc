@@ -159,6 +159,7 @@ describe('requireAdminSession', () => {
     expect(result).toEqual({
       userId: 'admin-1',
       email: 'admin@torcapp.com',
+      role: 'admin',
     });
   });
 

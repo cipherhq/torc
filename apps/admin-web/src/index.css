@@ -3311,3 +3311,20 @@ body {
     opacity: .5;
   }
 }
+
+/* Admin visual system: quiet canvas, high-contrast content, and consistent focus. */
+.admin-shell { background: #f5f8fc; color: #172033; }
+.admin-main { background: radial-gradient(circle at 85% -10%, rgba(0,140,229,.08), transparent 32rem), #f5f8fc; }
+.admin-topbar { background: rgba(255,255,255,.84); border-bottom: 1px solid rgba(148,163,184,.18); backdrop-filter: blur(16px); }
+.admin-sidebar { background: rgba(255,255,255,.96); border-right: 1px solid rgba(148,163,184,.2); box-shadow: 8px 0 28px rgba(15,23,42,.04); }
+.admin-sidebar button, .admin-sidebar a { transition: background-color .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.admin-sidebar button:hover, .admin-sidebar a:hover { box-shadow: 0 5px 16px rgba(15,23,42,.06); }
+.admin-role-pill { display: inline-flex; align-items: center; gap: .35rem; border-radius: 999px; padding: .42rem .7rem; font-size: .72rem; font-weight: 700; }
+.admin-role-pill--admin { color: #075985; background: #e0f2fe; }
+.admin-role-pill--support { color: #0f766e; background: #ccfbf1; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(14,165,233,.35); outline-offset: 2px; }
+@media (max-width: 1023px) {
+  .admin-sidebar { position: fixed; z-index: 45; left: 0; top: 0; transform: translateX(-102%); transition: transform .22s ease; }
+  .admin-sidebar--open { transform: translateX(0); }
+  .admin-main { width: 100%; }
+}

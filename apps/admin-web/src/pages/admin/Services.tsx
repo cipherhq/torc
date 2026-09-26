@@ -4,7 +4,7 @@ import { AdminLayout } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import { loadPlatformSettings } from '../../lib/platformSettings';
 import {
-  Wrench, Search, RefreshCw, DollarSign, ToggleLeft, ToggleRight,
+  Wrench, Search, RefreshCw, DollarSign, ToggleLeft, ToggleRight, MapPin,
   Plus, Edit3, Save, Loader2, AlertCircle, Clock, X, Trash2,
 } from 'lucide-react';
 
@@ -18,6 +18,17 @@ interface Service {
   is_active: boolean;
   created_at: string;
   totalJobs: number;
+}
+interface AvailabilityRule { id: string; scope: 'country' | 'region' | 'state'; country_code: string | null; region_code: string | null; state_code: string | null; is_active: boolean }
+
+/** Keep editable prices friendly while preserving an in-progress decimal. */
+function normalizeDecimalInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const [whole, ...fractionParts] = cleaned.split('.');
+  const normalizedWhole = whole.replace(/^0+(?=\d)/, '') || (whole ? '0' : '');
+  return fractionParts.length > 0
+    ? `${normalizedWhole || '0'}.${fractionParts.join('')}`
+    : normalizedWhole;
 }
 
 export function AdminServices() {
@@ -45,6 +56,10 @@ export function AdminServices() {
   /* Delete state */
   const [deletingService, setDeletingService] = useState<Service | null>(null);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [availabilityService, setAvailabilityService] = useState<Service | null>(null);
+  const [availabilityRules, setAvailabilityRules] = useState<AvailabilityRule[]>([]);
+  const [availabilityForm, setAvailabilityForm] = useState({ scope: 'state' as AvailabilityRule['scope'], country_code: 'US', region_code: '', state_code: '' });
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
 
   const loadServices = useCallback(async () => {
     setLoading(true);
@@ -99,6 +114,34 @@ export function AdminServices() {
       setLoading(false);
     }
   }, []);
+
+  const openAvailability = async (service: Service) => {
+    setAvailabilityService(service);
+    const { data } = await supabase.from('service_availability_rules').select('id, scope, country_code, region_code, state_code, is_active').eq('service_id', service.id).order('created_at');
+    setAvailabilityRules((data || []) as AvailabilityRule[]);
+  };
+
+  const saveAvailability = async () => {
+    if (!availabilityService || !availabilityForm.country_code.trim()) return;
+    if (availabilityForm.scope === 'state' && !availabilityForm.state_code.trim()) return;
+    if (availabilityForm.scope === 'region' && !availabilityForm.region_code.trim()) return;
+    setAvailabilitySaving(true);
+    const payload = {
+      service_id: availabilityService.id,
+      scope: availabilityForm.scope,
+      country_code: availabilityForm.country_code.trim().toUpperCase(),
+      region_code: availabilityForm.scope === 'region' ? availabilityForm.region_code.trim().toUpperCase() : null,
+      state_code: availabilityForm.scope === 'state' ? availabilityForm.state_code.trim().toUpperCase() : null,
+    };
+    const { data, error: saveError } = await supabase.from('service_availability_rules').insert(payload).select('id, scope, country_code, region_code, state_code, is_active').single();
+    if (!saveError && data) setAvailabilityRules(prev => [...prev, data as AvailabilityRule]);
+    setAvailabilitySaving(false);
+  };
+
+  const removeAvailability = async (id: string) => {
+    const { error: removeError } = await supabase.from('service_availability_rules').delete().eq('id', id);
+    if (!removeError) setAvailabilityRules(prev => prev.filter(rule => rule.id !== id));
+  };
 
   useEffect(() => {
     loadServices();
@@ -277,12 +320,12 @@ export function AdminServices() {
     try {
       const { error: deleteError } = await supabase
         .from('services')
-        .delete()
+        .update({ is_active: false })
         .eq('id', deletingService.id);
 
       if (deleteError) throw deleteError;
 
-      setServices(prev => prev.filter(s => s.id !== deletingService.id));
+      setServices(prev => prev.map(s => s.id === deletingService.id ? { ...s, is_active: false } : s));
       setDeletingService(null);
     } catch (e: any) {
       console.warn('Failed to delete service:', e);
@@ -443,6 +486,13 @@ export function AdminServices() {
                     {/* Right: Edit + Toggle */}
                     <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                       <button
+                        onClick={() => openAvailability(service)}
+                        className="p-2 rounded-xl hover:bg-blue-50 text-gray-400 hover:text-[#008CE5] transition-colors"
+                        title="Set service availability"
+                      >
+                        <MapPin className="w-5 h-5" />
+                      </button>
+                      <button
                         onClick={() => openEditModal(service)}
                         className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                         title="Edit service"
@@ -506,7 +556,7 @@ export function AdminServices() {
                             value={editPriceValue}
                             onFocus={(e) => { if (e.target.value === '0') e.target.value = ''; }}
                             onChange={(e) => {
-                              const val = e.target.value.replace(/[^0-9.]/g, '');
+                              const val = normalizeDecimalInput(e.target.value);
                               setEditPriceValue(val);
                             }}
                             onKeyDown={(e) => {
@@ -578,6 +628,24 @@ export function AdminServices() {
             })}
           </div>
         )}
+        {/* Service availability modal */}
+        {availabilityService && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-[28px] p-7 max-w-lg w-full shadow-2xl">
+              <div className="flex items-center justify-between mb-5"><div><h2 className="text-gray-900 font-bold text-xl">Service availability</h2><p className="text-gray-500 text-sm">{availabilityService.name}</p></div><button onClick={() => setAvailabilityService(null)} className="p-2 rounded-xl hover:bg-gray-100"><X className="w-5 h-5" /></button></div>
+              <p className="text-gray-500 text-sm mb-4">Add allowed countries, regions, or states. If rules exist, customers must be inside one of them to request this service.</p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <select value={availabilityForm.scope} onChange={e => setAvailabilityForm(f => ({ ...f, scope: e.target.value as AvailabilityRule['scope'] }))} className="px-3 py-2.5 rounded-xl border border-gray-200"><option value="state">State</option><option value="region">Region</option><option value="country">Country</option></select>
+                <input value={availabilityForm.country_code} onChange={e => setAvailabilityForm(f => ({ ...f, country_code: e.target.value }))} placeholder="Country code (US)" className="px-3 py-2.5 rounded-xl border border-gray-200" />
+              </div>
+              {availabilityForm.scope === 'region' && <input value={availabilityForm.region_code} onChange={e => setAvailabilityForm(f => ({ ...f, region_code: e.target.value }))} placeholder="Region code" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 mb-3" />}
+              {availabilityForm.scope === 'state' && <input value={availabilityForm.state_code} onChange={e => setAvailabilityForm(f => ({ ...f, state_code: e.target.value }))} placeholder="State code (TX)" className="w-full px-3 py-2.5 rounded-xl border border-gray-200 mb-3" />}
+              <button onClick={saveAvailability} disabled={availabilitySaving} className="w-full py-2.5 rounded-xl bg-[#008CE5] text-white font-semibold disabled:opacity-50">{availabilitySaving ? 'Saving…' : 'Add availability rule'}</button>
+              <div className="mt-5 space-y-2 max-h-40 overflow-auto">{availabilityRules.length === 0 ? <p className="text-gray-400 text-sm">No rules: available everywhere.</p> : availabilityRules.map(rule => <div key={rule.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2 text-sm"><span className="text-gray-700">{rule.scope}: {[rule.country_code, rule.region_code, rule.state_code].filter(Boolean).join(' / ')}</span><button onClick={() => removeAvailability(rule.id)} className="text-red-500"><Trash2 className="w-4 h-4" /></button></div>)}</div>
+            </div>
+          </div>
+        )}
+
         {/* Edit Service Modal */}
         {editingService && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -639,7 +707,7 @@ export function AdminServices() {
                       inputMode="decimal"
                       value={editForm.base_price}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                        const val = normalizeDecimalInput(e.target.value);
                         setEditForm({ ...editForm, base_price: val });
                       }}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5]"
@@ -790,7 +858,7 @@ export function AdminServices() {
                       inputMode="decimal"
                       value={addForm.base_price}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                        const val = normalizeDecimalInput(e.target.value);
                         setAddForm({ ...addForm, base_price: val });
                       }}
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-[16px] text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#008CE5]"
@@ -876,7 +944,7 @@ export function AdminServices() {
               </div>
 
               <p className="text-gray-600 mb-2">
-                Are you sure you want to delete <strong>{deletingService.name}</strong>?
+                Archive <strong>{deletingService.name}</strong>? Historical jobs will retain this service.
               </p>
               {deletingService.totalJobs > 0 && (
                 <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-700 text-sm mb-4">
@@ -906,7 +974,7 @@ export function AdminServices() {
                   ) : (
                     <Trash2 className="w-5 h-5" />
                   )}
-                  {deleteConfirming ? 'Deleting...' : 'Delete'}
+                  {deleteConfirming ? 'Archiving...' : 'Archive'}
                 </motion.button>
               </div>
             </motion.div>

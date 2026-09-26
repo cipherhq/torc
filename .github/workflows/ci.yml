@@ -351,12 +351,17 @@ jobs:
             provider_id UUID NOT NULL,
             type VARCHAR REFERENCES public.document_types(id),
             file_url TEXT,
+            file_path TEXT,
             file_name VARCHAR,
+            mime_type TEXT,
+            file_size BIGINT,
             status TEXT DEFAULT 'pending',
             admin_notes TEXT,
+            rejection_reason TEXT,
             expires_at DATE,
             reviewed_by UUID,
             reviewed_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ DEFAULT now(),
             created_at TIMESTAMPTZ DEFAULT now(),
             UNIQUE(provider_id, type)
           );
@@ -4292,6 +4297,268 @@ jobs:
 
           DO $$ BEGIN RAISE NOTICE 'All 11 CANCEL-AUTH-001 tests passed.'; END $$;
           SQL
+      - name: Apply document review migrations for behavior test
+        run: |
+          set -euo pipefail
+          for f in \
+            supabase/migrations/20260922090000_protect_provider_document_review.sql \
+            supabase/migrations/20260926110000_admin_authoritative_role_change.sql \
+            supabase/migrations/20260926120000_secure_document_resubmission.sql; do
+            echo "Executing behavior-test migration: $f"
+            psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Test provider document resubmission behavior (DOC-RESUBMIT-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- Behavioral coverage for the provider document review guard and RPC.
+          INSERT INTO document_types (id, name, is_required, is_active)
+          VALUES ('doc-resubmit', 'Resubmission Test', false, true)
+          ON CONFLICT (id) DO NOTHING;
+          INSERT INTO auth.users (id, email) VALUES
+            ('f1000000-0000-0000-0000-000000000001'::uuid, 'doc-provider-a@test.com'),
+            ('f2000000-0000-0000-0000-000000000002'::uuid, 'doc-provider-b@test.com'),
+            ('f3000000-0000-0000-0000-000000000003'::uuid, 'doc-admin@test.com')
+          ON CONFLICT (id) DO NOTHING;
+          INSERT INTO profiles (id, email, role, status) VALUES
+            ('f1000000-0000-0000-0000-000000000001'::uuid, 'doc-provider-a@test.com', 'provider', 'active'),
+            ('f2000000-0000-0000-0000-000000000002'::uuid, 'doc-provider-b@test.com', 'provider', 'active'),
+            ('f3000000-0000-0000-0000-000000000003'::uuid, 'doc-admin@test.com', 'admin', 'active')
+          ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
+
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f1000000-0000-0000-0000-000000000001'::uuid;
+          $$;
+
+          -- Initial provider upload must be a clean pending row.
+          SET ROLE authenticated;
+          INSERT INTO documents (id, provider_id, type, file_path, file_name, mime_type, file_size, status)
+          VALUES ('f4000000-0000-0000-0000-000000000004'::uuid, 'f1000000-0000-0000-0000-000000000001'::uuid, 'doc-resubmit',
+                  'f1000000-0000-0000-0000-000000000001/doc-resubmit/initial.pdf',
+                  'initial.pdf', 'application/pdf', 10, 'pending');
+          DO $$ DECLARE r documents%ROWTYPE; BEGIN
+            SELECT * INTO r FROM documents WHERE provider_id = 'f1000000-0000-0000-0000-000000000001'::uuid AND type = 'doc-resubmit';
+            ASSERT r.status = 'pending' AND r.reviewed_by IS NULL AND r.reviewed_at IS NULL, 'DOC-1 FAILED';
+            RAISE NOTICE 'DOC-1 PASSED: initial provider upload is clean pending';
+          END $$;
+
+          -- Direct provider attempts to self-approve or forge review/expiry fields.
+          DO $$
+          DECLARE failed boolean;
+          BEGIN
+            failed := false;
+            BEGIN UPDATE documents SET status = 'approved' WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-2 FAILED: provider self-approval was allowed';
+            failed := false;
+            BEGIN UPDATE documents SET reviewed_by = 'f3000000-0000-0000-0000-000000000003'::uuid WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-3 FAILED: provider reviewer forge was allowed';
+            failed := false;
+            BEGIN UPDATE documents SET reviewed_at = now() WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-4 FAILED: provider review timestamp forge was allowed';
+            failed := false;
+            BEGIN UPDATE documents SET expires_at = '2030-01-01'::date WHERE provider_id = auth.uid() AND type = 'doc-resubmit'; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-5 FAILED: provider expiry mutation was allowed';
+            RAISE NOTICE 'DOC-2..5 PASSED: direct provider review mutations blocked';
+          END $$;
+
+          -- Admin rejection records the reviewer and timestamp.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f3000000-0000-0000-0000-000000000003'::uuid;
+          $$;
+          -- The admin surface uses a server-authoritative write path in production;
+          -- execute this fixture write as the privileged server role.
+          SET ROLE postgres;
+          UPDATE documents
+          SET status = 'rejected', rejection_reason = 'Unreadable', reviewed_by = auth.uid(),
+              reviewed_at = now(), expires_at = '2030-01-01'::date
+          WHERE provider_id = 'f1000000-0000-0000-0000-000000000001'::uuid AND type = 'doc-resubmit';
+          DO $$ BEGIN
+            ASSERT (SELECT status = 'rejected' AND reviewed_by = 'f3000000-0000-0000-0000-000000000003'::uuid FROM documents WHERE provider_id = 'f1000000-0000-0000-0000-000000000001'::uuid AND type = 'doc-resubmit'), 'DOC-6 FAILED';
+            RAISE NOTICE 'DOC-6 PASSED: admin rejection records review metadata';
+          END $$;
+
+          -- Another provider cannot resubmit this row.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f2000000-0000-0000-0000-000000000002'::uuid;
+          $$;
+          SET ROLE authenticated;
+          DO $$ DECLARE result jsonb; BEGIN
+            SELECT resubmit_provider_document('f4000000-0000-0000-0000-000000000004'::uuid, 'f2000000-0000-0000-0000-000000000002/doc-resubmit/foreign.pdf', 'foreign.pdf', 'application/pdf', 12) INTO result;
+            ASSERT result->>'error' = 'DOCUMENT_NOT_FOUND', 'DOC-7 FAILED: foreign owner could resubmit';
+            RAISE NOTICE 'DOC-7 PASSED: different provider cannot resubmit document';
+          END $$;
+
+          -- Owner must use its own provider/type namespace; malformed and foreign paths fail.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f1000000-0000-0000-0000-000000000001'::uuid;
+          $$;
+          SET ROLE authenticated;
+          DO $$ DECLARE result jsonb; v_id uuid; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f2000000-0000-0000-0000-000000000002/doc-resubmit/foreign.pdf', 'foreign.pdf', 'application/pdf', 12) INTO result;
+            ASSERT result->>'error' = 'INVALID_STORAGE_PATH', 'DOC-8 FAILED: foreign path accepted';
+            SELECT resubmit_provider_document(v_id, 'malformed-path', 'bad.pdf', 'application/pdf', 12) INTO result;
+            ASSERT result->>'error' = 'INVALID_STORAGE_PATH', 'DOC-9 FAILED: malformed path accepted';
+            RAISE NOTICE 'DOC-8..9 PASSED: storage namespace binding enforced';
+          END $$;
+
+          -- Owner resubmission clears all admin review fields and stores new metadata.
+          DO $$ DECLARE result jsonb; v_id uuid; r documents%ROWTYPE; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/replacement.pdf', 'replacement.pdf', 'application/pdf', 42, 'https://untrusted.invalid/public.pdf') INTO result;
+            ASSERT result->>'success' = 'true', 'DOC-10 FAILED: owner resubmission rejected: ' || result::text;
+            SELECT * INTO r FROM documents WHERE id = v_id;
+            ASSERT r.status = 'pending' AND r.rejection_reason IS NULL AND r.reviewed_by IS NULL AND r.reviewed_at IS NULL AND r.expires_at IS NULL, 'DOC-10 FAILED: review fields not cleared';
+            ASSERT r.file_path = 'f1000000-0000-0000-0000-000000000001/doc-resubmit/replacement.pdf' AND r.file_name = 'replacement.pdf' AND r.file_size = 42 AND r.file_url IS NULL, 'DOC-10 FAILED: replacement metadata incorrect';
+            RAISE NOTICE 'DOC-10 PASSED: rejected document resubmitted to clean pending state';
+          END $$;
+
+          -- Only rejected rows may use the RPC; pending rows are rejected.
+          DO $$ DECLARE result jsonb; v_id uuid; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/not-allowed.pdf', 'not-allowed.pdf', 'application/pdf', 1) INTO result;
+            ASSERT result->>'error' = 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED', 'DOC-11 FAILED: pending row accepted';
+            RAISE NOTICE 'DOC-11 PASSED: pending row cannot be resubmitted';
+          END $$;
+
+          -- Only an admin can create an approved/reviewed row for the next state-guard assertion.
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f3000000-0000-0000-0000-000000000003'::uuid;
+          $$;
+          SET ROLE postgres;
+          UPDATE documents
+          SET status = 'approved', reviewed_by = auth.uid(), reviewed_at = now()
+          WHERE id = 'f4000000-0000-0000-0000-000000000004'::uuid;
+
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
+            SELECT 'f1000000-0000-0000-0000-000000000001'::uuid;
+          $$;
+          SET ROLE authenticated;
+          DO $$ DECLARE result jsonb; v_id uuid; failed boolean; BEGIN
+            SELECT id INTO v_id FROM documents WHERE provider_id = auth.uid() AND type = 'doc-resubmit';
+            SELECT resubmit_provider_document(v_id, 'f1000000-0000-0000-0000-000000000001/doc-resubmit/not-allowed.pdf', 'not-allowed.pdf', 'application/pdf', 1) INTO result;
+            ASSERT result->>'error' = 'ONLY_REJECTED_DOCUMENTS_CAN_BE_RESUBMITTED', 'DOC-12 FAILED: approved row accepted';
+            failed := false;
+            BEGIN UPDATE documents SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = v_id; EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'DOC-13 FAILED: direct protected transition was allowed';
+            RAISE NOTICE 'DOC-12..13 PASSED: approved RPC and direct transition state guards enforced';
+          END $$;
+
+          SET ROLE postgres;
+          DELETE FROM documents WHERE provider_id IN ('f1000000-0000-0000-0000-000000000001'::uuid, 'f2000000-0000-0000-0000-000000000002'::uuid);
+          DELETE FROM profiles WHERE id IN ('f1000000-0000-0000-0000-000000000001'::uuid, 'f2000000-0000-0000-0000-000000000002'::uuid, 'f3000000-0000-0000-0000-000000000003'::uuid);
+          DELETE FROM auth.users WHERE id IN ('f1000000-0000-0000-0000-000000000001'::uuid, 'f2000000-0000-0000-0000-000000000002'::uuid, 'f3000000-0000-0000-0000-000000000003'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+          DO $$ BEGIN RAISE NOTICE 'All 13 DOC-RESUBMIT-001 PostgreSQL behavior tests passed.'; END $$;
+          SQL
+      - name: Test Support ticket reply authority (SUPPORT-TICKET-REPLIES-001)
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE TABLE IF NOT EXISTS public.support_tickets (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            requester_id UUID NOT NULL,
+            requester_role TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            priority TEXT NOT NULL DEFAULT 'normal',
+            assigned_to UUID,
+            admin_note TEXT,
+            resolved_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );
+          ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
+          DROP POLICY IF EXISTS "Fixture staff can manage tickets" ON public.support_tickets;
+          CREATE POLICY "Fixture staff can manage tickets" ON public.support_tickets FOR ALL TO authenticated
+            USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'support')))
+            WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'support')));
+          DROP POLICY IF EXISTS "Fixture requester can view tickets" ON public.support_tickets;
+          CREATE POLICY "Fixture requester can view tickets" ON public.support_tickets FOR SELECT TO authenticated
+            USING (requester_id = auth.uid());
+          DROP POLICY IF EXISTS "Fixture requester can create tickets" ON public.support_tickets;
+          CREATE POLICY "Fixture requester can create tickets" ON public.support_tickets FOR INSERT TO authenticated
+            WITH CHECK (requester_id = auth.uid());
+          CREATE OR REPLACE FUNCTION public.is_support_or_admin(actor_id uuid)
+          RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public AS $$
+            SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = actor_id AND role IN ('admin', 'support'));
+          $$;
+          GRANT EXECUTE ON FUNCTION public.is_support_or_admin(uuid) TO authenticated;
+          \i database/migrations/041_ticket_replies.sql
+          \i supabase/migrations/20260926130000_support_ticket_reply_authority.sql
+
+          INSERT INTO auth.users (id, email) VALUES
+            ('f5000000-0000-0000-0000-000000000005'::uuid, 'ticket-customer@test.com'),
+            ('f6000000-0000-0000-0000-000000000006'::uuid, 'ticket-provider@test.com'),
+            ('f7000000-0000-0000-0000-000000000007'::uuid, 'ticket-admin@test.com'),
+            ('f8000000-0000-0000-0000-000000000008'::uuid, 'ticket-support@test.com'),
+            ('f9000000-0000-0000-0000-000000000009'::uuid, 'ticket-other@test.com')
+          ON CONFLICT (id) DO NOTHING;
+          INSERT INTO profiles (id, email, role, status) VALUES
+            ('f5000000-0000-0000-0000-000000000005'::uuid, 'ticket-customer@test.com', 'customer', 'active'),
+            ('f6000000-0000-0000-0000-000000000006'::uuid, 'ticket-provider@test.com', 'provider', 'active'),
+            ('f7000000-0000-0000-0000-000000000007'::uuid, 'ticket-admin@test.com', 'admin', 'active'),
+            ('f8000000-0000-0000-0000-000000000008'::uuid, 'ticket-support@test.com', 'support', 'active'),
+            ('f9000000-0000-0000-0000-000000000009'::uuid, 'ticket-other@test.com', 'customer', 'active')
+          ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
+          INSERT INTO support_tickets (id, requester_id, requester_role, subject, description)
+          VALUES
+            ('fa000000-0000-0000-0000-00000000000a'::uuid, 'f5000000-0000-0000-0000-000000000005'::uuid, 'customer', 'Customer ticket', 'Customer issue'),
+            ('fb000000-0000-0000-0000-00000000000b'::uuid, 'f6000000-0000-0000-0000-000000000006'::uuid, 'provider', 'Provider ticket', 'Provider issue');
+
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT 'f7000000-0000-0000-0000-000000000007'::uuid; $$;
+          SET ROLE authenticated;
+          INSERT INTO ticket_replies (ticket_id, sender_id, sender_role, message)
+          VALUES ('fa000000-0000-0000-0000-00000000000a'::uuid, auth.uid(), 'admin', 'Admin response');
+          DO $$ BEGIN ASSERT (SELECT count(*) = 1 FROM ticket_replies WHERE sender_role = 'admin'), 'STR-1 FAILED: admin reply'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'STR-1 PASSED: admin can send ticket replies'; END $$;
+
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT 'f8000000-0000-0000-0000-000000000008'::uuid; $$;
+          SET ROLE authenticated;
+          DO $$ BEGIN ASSERT (SELECT count(*) = 1 FROM ticket_replies WHERE ticket_id = 'fa000000-0000-0000-0000-00000000000a'::uuid), 'STR-2 FAILED: support cannot read replies'; END $$;
+          INSERT INTO ticket_replies (ticket_id, sender_id, sender_role, message)
+          VALUES ('fa000000-0000-0000-0000-00000000000a'::uuid, auth.uid(), 'support', 'Support response');
+          DO $$ BEGIN ASSERT (SELECT count(*) = 1 FROM ticket_replies WHERE sender_role = 'support'), 'STR-3 FAILED: support reply not recorded as support'; END $$;
+          DO $$ BEGIN RAISE NOTICE 'STR-2..3 PASSED: support can read/send and is recorded as support'; END $$;
+
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT 'f5000000-0000-0000-0000-000000000005'::uuid; $$;
+          SET ROLE authenticated;
+          DO $$ BEGIN ASSERT (SELECT count(*) = 2 FROM ticket_replies WHERE ticket_id = 'fa000000-0000-0000-0000-00000000000a'::uuid), 'STR-4 FAILED: requester cannot read staff replies'; END $$;
+          INSERT INTO ticket_replies (ticket_id, sender_id, sender_role, message)
+          VALUES ('fa000000-0000-0000-0000-00000000000a'::uuid, auth.uid(), 'customer', 'Customer response');
+          DO $$ BEGIN RAISE NOTICE 'STR-4 PASSED: customer own-ticket read/reply preserved'; END $$;
+
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT 'f6000000-0000-0000-0000-000000000006'::uuid; $$;
+          SET ROLE authenticated;
+          INSERT INTO ticket_replies (ticket_id, sender_id, sender_role, message)
+          VALUES ('fb000000-0000-0000-0000-00000000000b'::uuid, auth.uid(), 'provider', 'Provider response');
+          DO $$ BEGIN RAISE NOTICE 'STR-5 PASSED: provider own-ticket reply preserved'; END $$;
+
+          SET ROLE postgres;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT 'f9000000-0000-0000-0000-000000000009'::uuid; $$;
+          SET ROLE authenticated;
+          DO $$ BEGIN ASSERT (SELECT count(*) = 0 FROM ticket_replies WHERE ticket_id = 'fa000000-0000-0000-0000-00000000000a'::uuid), 'STR-6 FAILED: unrelated user read another ticket'; END $$;
+          DO $$ DECLARE failed boolean := false; BEGIN
+            BEGIN INSERT INTO ticket_replies (ticket_id, sender_id, sender_role, message) VALUES ('fa000000-0000-0000-0000-00000000000a'::uuid, auth.uid(), 'customer', 'Unauthorized'); EXCEPTION WHEN OTHERS THEN failed := true; END;
+            ASSERT failed, 'STR-7 FAILED: unrelated user sent reply';
+            RAISE NOTICE 'STR-6..7 PASSED: unrelated user cannot read/send replies';
+          END $$;
+
+          SET ROLE postgres;
+          DELETE FROM ticket_replies WHERE ticket_id IN ('fa000000-0000-0000-0000-00000000000a'::uuid, 'fb000000-0000-0000-0000-00000000000b'::uuid);
+          DELETE FROM support_tickets WHERE id IN ('fa000000-0000-0000-0000-00000000000a'::uuid, 'fb000000-0000-0000-0000-00000000000b'::uuid);
+          DELETE FROM profiles WHERE id IN ('f5000000-0000-0000-0000-000000000005'::uuid, 'f6000000-0000-0000-0000-000000000006'::uuid, 'f7000000-0000-0000-0000-000000000007'::uuid, 'f8000000-0000-0000-0000-000000000008'::uuid, 'f9000000-0000-0000-0000-000000000009'::uuid);
+          DELETE FROM auth.users WHERE id IN ('f5000000-0000-0000-0000-000000000005'::uuid, 'f6000000-0000-0000-0000-000000000006'::uuid, 'f7000000-0000-0000-0000-000000000007'::uuid, 'f8000000-0000-0000-0000-000000000008'::uuid, 'f9000000-0000-0000-0000-000000000009'::uuid);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT gen_random_uuid(); $$;
+          DO $$ BEGIN RAISE NOTICE 'All 7 SUPPORT-TICKET-REPLIES-001 PostgreSQL behavior tests passed.'; END $$;
+          SQL
       - name: Test claim-token ownership RPCs
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
@@ -5254,7 +5521,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v1.x
+          # deno.lock is format 5, which is supported by Deno 2 (not Deno 1).
+          # Pin the toolchain so local and CI compile checks use the same parser/lock format.
+          deno-version: v2.5.6
       - name: Check send-email compiles
         run: deno check supabase/functions/send-email/index.ts
       - name: Check send-sms compiles
@@ -5271,6 +5540,8 @@ jobs:
         run: deno check supabase/functions/process-cancellation-refunds/index.ts
       - name: Check process-account-deletion compiles
         run: deno check supabase/functions/process-account-deletion/index.ts
+      - name: Check invite-admin compiles
+        run: deno check --lock=deno.lock supabase/functions/invite-admin/index.ts
 
   native-config-validation:
     name: Native Config Validation

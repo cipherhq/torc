@@ -8,7 +8,7 @@ interface Props {
 
 /**
  * Route guard for admin pages.
- * Verifies the user has an active session with role=admin before rendering children.
+ * Verifies the user has an active session with an admin or support role.
  */
 export function ProtectedAdminRoute({ children }: Props) {
   const [status, setStatus] = useState<'checking' | 'allowed' | 'denied'>('checking');
@@ -31,7 +31,7 @@ export function ProtectedAdminRoute({ children }: Props) {
 
         if (cancelled) return;
 
-        if (profile?.role === 'admin') {
+        if (profile?.role === 'admin' || profile?.role === 'support') {
           setStatus('allowed');
         } else {
           setStatus('denied');

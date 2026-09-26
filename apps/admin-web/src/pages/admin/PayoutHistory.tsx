@@ -14,13 +14,16 @@ interface PayoutRow {
   total_tips: number;
   platform_fee: number;
   net_payout: number;
-  status: 'pending' | 'processing' | 'paid' | 'failed';
+  status: 'pending' | 'processing' | 'paid' | 'failed' | 'voided';
+  reference_id: string | null;
+  reversal_reference_id: string | null;
+  void_reason: string | null;
   paid_at: string | null;
   created_at: string;
   provider_name: string;
 }
 
-type FilterStatus = 'all' | 'paid' | 'processing' | 'pending' | 'failed';
+type FilterStatus = 'all' | 'paid' | 'processing' | 'pending' | 'failed' | 'voided';
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
@@ -46,6 +49,7 @@ export function AdminPayoutHistory() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<FilterStatus>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [actionId, setActionId] = useState<string | null>(null);
   const PAGE_SIZE = 15;
 
   async function loadPayouts() {
@@ -54,7 +58,7 @@ export function AdminPayoutHistory() {
     try {
       const { data, error: fetchError } = await supabase
         .from('provider_payouts')
-        .select('id, provider_id, period_start, period_end, total_earnings, total_tips, platform_fee, net_payout, status, paid_at, created_at')
+        .select('id, provider_id, period_start, period_end, total_earnings, total_tips, platform_fee, net_payout, status, paid_at, created_at, reference_id, reversal_reference_id, void_reason')
         .order('created_at', { ascending: false });
 
       if (fetchError) {
@@ -92,6 +96,9 @@ export function AdminPayoutHistory() {
         platform_fee: row.platform_fee || 0,
         net_payout: row.net_payout || 0,
         status: row.status || 'pending',
+        reference_id: row.reference_id,
+        reversal_reference_id: row.reversal_reference_id,
+        void_reason: row.void_reason,
         paid_at: row.paid_at,
         created_at: row.created_at,
         provider_name: profileMap.get(row.provider_id) || 'Unknown Provider',
@@ -109,6 +116,26 @@ export function AdminPayoutHistory() {
   useEffect(() => {
     loadPayouts();
   }, []);
+
+  async function confirmPayout(payout: PayoutRow) {
+    const reference = window.prompt('Enter the external payment reference (bank transfer ID, check number, etc.):', payout.reference_id || '');
+    if (!reference?.trim()) return;
+    setActionId(payout.id);
+    const { error: rpcError } = await supabase.rpc('confirm_provider_payout', { p_payout_id: payout.id, p_external_reference_id: reference.trim() });
+    if (rpcError) setError(rpcError.message);
+    else await loadPayouts();
+    setActionId(null);
+  }
+
+  async function failPayout(payout: PayoutRow) {
+    const reason = window.prompt('Reason for marking this payout failed:');
+    if (!reason?.trim()) return;
+    setActionId(payout.id);
+    const { error: rpcError } = await supabase.rpc('fail_provider_payout', { p_payout_id: payout.id, p_reason: reason.trim() });
+    if (rpcError) setError(rpcError.message);
+    else await loadPayouts();
+    setActionId(null);
+  }
 
   // Compute stats
   const stats = useMemo(() => {
@@ -166,7 +193,8 @@ export function AdminPayoutHistory() {
         const q = searchQuery.toLowerCase();
         const matchesName = p.provider_name.toLowerCase().includes(q);
         const matchesId = p.id.toLowerCase().includes(q);
-        if (!matchesName && !matchesId) return false;
+        const matchesReference = p.reference_id?.toLowerCase().includes(q) || p.reversal_reference_id?.toLowerCase().includes(q);
+        if (!matchesName && !matchesId && !matchesReference) return false;
       }
 
       return true;
@@ -183,7 +211,7 @@ export function AdminPayoutHistory() {
   function exportCSV() {
     if (filteredPayouts.length === 0) return;
 
-    const headers = ['Payout ID', 'Provider', 'Period Start', 'Period End', 'Gross Earnings', 'Tips', 'Platform Fee', 'Net Payout', 'Status', 'Paid Date'];
+    const headers = ['Payout ID', 'Provider', 'Period Start', 'Period End', 'Gross Earnings', 'Tips', 'Platform Fee', 'Net Payout', 'Status', 'Paid Date', 'External Reference', 'Reversal Reference', 'Void Reason'];
     const rows = filteredPayouts.map((p) => [
       p.id,
       p.provider_name,
@@ -195,9 +223,16 @@ export function AdminPayoutHistory() {
       p.net_payout.toFixed(2),
       p.status,
       p.paid_at || '',
+      p.reference_id || '',
+      p.reversal_reference_id || '',
+      p.void_reason || '',
     ]);
 
-    const csvContent = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(',')).join('\n');
+    const csvCell = (value: string) => {
+      const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+    const csvContent = [headers, ...rows].map((row) => row.map((cell) => csvCell(String(cell))).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -238,12 +273,14 @@ export function AdminPayoutHistory() {
             Failed
           </span>
         );
+      case 'voided':
+        return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-200 text-gray-700">Voided</span>;
       default:
         return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">{status}</span>;
     }
   }
 
-  const filterOptions: FilterStatus[] = ['all', 'paid', 'processing', 'pending', 'failed'];
+  const filterOptions: FilterStatus[] = ['all', 'paid', 'processing', 'pending', 'failed', 'voided'];
 
   return (
     <AdminLayout>
@@ -375,8 +412,10 @@ export function AdminPayoutHistory() {
                     <th className="px-6 py-4 text-right text-gray-500 text-sm font-semibold">Tips</th>
                     <th className="px-6 py-4 text-right text-gray-500 text-sm font-semibold">Platform Fee</th>
                     <th className="px-6 py-4 text-right text-gray-500 text-sm font-semibold">Net Payout</th>
+                    <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">External Reference</th>
                     <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">Status</th>
                     <th className="px-6 py-4 text-left text-gray-500 text-sm font-semibold">Paid Date</th>
+                    <th className="px-6 py-4 text-right text-gray-500 text-sm font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -422,11 +461,24 @@ export function AdminPayoutHistory() {
                         <td className="px-6 py-4 text-right">
                           <span className="text-gray-900 font-bold text-lg">{formatCurrency(payout.net_payout)}</span>
                         </td>
+                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">
+                          {payout.reference_id || '--'}
+                          {payout.reversal_reference_id && <p className="text-xs text-gray-400">Reversed: {payout.reversal_reference_id}</p>}
+                          {payout.void_reason && <p className="text-xs text-gray-400 font-sans">{payout.void_reason}</p>}
+                        </td>
                         <td className="px-6 py-4">
                           {getStatusBadge(payout.status)}
                         </td>
                         <td className="px-6 py-4">
                           <span className="text-gray-600 text-sm">{formatDate(payout.paid_at)}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {(payout.status === 'pending' || payout.status === 'processing') && (
+                            <div className="flex justify-end gap-2">
+                              <button disabled={actionId === payout.id} onClick={() => void confirmPayout(payout)} className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-50">Confirm paid</button>
+                              <button disabled={actionId === payout.id} onClick={() => void failPayout(payout)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 disabled:opacity-50">Mark failed</button>
+                            </div>
+                          )}
                         </td>
                       </motion.tr>
                     );

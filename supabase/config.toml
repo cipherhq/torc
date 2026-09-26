@@ -1,5 +1,9 @@
 project_id = "torc"
 
+# Only signed-in users may reach this function; it also checks profiles.role.
+[functions.invite-admin]
+verify_jwt = true
+
 # Stripe verifies its own webhook signature.
 [functions.stripe-webhook]
 verify_jwt = false

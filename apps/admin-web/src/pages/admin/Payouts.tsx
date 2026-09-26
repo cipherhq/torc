@@ -56,6 +56,9 @@ interface PayoutRecord {
   reference_id: string | null;
   payment_method: string | null;
   notes: string | null;
+  voided_at?: string | null;
+  void_reason?: string | null;
+  reversal_reference_id?: string | null;
   paid_at: string | null;
   created_at: string;
 }
@@ -136,6 +139,12 @@ export function AdminPayouts() {
   const [payNotes, setPayNotes] = useState('');
   const [payMethodId, setPayMethodId] = useState<string | null>(null);
   const [payProcessing, setPayProcessing] = useState(false);
+  const [payConfirmed, setPayConfirmed] = useState(false);
+  const [voidingPayout, setVoidingPayout] = useState<PayoutRecord | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidReference, setVoidReference] = useState('');
+  const [voidConfirmed, setVoidConfirmed] = useState(false);
+  const [voidProcessing, setVoidProcessing] = useState(false);
 
   /* Expanded history rows */
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
@@ -273,6 +282,7 @@ export function AdminPayouts() {
     setPayingProvider(provider);
     setPayRef('');
     setPayNotes('');
+    setPayConfirmed(false);
     const methods = allMethods[provider.provider_id] || [];
     const defaultMethod = methods.find((m) => m.is_default) || methods[0];
     setPayMethodId(defaultMethod?.id || null);
@@ -290,6 +300,7 @@ export function AdminPayouts() {
       alert('Please enter a payment reference ID.');
       return;
     }
+    if (!payConfirmed) return;
 
     setPayProcessing(true);
     try {
@@ -309,25 +320,7 @@ export function AdminPayouts() {
         throw new Error(payoutResult?.message || payoutResult?.error || 'Payout failed');
       }
 
-      // Try to log audit (non-blocking)
-      try {
-        const { data: session } = await supabase.auth.getSession();
-        if (session?.session?.user?.id) {
-          await supabase.from('admin_audit_logs').insert({
-            actor_id: session.session.user.id,
-            action: 'process_payout',
-            entity_type: 'provider_payout',
-            entity_id: payingProvider.provider_id,
-            details: {
-              amount,
-              reference_id: payRef.trim(),
-              payment_method: methodType,
-              provider_name: payingProvider.provider_name,
-            },
-          });
-        }
-      } catch { /* audit log is best-effort */ }
-
+      alert('Payout queued as pending. After the external transfer succeeds, open this payout in History and confirm it as paid.');
       setPayingProvider(null);
       await loadData();
     } catch (err: any) {
@@ -335,6 +328,68 @@ export function AdminPayouts() {
       alert(`Payout failed: ${err.message || 'Unknown error'}`);
     } finally {
       setPayProcessing(false);
+    }
+  }
+
+  async function handleConfirmPayout(rec: PayoutRecord) {
+    const reference = window.prompt(
+      'Confirm the external transfer succeeded. Enter the final transaction reference, or leave blank to keep the queued reference:',
+      rec.reference_id || '',
+    );
+    if (reference === null) return;
+    try {
+      const { data, error } = await supabase.rpc('confirm_provider_payout', {
+        p_payout_id: rec.id,
+        p_external_reference_id: reference.trim() || null,
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Could not confirm payout');
+      await loadData();
+    } catch (error: any) {
+      alert(`Could not confirm payout: ${error?.message || 'Unknown error'}`);
+    }
+  }
+
+  async function handleFailPayout(rec: PayoutRecord) {
+    const reason = window.prompt('Why did the external transfer fail? (at least 10 characters)');
+    if (reason === null) return;
+    if (reason.trim().length < 10) {
+      alert('Please provide a reason of at least 10 characters.');
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc('fail_provider_payout', {
+        p_payout_id: rec.id,
+        p_reason: reason.trim(),
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Could not fail payout');
+      await loadData();
+    } catch (error: any) {
+      alert(`Could not mark payout failed: ${error?.message || 'Unknown error'}`);
+    }
+  }
+
+  async function handleVoidPayout() {
+    if (!voidingPayout || !voidConfirmed || voidReason.trim().length < 20) return;
+    setVoidProcessing(true);
+    try {
+      const { data, error: rpcError } = await supabase.rpc('void_provider_payout', {
+        p_payout_id: voidingPayout.id,
+        p_reason: voidReason.trim(),
+        p_confirmation: 'FUNDS_NOT_SENT_OR_RETURNED',
+        p_reversal_reference_id: voidReference.trim() || null,
+      });
+      if (rpcError) throw rpcError;
+      if (!data?.success) throw new Error(data?.error || 'Could not void payout record');
+      setVoidingPayout(null);
+      await loadData();
+    } catch (error: any) {
+      alert(error?.message === 'LEDGER_MISMATCH_OR_LEGACY_PAYOUT'
+        ? 'This older payout is not linked to the earnings ledger. Contact support for manual reconciliation.'
+        : `Could not void payout: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setVoidProcessing(false);
     }
   }
 
@@ -576,6 +631,8 @@ export function AdminPayouts() {
                               className="px-3 py-1 rounded-full text-xs font-semibold"
                               style={rec.status === 'paid'
                                 ? { backgroundColor: '#DEF7EC', color: '#03543F' }
+                                : rec.status === 'voided'
+                                ? { backgroundColor: '#E5E7EB', color: '#374151' }
                                 : rec.status === 'processing'
                                 ? { backgroundColor: '#FEF3C7', color: '#92400E' }
                                 : rec.status === 'failed'
@@ -600,6 +657,26 @@ export function AdminPayouts() {
                                 <p><span className="font-semibold">Tips:</span> {fmt(Number(rec.total_tips))}</p>
                                 <p><span className="font-semibold">Platform Fee:</span> {fmt(Number(rec.platform_fee))}</p>
                                 {rec.notes && <p><span className="font-semibold">Notes:</span> {rec.notes}</p>}
+                                {rec.void_reason && <p><span className="font-semibold">Void reason:</span> {rec.void_reason}</p>}
+                                {rec.reversal_reference_id && <p><span className="font-semibold">Reversal reference:</span> {rec.reversal_reference_id}</p>}
+                                {(rec.status === 'pending' || rec.status === 'processing') && (
+                                  <>
+                                    <button type="button" className="mt-2 block font-semibold text-blue-700 hover:underline"
+                                      onClick={() => void handleConfirmPayout(rec)}>
+                                      Confirm external transfer as paid
+                                    </button>
+                                    <button type="button" className="mt-1 block font-semibold text-red-700 hover:underline"
+                                      onClick={() => void handleFailPayout(rec)}>
+                                      Mark transfer failed &amp; restore balance
+                                    </button>
+                                  </>
+                                )}
+                                {rec.status === 'paid' && (
+                                  <button type="button" className="mt-2 font-semibold text-red-700 hover:underline"
+                                    onClick={() => { setVoidingPayout(rec); setVoidReason(''); setVoidReference(''); setVoidConfirmed(false); }}>
+                                    Correct / void this payout record
+                                  </button>
+                                )}
                                 <p className="text-gray-400">ID: {rec.id}</p>
                               </div>
                             )}
@@ -627,7 +704,7 @@ export function AdminPayouts() {
             <li>Provider earnings = base service price - platform fee ({platformFee}%) + tips (100% passed through)</li>
             <li>Click "Pay" to record an external payment (bank transfer, PayPal, Venmo)</li>
             <li>Enter the external transaction reference ID to track the payment</li>
-            <li>The provider's balance updates automatically after recording a payout</li>
+            <li>Queueing reserves the balance; only confirming the external transfer marks it paid</li>
           </ul>
         </div>
       </div>
@@ -719,7 +796,7 @@ export function AdminPayouts() {
               <div className="w-full py-3.5 px-4 bg-gray-100 border-2 border-gray-200 rounded-xl text-gray-900 text-lg font-bold select-none">
                 {fmt(payingProvider.balance)}
               </div>
-              <p className="text-gray-400 text-xs mt-1.5">Full outstanding balance will be paid out</p>
+              <p className="text-gray-400 text-xs mt-1.5">This reserves the full outstanding balance until the external transfer is confirmed.</p>
             </div>
 
             {/* Reference ID */}
@@ -749,6 +826,10 @@ export function AdminPayouts() {
             </div>
 
             {/* Actions */}
+            <label className="flex items-start gap-3 mb-5 text-sm text-gray-700">
+              <input type="checkbox" checked={payConfirmed} onChange={(e) => setPayConfirmed(e.target.checked)} className="mt-1" />
+              <span>I’m creating a pending payout record. I will confirm it as paid only after the external transfer succeeds.</span>
+            </label>
             <div className="flex gap-4">
               <button
                 onClick={() => setPayingProvider(null)}
@@ -760,15 +841,46 @@ export function AdminPayouts() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleCompletePayout}
-                disabled={payProcessing || !payRef.trim()}
+                disabled={payProcessing || !payRef.trim() || !payConfirmed}
                 className="flex-[1.3] px-6 py-3.5 rounded-2xl font-bold flex items-center justify-center gap-2.5 disabled:opacity-50 text-white shadow-lg shadow-blue-500/20"
                 style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
               >
                 {payProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                {payProcessing ? 'Processing...' : 'Complete Payout'}
+                {payProcessing ? 'Queueing...' : 'Queue Payout'}
               </motion.button>
             </div>
           </motion.div>
+        </div>
+      )}
+
+      {voidingPayout && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-xl">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Void payout record</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              {voidingPayout.provider_name} · {fmt(Number(voidingPayout.net_payout))} · Ref {voidingPayout.reference_id || 'missing'}
+            </p>
+            <p className="text-sm text-red-700 mb-4">Only continue if the external payment was never sent or the full amount has been returned. This restores the amount to the provider’s unpaid balance.</p>
+            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="void-reason">Reason (at least 20 characters)</label>
+            <textarea id="void-reason" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={3}
+              className="w-full border border-gray-300 rounded-xl p-3 mb-4 text-gray-900" />
+            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="void-reference">External reversal reference (if applicable)</label>
+            <input id="void-reference" value={voidReference} onChange={(e) => setVoidReference(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl p-3 mb-4 text-gray-900" />
+            <label className="flex items-start gap-3 text-sm text-gray-700 mb-5">
+              <input type="checkbox" checked={voidConfirmed} onChange={(e) => setVoidConfirmed(e.target.checked)} className="mt-1" />
+              <span>I verified that no funds were sent, or that the full external payment was returned.</span>
+            </label>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setVoidingPayout(null)} disabled={voidProcessing}
+                className="flex-1 px-4 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
+              <button type="button" onClick={handleVoidPayout}
+                disabled={voidProcessing || !voidConfirmed || voidReason.trim().length < 20}
+                className="flex-1 px-4 py-3 rounded-xl bg-red-700 text-white font-semibold disabled:opacity-50">
+                {voidProcessing ? 'Voiding...' : 'Void record & restore balance'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AdminLayout>

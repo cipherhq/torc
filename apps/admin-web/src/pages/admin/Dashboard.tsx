@@ -4,7 +4,7 @@ import {
   Users, Briefcase, DollarSign, ShieldCheck, AlertCircle,
   FileText, Wallet, UserX, MessageSquare, Wrench, LifeBuoy, LineChart,
 } from 'lucide-react';
-import { AdminLayout } from '../../components/AdminLayout';
+import { AdminLayout, useAdminRole } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect, useRef } from 'react';
 import { loadPlatformSettings } from '../../lib/platformSettings';
@@ -28,8 +28,40 @@ function getTimeAgo(iso: string) {
   return `${days}d ago`;
 }
 
+export function canQueryAdminDashboardFinancials(role: 'admin' | 'support') {
+  return role === 'admin';
+}
+
+export function visibleDashboardActionLabels(role: 'admin' | 'support') {
+  const adminOnly = new Set(['Manage Payouts', 'Financial Hub', 'Reporting Hub']);
+  return role === 'support' ? ['Approve Providers', 'Manage Users', 'Review Documents', 'Live Dispatch', 'Support Tickets'] : [
+    'Approve Providers', 'Manage Users', 'Review Documents', 'Manage Payouts', 'Live Dispatch', 'Service Pricing', 'Support Tickets', 'Financial Hub', 'Reporting Hub',
+  ].filter((label) => !adminOnly.has(label) || role === 'admin');
+}
+
+export function providerPerformanceShowsEarnings(role: 'admin' | 'support') {
+  return role === 'admin';
+}
+
+export function getProviderPerformanceRows(rows: any[], role: 'admin' | 'support') {
+  return rows
+    .map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      rating: Number(row.rating || 0),
+      jobs: Number(row.jobs || 0),
+      ...(role === 'admin' ? { earnings: Number(row.earnings || 0) } : {}),
+    }))
+    .sort((a, b) => role === 'admin'
+      ? (b.earnings - a.earnings || b.rating - a.rating)
+      : (b.rating - a.rating || b.jobs - a.jobs))
+    .slice(0, 5);
+}
+
 export function AdminDashboard() {
   const navigate = useNavigate();
+  const role = useAdminRole();
+  const isSupport = role === 'support';
   const [stats, setStats] = useState([
     { label: 'Active Jobs', value: '0', icon: Briefcase, gradient: 'linear-gradient(135deg, #008CE5, #0070B8)', path: '/jobs' },
     { label: 'Online Providers', value: '0', icon: Users, gradient: 'linear-gradient(135deg, #0070B8, #008CE5)', path: '/providers' },
@@ -51,19 +83,21 @@ export function AdminDashboard() {
   });
   const [pendingProviderRows, setPendingProviderRows] = useState<any[]>([]);
   const [urgentTicketRows, setUrgentTicketRows] = useState<any[]>([]);
+  const [topProviderRows, setTopProviderRows] = useState<any[]>([]);
   const [recentAlerts, setRecentAlerts] = useState<DashboardAlert[]>([]);
 
   const actionCards = [
     { label: 'Approve Providers', value: `${ops.pendingProviders}`, subtitle: 'Pending verification', icon: ShieldCheck, path: '/providers' },
     { label: 'Manage Users', value: `${ops.suspendedUsers}`, subtitle: 'Suspended users', icon: UserX, path: '/users' },
-    { label: 'Review Documents', value: `${ops.pendingDocs}`, subtitle: 'Pending document checks', icon: FileText, path: '/settings' },
+    { label: 'Review Documents', value: `${ops.pendingDocs}`, subtitle: 'Pending document checks', icon: FileText, path: '/documents' },
     { label: 'Manage Payouts', value: `${ops.pendingRefunds}`, subtitle: `Fee model ${ops.platformFeePercent.toFixed(1)}%`, icon: Wallet, path: '/payouts' },
-    { label: 'Live Dispatch', value: stats[0]?.value || '0', subtitle: 'Currently active jobs', icon: MessageSquare, path: '/jobs' },
-    { label: 'Service Pricing', value: `${ops.totalServices}`, subtitle: 'Configured services', icon: Wrench, path: '/settings' },
+    { label: 'Live Dispatch', value: stats[0]?.value || '0', subtitle: 'Currently active jobs', icon: MessageSquare, path: '/live-dispatch' },
+    { label: 'Service Pricing', value: `${ops.totalServices}`, subtitle: 'Configured services', icon: Wrench, path: '/services' },
     { label: 'Support Tickets', value: `${ops.openTickets}`, subtitle: `${ops.slaBreaches} SLA breach(es)`, icon: LifeBuoy, path: '/support-tickets' },
     { label: 'Financial Hub', value: `$${ops.refundsExposure.toFixed(0)}`, subtitle: `Pending refund exposure @ ${ops.platformFeePercent.toFixed(1)}% fee`, icon: LineChart, path: '/finance' },
     { label: 'Reporting Hub', value: `${ops.failedPayments}`, subtitle: 'Failed payments to review', icon: LineChart, path: '/reporting' },
   ];
+  const visibleActionCards = actionCards.filter((card) => visibleDashboardActionLabels(role).includes(card.label));
 
   const loadStatsRef = useRef<(() => void) | null>(null);
 
@@ -85,11 +119,14 @@ export function AdminDashboard() {
           .select('*', { count: 'exact', head: true })
           .in('status', ['pending', 'matching', 'matched', 'accepted', 'enroute', 'en_route', 'arrived', 'inprogress', 'in_progress']);
 
-        const { data: revenueData } = await supabase
-          .from('jobs')
-          .select('total_amount')
-          .eq('status', 'completed')
-          .gte('completed_at', today.toISOString());
+        const { data: revenueData, error: revenueError } = !canQueryAdminDashboardFinancials(role)
+          ? { data: [], error: null }
+          : await supabase
+            .from('jobs')
+            .select('total_amount')
+            .eq('status', 'completed')
+            .gte('completed_at', today.toISOString());
+        if (revenueError) throw revenueError;
 
         const revenue = revenueData?.reduce((sum, job) => sum + (Number(job.total_amount) || 0), 0) || 0;
         const revenueFormatted = revenue >= 1000 ? `$${(revenue / 1000).toFixed(1)}K` : `$${revenue.toFixed(0)}`;
@@ -103,8 +140,10 @@ export function AdminDashboard() {
         let providerProfileRows: any[] = [];
         try {
           const { data, error } = await supabase
-            .from('provider_profiles')
-            .select('id, is_online, is_verified, created_at');
+          .from('provider_profiles')
+            .select(isSupport
+              ? 'id, is_online, is_verified, created_at, rating, total_jobs'
+              : 'id, is_online, is_verified, created_at, rating, total_jobs, total_earnings');
           if (error) throw error;
           providerProfileRows = data || [];
         } catch {
@@ -169,16 +208,14 @@ export function AdminDashboard() {
 
         let pendingRefundsCount = 0;
         let pendingRefundAmount = 0;
-        try {
-          const { count, data } = await supabase
+        if (canQueryAdminDashboardFinancials(role)) {
+          const { count, data, error } = await supabase
             .from('refunds')
             .select('amount', { count: 'exact' })
             .eq('status', 'pending');
+          if (error) throw error;
           pendingRefundsCount = count || 0;
           pendingRefundAmount = (data || []).reduce((sum: number, row: any) => sum + (Number(row.amount) || 0), 0);
-        } catch {
-          pendingRefundsCount = 0;
-          pendingRefundAmount = 0;
         }
 
         let failedPaymentsCount = 0;
@@ -214,6 +251,14 @@ export function AdminDashboard() {
 
         setPendingProviderRows(providerQueue || []);
 
+        const providerStats = (providerProfileRows || [])
+          .map((row: any) => {
+            const profile = providerRoleMap.get(row.id) || {};
+            return { id: row.id, name: profile.full_name || profile.email || row.id.slice(0, 8), rating: Number(row.rating || 0), jobs: Number(row.total_jobs || 0), earnings: Number(row.total_earnings || 0) };
+          });
+        const visibleProviderStats = getProviderPerformanceRows(providerStats, role);
+        setTopProviderRows(visibleProviderStats);
+
         const { data: urgentTickets } = await supabase
           .from('support_tickets')
           .select('id, subject, priority, requester_role, created_at, status')
@@ -224,12 +269,17 @@ export function AdminDashboard() {
 
         setUrgentTicketRows(urgentTickets || []);
 
-        const { data: pendingRefundRows } = await supabase
-          .from('refunds')
-          .select('id, amount, reason, created_at')
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .limit(5);
+        let pendingRefundRows: any[] = [];
+        if (canQueryAdminDashboardFinancials(role)) {
+          const { data, error } = await supabase
+            .from('refunds')
+            .select('id, amount, reason, created_at')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(5);
+          if (error) throw error;
+          pendingRefundRows = data || [];
+        }
 
         const builtAlerts: DashboardAlert[] = [
           ...(urgentTickets || []).map((t: any) => ({
@@ -305,7 +355,7 @@ export function AdminDashboard() {
     }
     loadStatsRef.current = loadStats;
     loadStats();
-  }, []);
+  }, [isSupport]);
 
   // Real-time: auto-refresh dashboard when data changes in key tables
   useEffect(() => {
@@ -320,15 +370,17 @@ export function AdminDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, debouncedRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, debouncedRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'provider_profiles' }, debouncedRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, debouncedRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'refunds' }, debouncedRefresh)
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, debouncedRefresh);
+    if (!isSupport) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'refunds' }, debouncedRefresh);
+    }
+    channel.subscribe();
 
     return () => {
       if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [isSupport]);
 
   return (
     <AdminLayout>
@@ -348,7 +400,7 @@ export function AdminDashboard() {
 
         {/* Stats grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.map((stat, index) => {
+          {stats.filter((stat) => !(isSupport && stat.label === 'Today Revenue')).map((stat, index) => {
             const Icon = stat.icon;
             return (
               <motion.button
@@ -378,7 +430,7 @@ export function AdminDashboard() {
             {loading && <span className="text-gray-400 text-sm">Refreshing...</span>}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {actionCards.map((card, index) => {
+            {visibleActionCards.map((card, index) => {
               const Icon = card.icon;
               return (
                 <motion.button
@@ -469,20 +521,43 @@ export function AdminDashboard() {
               >
                 Review Support Tickets
               </button>
-              <button
+              {!isSupport && <button
                 onClick={() => navigate('/finance')}
                 className="w-full p-4 rounded-2xl bg-gray-50 text-gray-900 font-semibold hover:bg-gray-100 transition-all border border-gray-100"
               >
                 Open Financial Hub
-              </button>
-              <button
+              </button>}
+              {!isSupport && <button
                 onClick={() => navigate('/reporting')}
                 className="w-full p-4 rounded-2xl bg-gray-50 text-gray-900 font-semibold hover:bg-gray-100 transition-all border border-gray-100"
               >
                 Open Reporting Hub
-              </button>
+              </button>}
             </div>
           </motion.div>
+        </div>
+
+        {/* Provider performance */}
+        <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100 mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Provider Performance</h2>
+              <p className="text-gray-400 text-sm">Highest earners and top-rated providers</p>
+            </div>
+            <button onClick={() => navigate('/providers')} className="text-[#008CE5] text-sm font-semibold hover:underline">View providers</button>
+          </div>
+          {topProviderRows.length === 0 ? <p className="text-gray-400 text-sm">No provider performance data yet.</p> : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+              {topProviderRows.map((row: any, index: number) => (
+                <div key={row.id} className="rounded-2xl bg-gray-50 p-4">
+                  <p className="text-xs text-gray-400 font-semibold">#{index + 1} · {row.rating.toFixed(1)} ★</p>
+                  <p className="text-gray-900 font-semibold truncate mt-1">{row.name}</p>
+                  <p className="text-gray-500 text-xs mt-2">{row.jobs} jobs</p>
+                  {providerPerformanceShowsEarnings(role) && <p className="text-[#008CE5] font-bold mt-1">${row.earnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Pending Providers + Urgent Tickets */}
