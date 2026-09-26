@@ -6,6 +6,7 @@ const signOut = vi.hoisted(() => vi.fn());
 vi.mock('../lib/supabase', () => ({ supabase: { auth: { signOut } } }));
 
 import { AdminSidebar } from '../components/AdminSidebar';
+import { SUPPORT_ALLOWED_PATHS, canAccessAdminPath } from '../lib/adminAuth';
 
 function CurrentPath() {
   return <span data-testid="path">{useLocation().pathname}</span>;
@@ -30,5 +31,22 @@ describe('AdminSidebar sign out', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('Network unavailable');
     expect(screen.getByTestId('path').textContent).toBe('/dashboard');
+  });
+});
+
+describe('Support navigation authority', () => {
+  it('exposes only operational visibility and ticket routes', () => {
+    expect(SUPPORT_ALLOWED_PATHS.has('/documents')).toBe(true);
+    expect(SUPPORT_ALLOWED_PATHS.has('/jobs')).toBe(true);
+    expect(SUPPORT_ALLOWED_PATHS.has('/support-tickets')).toBe(true);
+    expect(SUPPORT_ALLOWED_PATHS.has('/payouts')).toBe(false);
+    expect(SUPPORT_ALLOWED_PATHS.has('/services')).toBe(false);
+    expect(SUPPORT_ALLOWED_PATHS.has('/team')).toBe(false);
+  });
+
+  it('denies support access to admin-only routes while admins retain access', () => {
+    expect(canAccessAdminPath('support', '/finance')).toBe(false);
+    expect(canAccessAdminPath('support', '/settings')).toBe(false);
+    expect(canAccessAdminPath('admin', '/finance')).toBe(true);
   });
 });

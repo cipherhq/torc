@@ -21,4 +21,5 @@ BEGIN
   RETURN json_build_object('success',true,'changed',true,'role',p_new_role);
 END; $$;
 REVOKE ALL ON FUNCTION public.admin_change_profile_role(uuid,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.admin_change_profile_role(uuid,text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.admin_change_profile_role(uuid,text) TO authenticated;

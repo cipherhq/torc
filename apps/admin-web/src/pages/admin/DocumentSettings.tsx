@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { AdminLayout } from '../../components/AdminLayout';
+import { AdminLayout, useAdminRole } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import {
   FileText, RefreshCw, Search, CheckCircle2, XCircle, Clock, Download, Eye,
@@ -43,6 +43,7 @@ interface DocumentRow {
 type FilterTab = 'all' | 'pending' | 'approved' | 'rejected';
 
 export function DocumentSettings() {
+  const canMutate = useAdminRole() === 'admin';
   /* ─── Document Requirements State ─── */
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
   const [docTypesLoading, setDocTypesLoading] = useState(true);
@@ -407,7 +408,9 @@ export function DocumentSettings() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => { setShowAddType(true); setAddTypeForm({ id: '', name: '', description: '', is_required: false }); setAddTypeError(null); }}
+            onClick={() => { setShowAddType(true); setAddTypeForm({ id: '', name: '', description: '', is_required: false }); setAddTypeError(null); }}
+            disabled={!canMutate}
+            title={canMutate ? 'Add document type' : 'Administrator access required'}
               style={{ background: 'linear-gradient(to right, #008CE5, #0070B8)' }}
               className="flex items-center gap-2 px-5 py-2 rounded-xl text-white font-semibold text-sm"
             >
@@ -466,7 +469,7 @@ export function DocumentSettings() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      {canMutate && <div className="flex items-center gap-2 flex-shrink-0">
                         <button
                           onClick={() => { setEditingType(dt); setEditTypeForm({ name: dt.name, description: dt.description || '', is_required: dt.is_required }); }}
                           className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
@@ -507,7 +510,7 @@ export function DocumentSettings() {
                             }} />
                           )}
                         </button>
-                      </div>
+                      </div>}
                     </div>
                   </motion.div>
                 );
@@ -677,17 +680,17 @@ export function DocumentSettings() {
                       )}
                       {doc.status === 'pending' && (
                         <>
-                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} onClick={() => handleApprove(doc.id)} disabled={actionLoading === doc.id} className="px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 cursor-pointer" style={{ background: 'linear-gradient(135deg, #4ADE80, #10B981)', color: '#FFFFFF' }}>
+                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} onClick={() => handleApprove(doc.id)} disabled={!canMutate || actionLoading === doc.id} className="px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 cursor-pointer" style={{ background: 'linear-gradient(135deg, #4ADE80, #10B981)', color: '#FFFFFF' }}>
                             {actionLoading === doc.id ? '...' : 'Approve'}
                           </motion.button>
-                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} onClick={() => { setRejectingId(rejectingId === doc.id ? null : doc.id); setRejectionReason(''); }} disabled={actionLoading === doc.id} className="px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 cursor-pointer" style={{ background: 'linear-gradient(135deg, #F87171, #EF4444)', color: '#FFFFFF' }}>
+                          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} onClick={() => { setRejectingId(rejectingId === doc.id ? null : doc.id); setRejectionReason(''); }} disabled={!canMutate || actionLoading === doc.id} className="px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 cursor-pointer" style={{ background: 'linear-gradient(135deg, #F87171, #EF4444)', color: '#FFFFFF' }}>
                             Reject
                           </motion.button>
                         </>
                       )}
                     </div>
                   </div>
-                  {rejectingId === doc.id && doc.status === 'pending' && (
+                  {canMutate && rejectingId === doc.id && doc.status === 'pending' && (
                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-4 ml-8 flex gap-2">
                       <input type="text" placeholder="Enter rejection reason..." value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleReject(doc.id); }} className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-300" autoFocus />
                       <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} onClick={() => handleReject(doc.id)} disabled={actionLoading === doc.id || !rejectionReason.trim()} className="px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 cursor-pointer" style={{ background: 'linear-gradient(135deg, #F87171, #EF4444)', color: '#FFFFFF' }}>

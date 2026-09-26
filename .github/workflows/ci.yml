@@ -5254,7 +5254,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v1.x
+          # deno.lock is format 5, which is supported by Deno 2 (not Deno 1).
+          # Pin the toolchain so local and CI compile checks use the same parser/lock format.
+          deno-version: v2.5.6
       - name: Check send-email compiles
         run: deno check supabase/functions/send-email/index.ts
       - name: Check send-sms compiles
@@ -5271,6 +5273,8 @@ jobs:
         run: deno check supabase/functions/process-cancellation-refunds/index.ts
       - name: Check process-account-deletion compiles
         run: deno check supabase/functions/process-account-deletion/index.ts
+      - name: Check invite-admin compiles
+        run: deno check --lock=deno.lock supabase/functions/invite-admin/index.ts
 
   native-config-validation:
     name: Native Config Validation

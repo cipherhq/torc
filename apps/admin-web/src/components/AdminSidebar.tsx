@@ -2,6 +2,7 @@ import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { SUPPORT_ALLOWED_PATHS } from '../lib/adminAuth';
 import {
   LayoutDashboard,
   Briefcase,
@@ -103,7 +104,7 @@ export function AdminSidebar({ role = 'admin' }: { role?: 'admin' | 'support' })
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
   const visibleSections = role === 'support'
-    ? navSections.map(section => ({ ...section, items: section.items.filter(item => !['/services', '/payouts', '/payout-history', '/finance', '/settings', '/audit-trail'].includes(item.path)) })).filter(section => section.items.length)
+    ? navSections.map(section => ({ ...section, items: section.items.filter(item => SUPPORT_ALLOWED_PATHS.has(item.path)) })).filter(section => section.items.length)
     : navSections;
 
   return (

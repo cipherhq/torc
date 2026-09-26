@@ -1,5 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.97.0';
-import { getSupabaseSecretKey, getSupabasePublishableKey } from './supabaseKeys.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSupabaseSecretKey, getSupabasePublishableKey } from '../_shared/supabaseKeys.ts';
 
 const defaultAdminUrl = 'https://admin-web-black-eight.vercel.app';
 const adminUrl = Deno.env.get('ADMIN_APP_URL') || defaultAdminUrl;

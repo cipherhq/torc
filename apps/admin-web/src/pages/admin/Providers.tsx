@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { AdminLayout } from '../../components/AdminLayout';
+import { AdminLayout, useAdminRole } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import { requireAdminSession } from '../../lib/adminAuth';
 import {
@@ -71,6 +71,8 @@ interface ProviderPayout {
 type FilterStatus = 'all' | 'pending' | 'verified' | 'online' | 'suspended';
 
 export function AdminProviders() {
+  const adminRole = useAdminRole();
+  const canMutate = adminRole === 'admin';
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -902,7 +904,7 @@ export function AdminProviders() {
                           </div>
 
                           {/* Action buttons */}
-                          <div className="flex flex-wrap gap-3 mt-5 pt-4 border-t border-gray-100">
+                          {canMutate && <div className="flex flex-wrap gap-3 mt-5 pt-4 border-t border-gray-100">
                             <motion.button
                               whileHover={{ scale: 1.02 }}
                               whileTap={{ scale: 0.98 }}
@@ -959,7 +961,7 @@ export function AdminProviders() {
                               )}
                               {provider.status === 'suspended' ? 'Unsuspend' : 'Suspend Account'}
                             </motion.button>
-                          </div>
+                          </div>}
 
                           {/* Provider ID */}
                           <p className="text-gray-500 text-xs mt-3">ID: {provider.id}</p>
