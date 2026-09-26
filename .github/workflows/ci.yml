@@ -448,6 +448,62 @@ jobs:
           GRANT ALL ON ALL TABLES IN SCHEMA realtime TO authenticated, service_role;
           GRANT USAGE ON SCHEMA realtime TO authenticated, service_role;
           SQL
+      - name: Test service availability ACL hardening with simulated Supabase drift
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
+          -- The ephemeral database does not reproduce Supabase default grants by itself.
+          -- Create the prerequisite enum, apply the real table migration, then deliberately
+          -- simulate broad existing grants before applying the forward ACL hardening migration.
+          DO $$
+          BEGIN
+            CREATE TYPE public.user_role AS ENUM ('customer', 'provider', 'admin');
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END $$;
+          ALTER TABLE public.profiles
+            ALTER COLUMN role TYPE public.user_role
+            USING CASE WHEN role IS NULL THEN NULL ELSE role::public.user_role END;
+          \i supabase/migrations/20260924210000_support_roles_service_regions.sql
+          GRANT ALL ON TABLE public.service_availability_rules TO anon, authenticated;
+          CREATE TEMP TABLE service_availability_acl_before AS
+            SELECT count(*)::bigint AS row_count FROM public.service_availability_rules;
+          \i supabase/migrations/20260926212600_harden_service_availability_rule_grants.sql
+
+          DO $$
+          DECLARE
+            before_count bigint;
+            after_count bigint;
+          BEGIN
+            SELECT row_count INTO before_count FROM service_availability_acl_before;
+            SELECT count(*) INTO after_count FROM public.service_availability_rules;
+            ASSERT after_count = before_count, 'SERVICE-ACL-001 FAILED: migration changed rows';
+
+            ASSERT has_table_privilege('anon', 'public.service_availability_rules', 'SELECT'), 'SERVICE-ACL-002 FAILED: anon SELECT missing';
+            ASSERT NOT has_table_privilege('anon', 'public.service_availability_rules', 'INSERT'), 'SERVICE-ACL-003 FAILED: anon INSERT remains';
+            ASSERT NOT has_table_privilege('anon', 'public.service_availability_rules', 'UPDATE'), 'SERVICE-ACL-004 FAILED: anon UPDATE remains';
+            ASSERT NOT has_table_privilege('anon', 'public.service_availability_rules', 'DELETE'), 'SERVICE-ACL-005 FAILED: anon DELETE remains';
+            ASSERT NOT has_table_privilege('anon', 'public.service_availability_rules', 'TRUNCATE'), 'SERVICE-ACL-006 FAILED: anon TRUNCATE remains';
+            ASSERT NOT has_table_privilege('anon', 'public.service_availability_rules', 'REFERENCES'), 'SERVICE-ACL-007 FAILED: anon REFERENCES remains';
+            ASSERT NOT has_table_privilege('anon', 'public.service_availability_rules', 'TRIGGER'), 'SERVICE-ACL-008 FAILED: anon TRIGGER remains';
+
+            ASSERT has_table_privilege('authenticated', 'public.service_availability_rules', 'SELECT'), 'SERVICE-ACL-009 FAILED: authenticated SELECT missing';
+            ASSERT has_table_privilege('authenticated', 'public.service_availability_rules', 'INSERT'), 'SERVICE-ACL-010 FAILED: authenticated INSERT missing';
+            ASSERT has_table_privilege('authenticated', 'public.service_availability_rules', 'UPDATE'), 'SERVICE-ACL-011 FAILED: authenticated UPDATE missing';
+            ASSERT has_table_privilege('authenticated', 'public.service_availability_rules', 'DELETE'), 'SERVICE-ACL-012 FAILED: authenticated DELETE missing';
+            ASSERT NOT has_table_privilege('authenticated', 'public.service_availability_rules', 'TRUNCATE'), 'SERVICE-ACL-013 FAILED: authenticated TRUNCATE remains';
+            ASSERT NOT has_table_privilege('authenticated', 'public.service_availability_rules', 'REFERENCES'), 'SERVICE-ACL-014 FAILED: authenticated REFERENCES remains';
+            ASSERT NOT has_table_privilege('authenticated', 'public.service_availability_rules', 'TRIGGER'), 'SERVICE-ACL-015 FAILED: authenticated TRIGGER remains';
+
+            ASSERT NOT EXISTS (
+              SELECT 1 FROM aclexplode(COALESCE((SELECT relacl FROM pg_class WHERE oid = 'public.service_availability_rules'::regclass), acldefault('r', (SELECT relowner FROM pg_class WHERE oid = 'public.service_availability_rules'::regclass)))) acl
+              WHERE acl.grantee = 0
+            ), 'SERVICE-ACL-016 FAILED: PUBLIC ACL still grants table privileges';
+            ASSERT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'service_availability_rules' AND policyname = 'Anyone can view active service availability'), 'SERVICE-ACL-017 FAILED: SELECT policy missing';
+            ASSERT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'service_availability_rules' AND policyname = 'Admins manage service availability'), 'SERVICE-ACL-018 FAILED: admin policy missing';
+            ASSERT (SELECT rowsecurity FROM pg_class WHERE oid = 'public.service_availability_rules'::regclass), 'SERVICE-ACL-019 FAILED: RLS disabled';
+            ASSERT (SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'service_availability_rules' AND indexname IN ('service_availability_rules_service_idx', 'service_availability_rules_location_idx')) = 2, 'SERVICE-ACL-020 FAILED: expected indexes missing';
+            RAISE NOTICE 'All 20 SERVICE-ACL-001 regression assertions passed.';
+          END $$;
+          SQL
       - name: Assert RLS and privilege restrictions
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/torc_test" -v ON_ERROR_STOP=1 <<'SQL'
