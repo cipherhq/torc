@@ -466,7 +466,10 @@ jobs:
             subject TEXT,
             description TEXT,
             priority TEXT,
-            status TEXT
+            status TEXT,
+            admin_note TEXT,
+            resolved_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ DEFAULT now()
           );
           \i supabase/migrations/20260924210000_support_roles_service_regions.sql
           GRANT ALL ON TABLE public.service_availability_rules TO anon, authenticated;
