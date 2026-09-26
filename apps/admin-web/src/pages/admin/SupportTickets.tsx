@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { AdminLayout } from '../../components/AdminLayout';
+import { AdminLayout, useAdminRole } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import { MessageSquareWarning, RefreshCw, Save, Download, Clock3, AlertTriangle, Send } from 'lucide-react';
 import { loadPlatformSettings } from '../../lib/platformSettings';
@@ -10,7 +10,7 @@ interface TicketReply {
   id: string;
   ticket_id: string;
   sender_id: string;
-  sender_role: 'admin' | 'customer' | 'provider';
+  sender_role: 'admin' | 'support' | 'customer' | 'provider';
   message: string;
   created_at: string;
 }
@@ -47,6 +47,7 @@ function nameFor(profile?: ProfileName | null) {
 }
 
 export function AdminSupportTickets() {
+  const adminRole = useAdminRole();
   const [currentUserId, setCurrentUserId] = useState(null as string | null);
 
   useEffect(() => {
@@ -267,7 +268,7 @@ export function AdminSupportTickets() {
       const { error } = await supabase.from('ticket_replies').insert({
         ticket_id: selectedTicket.id,
         sender_id: currentUserId,
-        sender_role: 'admin',
+        sender_role: adminRole,
         message: replyText.trim(),
       });
       if (error) throw error;
@@ -494,18 +495,18 @@ export function AdminSupportTickets() {
                     ) : (
                       <div className="p-3 space-y-3">
                         {replies.map((r) => {
-                          const isAdmin = r.sender_role === 'admin';
-                          const senderName = isAdmin
-                            ? (profiles[r.sender_id] ? nameFor(profiles[r.sender_id]) : 'Admin')
+                          const isStaff = r.sender_role === 'admin' || r.sender_role === 'support';
+                          const senderName = isStaff
+                            ? (profiles[r.sender_id] ? nameFor(profiles[r.sender_id]) : (r.sender_role === 'support' ? 'Support' : 'Admin'))
                             : (profiles[r.sender_id] ? nameFor(profiles[r.sender_id]) : (r.sender_role === 'customer' ? 'Customer' : 'Provider'));
                           return (
-                            <div key={r.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${isAdmin ? 'bg-[#008CE5] text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
-                                <p className={`text-[11px] font-semibold mb-0.5 ${isAdmin ? 'text-blue-100' : 'text-[#008CE5]'}`}>
+                            <div key={r.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${isStaff ? 'bg-[#008CE5] text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+                                <p className={`text-[11px] font-semibold mb-0.5 ${isStaff ? 'text-blue-100' : 'text-[#008CE5]'}`}>
                                   {senderName} ({r.sender_role})
                                 </p>
                                 <p className="text-sm whitespace-pre-wrap">{r.message}</p>
-                                <p className={`text-[10px] mt-1 ${isAdmin ? 'text-blue-200' : 'text-gray-400'}`}>
+                                <p className={`text-[10px] mt-1 ${isStaff ? 'text-blue-200' : 'text-gray-400'}`}>
                                   {new Date(r.created_at).toLocaleString()}
                                 </p>
                               </div>
