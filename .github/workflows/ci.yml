@@ -4365,7 +4365,9 @@ jobs:
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
             SELECT 'f3000000-0000-0000-0000-000000000003'::uuid;
           $$;
-          SET ROLE authenticated;
+          -- The admin surface uses a server-authoritative write path in production;
+          -- execute this fixture write as the privileged server role.
+          SET ROLE postgres;
           UPDATE documents
           SET status = 'rejected', rejection_reason = 'Unreadable', reviewed_by = auth.uid(),
               reviewed_at = now(), expires_at = '2030-01-01'::date
@@ -4426,7 +4428,7 @@ jobs:
           CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$
             SELECT 'f3000000-0000-0000-0000-000000000003'::uuid;
           $$;
-          SET ROLE authenticated;
+          SET ROLE postgres;
           UPDATE documents
           SET status = 'approved', reviewed_by = auth.uid(), reviewed_at = now()
           WHERE id = 'f4000000-0000-0000-0000-000000000004'::uuid;
