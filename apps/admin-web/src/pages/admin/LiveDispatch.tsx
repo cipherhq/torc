@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
-import { Activity, MapPin, Clock, RefreshCw, Navigation, AlertCircle, Search } from 'lucide-react';
+import { Activity, MapPin, Clock, RefreshCw, Navigation, AlertCircle, Search, X, User, DollarSign, CalendarClock } from 'lucide-react';
 
 interface JobRow {
   id: string;
@@ -11,11 +11,28 @@ interface JobRow {
   pickup_latitude: number | null;
   pickup_longitude: number | null;
   destination_address: string | null;
+  destination_latitude: number | null;
+  destination_longitude: number | null;
+  service_id: string | null;
+  customer_id: string | null;
+  provider_id: string | null;
+  payment_status: string | null;
+  base_price: number | null;
+  service_fee: number | null;
+  tax: number | null;
+  tip: number | null;
+  accepted_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  scheduled_for: string | null;
+  updated_at: string;
+  customer_notes: string | null;
+  cancellation_reason: string | null;
   total_amount: number | null;
   created_at: string;
   started_at: string | null;
-  customer: { full_name: string | null } | null;
-  provider: { full_name: string | null } | null;
+  customer: { full_name: string | null; email?: string | null; phone?: string | null } | null;
+  provider: { full_name: string | null; email?: string | null; phone?: string | null } | null;
   service: { name: string | null } | null;
 }
 
@@ -46,33 +63,47 @@ export function AdminLiveDispatch() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<JobRow | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchJobs = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
       setError(null);
 
+      // jobs has no PostgREST foreign-key relationships in production. Load the
+      // rows first, then resolve people/services explicitly to avoid the
+      // "could not find a relationship" error.
       const { data, error: fetchError } = await supabase
         .from('jobs')
         .select(`
-          id,
-          status,
-          pickup_address,
-          pickup_latitude,
-          pickup_longitude,
-          destination_address,
-          total_amount,
-          created_at,
-          started_at,
-          customer:profiles!jobs_customer_id_fkey ( full_name ),
-          provider:profiles!jobs_provider_id_fkey ( full_name ),
-          service:services!jobs_service_id_fkey ( name )
+          id, status, pickup_address, pickup_latitude, pickup_longitude,
+          destination_address, destination_latitude, destination_longitude,
+          total_amount, base_price, service_fee, tax, tip, payment_status,
+          created_at, updated_at, started_at, accepted_at, completed_at,
+          cancelled_at, scheduled_for, customer_notes, cancellation_reason,
+          customer_id, provider_id, service_id
         `)
         .in('status', ACTIVE_STATUSES)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
-      setJobs((data as unknown as JobRow[]) ?? []);
+      const rows = (data || []) as unknown as JobRow[];
+      const profileIds = Array.from(new Set(rows.flatMap(j => [j.customer_id, j.provider_id].filter(Boolean) as string[])));
+      const serviceIds = Array.from(new Set(rows.map(j => j.service_id).filter(Boolean) as string[]));
+      const [{ data: profiles }, { data: services }] = await Promise.all([
+        profileIds.length ? supabase.from('profiles').select('id, full_name, email, phone').in('id', profileIds) : Promise.resolve({ data: [] as any[] }),
+        serviceIds.length ? supabase.from('services').select('id, name').in('id', serviceIds) : Promise.resolve({ data: [] as any[] }),
+      ]);
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+      const serviceMap = new Map((services || []).map((s: any) => [String(s.id), s]));
+      setJobs(rows.map(job => ({
+        ...job,
+        customer: job.customer_id ? profileMap.get(job.customer_id) || null : null,
+        provider: job.provider_id ? profileMap.get(job.provider_id) || null : null,
+        service: job.service_id ? serviceMap.get(String(job.service_id)) || null : null,
+      })));
+      setLastUpdated(new Date());
     } catch (err: any) {
       setError(err.message ?? 'Failed to load jobs');
     } finally {
@@ -246,7 +277,11 @@ export function AdminLiveDispatch() {
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.04 }}
-                  className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-5 hover:shadow-md transition-shadow"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedJob(job)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedJob(job); }}
+                className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-5 hover:shadow-md transition-shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008CE5]/40"
                 >
                   {/* Top row: service + badge */}
                   <div className="flex items-start justify-between mb-3">
@@ -297,7 +332,28 @@ export function AdminLiveDispatch() {
             })}
           </div>
         )}
+        {lastUpdated && <p className="mt-4 text-xs text-gray-400">Live updates enabled · refreshed {lastUpdated.toLocaleTimeString()}</p>}
       </div>
+      {selectedJob && (
+        <div className="fixed inset-0 z-50 bg-slate-950/40 p-4 sm:p-8 flex items-center justify-center" onClick={() => setSelectedJob(null)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-5 flex items-center justify-between">
+              <div><p className="text-xs uppercase tracking-wider text-slate-400">Job details</p><h2 className="text-xl font-bold text-slate-900">{selectedJob.service?.name || 'Service request'}</h2><p className="text-xs text-slate-400 font-mono">{selectedJob.id}</p></div>
+              <button aria-label="Close job details" onClick={() => setSelectedJob(null)} className="p-2 rounded-xl hover:bg-slate-100"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-5 text-sm">
+              <div className="sm:col-span-2 flex flex-wrap gap-2"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[selectedJob.status]?.bg || 'bg-slate-100 text-slate-700'}`}>{STATUS_BADGE[selectedJob.status]?.label || selectedJob.status}</span><span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs">Payment: {selectedJob.payment_status || 'not recorded'}</span></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400 mb-2"><User className="inline w-3.5 h-3.5 mr-1" />Customer</p><p className="font-semibold">{selectedJob.customer?.full_name || 'Unassigned'}</p><p className="text-slate-500">{selectedJob.customer?.email || ''}</p><p className="text-slate-500">{selectedJob.customer?.phone || ''}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400 mb-2"><User className="inline w-3.5 h-3.5 mr-1" />Provider</p><p className="font-semibold">{selectedJob.provider?.full_name || 'Unassigned'}</p><p className="text-slate-500">{selectedJob.provider?.email || ''}</p><p className="text-slate-500">{selectedJob.provider?.phone || ''}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400 mb-2"><MapPin className="inline w-3.5 h-3.5 mr-1" />Route</p><p><b>Pickup:</b> {selectedJob.pickup_address || '—'}</p><p className="text-slate-600"><b>Drop-off:</b> {selectedJob.destination_address || '—'}</p><p className="text-xs text-slate-400 mt-2">{selectedJob.pickup_latitude ?? '—'}, {selectedJob.pickup_longitude ?? '—'} → {selectedJob.destination_latitude ?? '—'}, {selectedJob.destination_longitude ?? '—'}</p></div>
+              <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400 mb-2"><DollarSign className="inline w-3.5 h-3.5 mr-1" />Financials</p><p>Base {selectedJob.base_price == null ? '—' : `$${Number(selectedJob.base_price).toFixed(2)}`}</p><p>Fee {selectedJob.service_fee == null ? '—' : `$${Number(selectedJob.service_fee).toFixed(2)}`} · Tax {selectedJob.tax == null ? '—' : `$${Number(selectedJob.tax).toFixed(2)}`}</p><p>Tip {selectedJob.tip == null ? '—' : `$${Number(selectedJob.tip).toFixed(2)}`} · <b>Total {selectedJob.total_amount == null ? '—' : `$${Number(selectedJob.total_amount).toFixed(2)}`}</b></p></div>
+              <div className="rounded-2xl bg-slate-50 p-4 sm:col-span-2"><p className="text-xs text-slate-400 mb-2"><CalendarClock className="inline w-3.5 h-3.5 mr-1" />Timeline</p><div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs"><span>Created<br/><b>{new Date(selectedJob.created_at).toLocaleString()}</b></span><span>Accepted<br/><b>{selectedJob.accepted_at ? new Date(selectedJob.accepted_at).toLocaleString() : '—'}</b></span><span>Started<br/><b>{selectedJob.started_at ? new Date(selectedJob.started_at).toLocaleString() : '—'}</b></span><span>Completed<br/><b>{selectedJob.completed_at ? new Date(selectedJob.completed_at).toLocaleString() : '—'}</b></span></div></div>
+              {selectedJob.customer_notes && <div className="sm:col-span-2"><p className="text-xs text-slate-400">Notes</p><p className="mt-1 text-slate-700">{selectedJob.customer_notes}</p></div>}
+              {selectedJob.cancellation_reason && <div className="sm:col-span-2"><p className="text-xs text-red-500">Cancellation reason</p><p className="mt-1 text-red-700">{selectedJob.cancellation_reason}</p></div>}
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

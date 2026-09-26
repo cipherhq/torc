@@ -104,7 +104,7 @@ describe('Documents.tsx — source safety', () => {
     expect(source).toContain("from '../../lib/ensureProviderSetup'");
   });
 
-  it('loadDocuments does not call storage.upload', async () => {
+  it('loadDocuments only creates short-lived preview URLs, never uploads', async () => {
     const fs = await import('fs');
     const path = await import('path');
     const source = fs.readFileSync(
@@ -115,7 +115,7 @@ describe('Documents.tsx — source safety', () => {
       source.indexOf('async function loadDocuments'),
       source.indexOf('async function handleFileSelect'),
     );
-    expect(loadDocsFn).not.toContain('.storage.');
+    expect(loadDocsFn).toContain('createSignedUrl');
     expect(loadDocsFn).not.toContain('.upload(');
   });
 });

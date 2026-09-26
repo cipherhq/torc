@@ -47,6 +47,14 @@ interface ProviderPayoutRow {
   paid_at: string | null;
 }
 
+interface PlatformPayoutTotals {
+  total_provider_net: number;
+  paid_provider_net: number;
+  unpaid_provider_net: number;
+  platform_fees: number;
+  tips: number;
+}
+
 const money = (value: number) => `$${value.toFixed(2)}`;
 const num = (value: unknown) => Number(value || 0);
 
@@ -76,6 +84,7 @@ export function AdminFinance() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null as string | null);
   const [platformFeePercent, setPlatformFeePercent] = useState(15);
+  const [payoutTotals, setPayoutTotals] = useState<PlatformPayoutTotals | null>(null);
 
   useEffect(() => {
     void loadFinance();
@@ -90,6 +99,7 @@ export function AdminFinance() {
         { data: jobsData, error: jobsError },
         { data: refundsData, error: refundsError },
         { data: payoutsData, error: payoutsError },
+        { data: ledgerTotals, error: ledgerError },
         settings,
       ] = await Promise.all([
         supabase
@@ -98,16 +108,20 @@ export function AdminFinance() {
           .eq('status', 'completed'),
         supabase.from('refunds').select('amount, status, created_at'),
         supabase.from('provider_payouts').select('net_payout, total_earnings, total_tips, platform_fee, status, created_at, paid_at'),
+        supabase.rpc('get_platform_payout_totals'),
         loadPlatformSettings(),
       ]);
 
       if (jobsError) throw jobsError;
       if (refundsError && !isMissingRelationError(refundsError)) throw refundsError;
       if (payoutsError && !isMissingRelationError(payoutsError)) throw payoutsError;
+      if (ledgerError) throw ledgerError;
+      if (!ledgerTotals?.[0]) throw new Error('Provider payout ledger totals are unavailable');
 
       setJobs((jobsData || []) as JobFinancialRow[]);
       setRefunds((refundsData || []) as RefundRevenue[]);
       setPayouts((payoutsData || []) as ProviderPayoutRow[]);
+      setPayoutTotals(ledgerTotals[0] as PlatformPayoutTotals);
       setPlatformFeePercent(settings.platformFee);
 
       // Load cancellation operations and tips for financial visibility
@@ -125,6 +139,7 @@ export function AdminFinance() {
       setJobs([]);
       setRefunds([]);
       setPayouts([]);
+      setPayoutTotals(null);
     } finally {
       setLoading(false);
     }
@@ -181,7 +196,9 @@ export function AdminFinance() {
 
     const netPlatformRevenue = expectedPlatformFees - approvedRefunds;
     const capturedCustomerPayments = paymentBuckets.paid.amount;
-    const providerOutstandingEstimate = Math.max(expectedProviderPayout - payoutCoverageAmount, 0);
+    const providerOutstanding = num(payoutTotals?.unpaid_provider_net);
+    const providerLedgerEarned = num(payoutTotals?.total_provider_net);
+    const providerLedgerPaid = num(payoutTotals?.paid_provider_net);
     const cashPositionEstimate = capturedCustomerPayments - approvedRefunds - paidOut;
 
     return {
@@ -199,17 +216,19 @@ export function AdminFinance() {
       processingPayouts,
       pendingPayouts,
       capturedCustomerPayments,
-      providerOutstandingEstimate,
+      providerOutstanding,
+      providerLedgerEarned,
+      providerLedgerPaid,
       cashPositionEstimate,
       paymentSuccessRate:
         jobs.length > 0 ? (paymentBuckets.paid.jobs / jobs.length) * 100 : 0,
       payoutCoveragePct:
-        expectedProviderPayout > 0
-          ? (payoutCoverageAmount / expectedProviderPayout) * 100
+        providerLedgerEarned > 0
+          ? (providerLedgerPaid / providerLedgerEarned) * 100
           : 0,
       marginPct: grossSales > 0 ? (netPlatformRevenue / grossSales) * 100 : 0,
     };
-  }, [jobs, refunds, payouts, platformFeePercent]);
+  }, [jobs, refunds, payouts, platformFeePercent, payoutTotals]);
 
   const monthly = useMemo(() => {
     const feeRate = platformFeePercent / 100;
@@ -403,22 +422,22 @@ export function AdminFinance() {
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <Wallet className="w-8 h-8 text-[#0070B8] mb-2" />
-                <p className="text-gray-500 text-sm">Provider Payout Owed</p>
-                <p className="text-gray-900 text-3xl font-bold">{money(metrics.expectedProviderPayout)}</p>
-                <p className="text-gray-500 text-xs mt-1">Sales - TORC fee + tips ({money(metrics.totalTips)})</p>
+                <p className="text-gray-500 text-sm">Provider Earnings Recorded</p>
+                <p className="text-gray-900 text-3xl font-bold">{money(metrics.providerLedgerEarned)}</p>
+                <p className="text-gray-500 text-xs mt-1">Net earnings in the payout ledger, before deductions</p>
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <CheckCircle2 className="w-8 h-8 text-[#008CE5] mb-2" />
                 <p className="text-gray-500 text-sm">Paid Out To Providers</p>
                 <p className="text-gray-900 text-3xl font-bold">{money(metrics.paidOut)}</p>
-                <p className="text-gray-500 text-xs mt-1">From payout ledger status = paid</p>
+                <p className="text-gray-500 text-xs mt-1">All paid records, including historical payouts</p>
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <Clock className="w-8 h-8 text-yellow-600 mb-2" />
                 <p className="text-gray-500 text-sm">Outstanding Payout Liability</p>
-                <p className="text-gray-900 text-3xl font-bold">{money(metrics.providerOutstandingEstimate)}</p>
+                <p className="text-gray-900 text-3xl font-bold">{money(metrics.providerOutstanding)}</p>
                 <p className="text-gray-500 text-xs mt-1">
-                  Owed minus paid/processing ({money(metrics.processingPayouts)} in processing)
+                  Unpaid earnings in the same ledger used by Payouts
                 </p>
               </motion.div>
               <motion.div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -438,7 +457,7 @@ export function AdminFinance() {
               <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">
                 <p className="text-gray-500 text-sm">Payout Coverage</p>
                 <p className="text-gray-900 text-3xl font-bold">{metrics.payoutCoveragePct.toFixed(1)}%</p>
-                <p className="text-gray-500 text-xs mt-1">Paid + processing vs provider amount owed</p>
+                <p className="text-gray-500 text-xs mt-1">Ledger-paid earnings vs total ledger earnings</p>
               </div>
               <div className="bg-white shadow-sm border border-gray-100 rounded-[24px] p-6">
                 <p className="text-gray-500 text-sm">Platform Margin</p>

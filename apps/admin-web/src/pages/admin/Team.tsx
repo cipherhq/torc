@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { AdminLayout } from '../../components/AdminLayout';
-import { Shield, Eye, Crown, Users, Loader2, AlertCircle, Mail, UserPlus, X, ChevronDown } from 'lucide-react';
+import { Shield, Eye, Crown, Users, Loader2, AlertCircle, Mail, UserPlus, X, ChevronDown, Headphones } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 
@@ -16,9 +16,6 @@ interface TeamMember {
   created_at: string | null;
 }
 
-/* Role definitions — only roles actually enforced by the backend are shown.
-   Current authorization is binary: admin or non-admin (via profiles.role).
-   Granular RBAC (manager, support) is not yet implemented at the database level. */
 const ROLES = [
   {
     id: 'admin',
@@ -29,6 +26,16 @@ const ROLES = [
     icon: Shield,
     badgeBg: 'rgba(0,140,229,0.1)',
     badgeColor: '#008CE5',
+  },
+  {
+    id: 'support',
+    name: 'Support',
+    description: 'Customer and provider support — view profiles, documents, jobs, and manage support tickets',
+    permissions: ['Support tickets', 'Profiles & documents', 'Job visibility'],
+    gradient: 'linear-gradient(135deg, #14B8A6, #0F766E)',
+    icon: Headphones,
+    badgeBg: 'rgba(20,184,166,0.1)',
+    badgeColor: '#0F766E',
   },
 ];
 
@@ -47,6 +54,8 @@ export function AdminTeam() {
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState('');
+  const [inviteWarning, setInviteWarning] = useState('');
 
   /* Role editing */
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
@@ -62,7 +71,7 @@ export function AdminTeam() {
     const { data, error: err } = await supabase
       .from('profiles')
       .select('id, full_name, first_name, last_name, email, role, status, avatar_url, created_at')
-      .eq('role', 'admin')
+      .in('role', ['admin', 'support'])
       .order('created_at', { ascending: true });
 
     if (err) {
@@ -101,6 +110,8 @@ export function AdminTeam() {
     setInviteRole('admin');
     setInviteError(null);
     setInviteSuccess(false);
+    setInviteMessage('');
+    setInviteWarning('');
   };
 
   const handleInvite = async () => {
@@ -112,97 +123,23 @@ export function AdminTeam() {
     setInviteError(null);
 
     try {
-      // Check if a profile with this email already exists
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id, role')
-        .eq('email', inviteEmail.trim().toLowerCase())
-        .maybeSingle();
-
-      if (existing) {
-        if (existing.role === 'admin') {
-          setInviteError('This user is already an admin team member.');
-          setInviting(false);
-          return;
-        }
-        // Promote existing user to admin
-        const { error: updateErr } = await supabase
-          .from('profiles')
-          .update({
-            role: 'admin',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existing.id);
-
-        if (updateErr) throw updateErr;
-
-        // Audit log
-        const { data: session } = await supabase.auth.getSession();
-        const actorId = session?.session?.user?.id;
-        if (actorId) {
-          await supabase.from('admin_audit_logs').insert({
-            actor_id: actorId,
-            action: 'promote_to_admin',
-            entity_type: 'profile',
-            entity_id: existing.id,
-            details: { email: inviteEmail, previous_role: existing.role },
-          });
-        }
-
-        setInviteSuccess(true);
-        loadTeam();
-      } else {
-        // No existing profile — create invite via Supabase auth
-        const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
+      const { data, error: invokeError } = await supabase.functions.invoke('invite-admin', {
+        body: {
           email: inviteEmail.trim().toLowerCase(),
-          email_confirm: true,
-          user_metadata: {
-            first_name: inviteFirstName.trim(),
-            last_name: inviteLastName.trim(),
-            role: 'admin',
-          },
-        });
-
-        if (authErr) {
-          // Fallback: if admin API not available, just insert a profile row
-          if (authErr.message.includes('not authorized') || authErr.message.includes('not allowed')) {
-            setInviteError('Admin API unavailable. Add the user manually in Supabase Auth, then they will appear here once their role is set to admin.');
-          } else {
-            throw authErr;
-          }
-          setInviting(false);
-          return;
-        }
-
-        // Update profile with role = admin
-        if (authData?.user) {
-          await supabase
-            .from('profiles')
-            .update({
-              role: 'admin',
-              first_name: inviteFirstName.trim() || null,
-              last_name: inviteLastName.trim() || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', authData.user.id);
-
-          // Audit log
-          const { data: session } = await supabase.auth.getSession();
-          const actorId = session?.session?.user?.id;
-          if (actorId) {
-            await supabase.from('admin_audit_logs').insert({
-              actor_id: actorId,
-              action: 'invite_admin',
-              entity_type: 'profile',
-              entity_id: authData.user.id,
-              details: { email: inviteEmail },
-            });
-          }
-        }
-
-        setInviteSuccess(true);
-        loadTeam();
+          firstName: inviteFirstName.trim(),
+          lastName: inviteLastName.trim(),
+          role: inviteRole,
+        },
+      });
+      if (invokeError) {
+        const context = invokeError.context;
+        const details = context instanceof Response ? await context.json().catch(() => null) : null;
+        throw new Error(details?.error || invokeError.message);
       }
+      setInviteMessage(data?.message || 'The admin team has been updated.');
+      setInviteWarning(data?.warning || '');
+      setInviteSuccess(true);
+      await loadTeam();
     } catch (e: any) {
       console.error('Invite error:', e);
       setInviteError(e.message || 'Failed to invite team member');
@@ -223,9 +160,7 @@ export function AdminTeam() {
 
       if (err) throw err;
 
-      // If we changed someone OFF admin, they disappear from this list.
-      // If we keep them admin, update local state.
-      if (newRole !== 'admin') {
+      if (!['admin', 'support'].includes(newRole)) {
         setMembers((prev) => prev.filter((m) => m.id !== memberId));
       } else {
         setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
@@ -260,7 +195,7 @@ export function AdminTeam() {
           <div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Team & Access Control</h1>
             <p className="text-gray-500">
-              {loading ? 'Loading...' : `${members.length} admin team member${members.length !== 1 ? 's' : ''}`}
+              {loading ? 'Loading...' : `${members.length} team member${members.length !== 1 ? 's' : ''}`}
             </p>
           </div>
           <motion.button
@@ -326,7 +261,7 @@ export function AdminTeam() {
             {members.length === 0 ? (
               <div className="text-center py-16">
                 <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">No admin team members found</p>
+                <p className="text-gray-500 text-lg">No team members found</p>
                 <p className="text-gray-400 text-sm mt-1">Click "Add Member" to invite someone</p>
               </div>
             ) : (
@@ -482,7 +417,8 @@ export function AdminTeam() {
                     <UserPlus className="w-8 h-8 text-green-600" />
                   </div>
                   <h3 className="text-gray-900 font-bold text-xl mb-2">Member Added</h3>
-                  <p className="text-gray-500 mb-6">The user has been added to the admin team.</p>
+                  <p className="text-gray-500 mb-6">{inviteMessage}</p>
+                  {inviteWarning && <p role="alert" className="text-amber-700 mb-6">{inviteWarning}</p>}
                   <motion.button
                     whileTap={{ scale: 0.98 }}
                     onClick={() => { setShowInvite(false); resetInviteForm(); }}

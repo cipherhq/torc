@@ -174,10 +174,10 @@ export function DocumentSettings() {
     try {
       const { error: deleteErr } = await supabase
         .from('document_types')
-        .delete()
+        .update({ is_active: false })
         .eq('id', deletingType.id);
       if (deleteErr) throw deleteErr;
-      setDocTypes(prev => prev.filter(d => d.id !== deletingType.id));
+      setDocTypes(prev => prev.map(d => d.id === deletingType.id ? { ...d, is_active: false } : d));
       setDeletingType(null);
     } catch (e: any) {
       alert('Failed to delete: ' + (e.message || 'Unknown error'));
@@ -214,13 +214,19 @@ export function DocumentSettings() {
         }
       }
 
-      const mapped: DocumentRow[] = (data ?? []).map((doc: any) => ({
+      const mapped: DocumentRow[] = await Promise.all((data ?? []).map(async (doc: any) => {
+        let fileUrl = doc.file_url;
+        if (doc.file_path) {
+          const signed = await supabase.storage.from('provider-documents').createSignedUrl(doc.file_path, 300);
+          fileUrl = signed.data?.signedUrl || null;
+        }
+        return {
         id: doc.id,
         provider_id: doc.provider_id,
         type: doc.type,
         file_name: doc.file_name,
         file_path: doc.file_path,
-        file_url: doc.file_url,
+        file_url: fileUrl,
         mime_type: doc.mime_type,
         file_size: doc.file_size,
         status: doc.status,
@@ -229,8 +235,11 @@ export function DocumentSettings() {
         reviewed_at: doc.reviewed_at,
         created_at: doc.created_at,
         updated_at: doc.updated_at,
-        provider_name: profilesMap[doc.provider_id]?.full_name ?? 'Unknown Provider',
-        provider_email: profilesMap[doc.provider_id]?.email ?? '',
+        provider_name: profilesMap[doc.provider_id]?.full_name?.trim()
+          || profilesMap[doc.provider_id]?.email?.trim()
+          || `Provider ${String(doc.provider_id || '').slice(0, 8)}`,
+        provider_email: profilesMap[doc.provider_id]?.email?.trim() ?? '',
+        };
       }));
 
       setDocuments(mapped);
@@ -562,15 +571,25 @@ export function DocumentSettings() {
                 </button>
               ))}
             </div>
-            <div className="relative w-full sm:w-80">
+            <div className="relative w-full sm:w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by provider, type, or file name..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-2xl text-sm text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 transition-all"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear document search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -624,7 +643,10 @@ export function DocumentSettings() {
                       <div className="ml-12 space-y-1.5">
                         <p className="text-sm">
                           <span className="text-gray-400 font-medium">Provider:</span>{' '}
-                          <span className="text-gray-800 font-semibold">{doc.provider_name}</span>
+                          <span className="text-gray-800 font-semibold">{doc.provider_name || `Provider ${doc.provider_id.slice(0, 8)}`}</span>
+                          {doc.provider_email && doc.provider_email !== doc.provider_name && (
+                            <span className="ml-2 text-gray-400">({doc.provider_email})</span>
+                          )}
                         </p>
                         <p className="text-sm">
                           <span className="text-gray-400 font-medium">Type:</span>{' '}
@@ -784,7 +806,7 @@ export function DocumentSettings() {
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-100 flex-shrink-0"><Trash2 className="w-6 h-6 text-red-500" /></div>
               <h2 className="text-gray-900 font-bold text-xl">Delete Document Type</h2>
             </div>
-            <p className="text-gray-600 mb-2">Are you sure you want to delete <strong>{deletingType.name}</strong>?</p>
+            <p className="text-gray-600 mb-2">Archive <strong>{deletingType.name}</strong>? Existing submissions will remain available for compliance history.</p>
             {(docCountByType[deletingType.id] || 0) > 0 && (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-amber-700 text-sm mb-4">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -796,7 +818,7 @@ export function DocumentSettings() {
               <motion.button whileTap={{ scale: 0.98 }} onClick={() => setDeletingType(null)} className="flex-1 px-6 py-3 rounded-[20px] bg-gray-100 text-gray-900 font-semibold">Cancel</motion.button>
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleDeleteType} disabled={deleteTypeConfirming} className="flex-1 px-6 py-3 rounded-[20px] bg-red-500 text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
                 {deleteTypeConfirming ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
-                {deleteTypeConfirming ? 'Deleting...' : 'Delete'}
+                {deleteTypeConfirming ? 'Archiving...' : 'Archive'}
               </motion.button>
             </div>
           </motion.div>

@@ -140,9 +140,14 @@ export function ProviderDocuments() {
       documentConfig.forEach(dc => { next[dc.id] = null; });
       // Also include fallback keys so old documents still show
       fallbackConfig.forEach(dc => { if (!(dc.id in next)) next[dc.id] = null; });
-      (data || []).forEach((row: any) => {
-        next[row.type] = row as DocumentRecord;
-      });
+      await Promise.all((data || []).map(async (row: any) => {
+        let fileUrl = row.file_url || null;
+        if (row.file_path) {
+          const signed = await supabase.storage.from('provider-documents').createSignedUrl(row.file_path, 300);
+          fileUrl = signed.data?.signedUrl || null;
+        }
+        next[row.type] = { ...row, file_url: fileUrl } as DocumentRecord;
+      }));
       setDocuments(next);
     } catch (error: any) {
       console.warn('Failed to load provider documents:', error);
@@ -198,14 +203,11 @@ export function ProviderDocuments() {
       // From this point, any failure must attempt cleanup of storagePath
       uploadedPath = storagePath;
 
-      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
-      const fileUrl = publicData?.publicUrl || null;
-
       const basePayload = {
         provider_id: providerId,
         type: docId,
         file_name: file.name,
-        file_url: fileUrl,
+        file_url: null,
         mime_type: file.type,
         file_size: file.size,
         status: 'pending',
@@ -375,12 +377,9 @@ export function ProviderDocuments() {
 
       uploadedPath = storagePath;
 
-      const { data: publicData } = supabase.storage.from('provider-documents').getPublicUrl(storagePath);
-      const fileUrl = publicData?.publicUrl || null;
-
       const payload = {
         provider_id: providerId, type: docId, file_name: fileName,
-        file_url: fileUrl, file_path: storagePath, mime_type: mimeType,
+        file_url: null, file_path: storagePath, mime_type: mimeType,
         file_size: blob.size, status: 'pending', rejection_reason: null,
       };
 

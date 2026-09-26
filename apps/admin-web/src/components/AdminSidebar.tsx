@@ -1,5 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
+import { useState } from 'react';
+import { supabase } from '../lib/supabase';
 import {
   LayoutDashboard,
   Briefcase,
@@ -21,6 +23,8 @@ import {
   Clock,
   UsersRound,
   BookOpen,
+  LogOut,
+  Menu,
 } from 'lucide-react';
 
 const navSections = [
@@ -76,14 +80,37 @@ const navSections = [
   },
 ];
 
-export function AdminSidebar() {
+export function AdminSidebar({ role = 'admin' }: { role?: 'admin' | 'support' }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    setSignOutError('');
+    try {
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) throw error;
+      navigate('/login', { replace: true });
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : 'Could not sign out. Please try again.');
+      setSigningOut(false);
+    }
+  };
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
+  const visibleSections = role === 'support'
+    ? navSections.map(section => ({ ...section, items: section.items.filter(item => !['/services', '/payouts', '/payout-history', '/finance', '/settings', '/audit-trail'].includes(item.path)) })).filter(section => section.items.length)
+    : navSections;
+
   return (
-    <div className="w-72 h-screen bg-white border-r border-gray-200 flex flex-col">
+    <>
+    <button aria-label="Open navigation" onClick={() => setMobileOpen(true)} className="admin-mobile-menu fixed left-4 top-4 z-50 rounded-xl bg-slate-900 p-2 text-white shadow-lg lg:hidden"><Menu className="h-5 w-5" /></button>
+    {mobileOpen && <button aria-label="Close navigation" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden" />}
+    <div className={`admin-sidebar ${mobileOpen ? 'admin-sidebar--open' : ''} w-72 h-screen flex flex-col`}>
       {/* Logo */}
       <div className="p-6 border-b border-gray-200">
         <motion.button
@@ -101,7 +128,7 @@ export function AdminSidebar() {
 
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {navSections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.label}>
             <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
               {section.label}
@@ -115,7 +142,7 @@ export function AdminSidebar() {
                     key={item.path}
                     whileHover={{ x: 4 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => navigate(item.path)}
+                  onClick={() => { navigate(item.path); setMobileOpen(false); }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm cursor-pointer"
                     style={active
                       ? { backgroundColor: 'rgba(0,140,229,0.1)', border: '1px solid rgba(0,140,229,0.2)' }
@@ -132,8 +159,18 @@ export function AdminSidebar() {
         ))}
       </div>
 
-      {/* Back to Website */}
+      {/* Account actions */}
       <div className="p-4 border-t border-gray-200">
+        {signOutError && <p role="alert" className="px-3 pb-2 text-xs text-red-600">{signOutError}</p>}
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-gray-100 text-gray-600 disabled:opacity-50"
+        >
+          <LogOut className="w-5 h-5 text-gray-400" />
+          <span>{signingOut ? 'Signing out...' : 'Sign out'}</span>
+        </button>
         <motion.a
           href="https://www.torcapp.com"
           whileHover={{ scale: 1.02 }}
@@ -145,5 +182,6 @@ export function AdminSidebar() {
         </motion.a>
       </div>
     </div>
+    </>
   );
 }

@@ -3,6 +3,12 @@ import { supabase } from './supabase';
 export interface AdminSession {
   userId: string;
   email: string;
+  role: 'admin' | 'support';
+}
+
+export function clearAdminSessionCache() {
+  // Kept as a public hook for auth listeners. Page guards intentionally
+  // perform a fresh profile check so permission changes take effect promptly.
 }
 
 export async function requireAdminSession(): Promise<AdminSession> {
@@ -21,12 +27,13 @@ export async function requireAdminSession(): Promise<AdminSession> {
     .maybeSingle();
 
   if (profileError) throw profileError;
-  if (!profile || profile.role !== 'admin') {
+  if (!profile || !['admin', 'support'].includes(profile.role)) {
     throw new Error('Signed-in account is not an admin profile.');
   }
 
   return {
     userId: user.id,
     email: user.email || '',
+    role: profile.role,
   };
 }

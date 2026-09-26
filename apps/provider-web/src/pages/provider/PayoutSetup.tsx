@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
-import { loadPlatformSettings } from '../../lib/platformSettings';
+import { loadProviderPayoutBalance } from '../../lib/providerPayoutBalance';
 
 type MethodType = 'bank' | 'paypal' | 'venmo';
 
@@ -48,7 +48,7 @@ interface PayoutRow {
   status: string;
   created_at: string;
   paid_at: string | null;
-  reference: string | null;
+  reference_id: string | null;
 }
 
 const emptyForm: FormState = {
@@ -62,12 +62,6 @@ const emptyForm: FormState = {
   confirmPaypalEmail: '',
   venmoHandle: '',
 };
-
-function deriveBasePrice(job: { base_price?: number | null; total_amount?: number | null; tip?: number | null }) {
-  const base = Number(job.base_price) || 0;
-  if (base > 0) return base;
-  return Math.max((Number(job.total_amount) || 0) - (Number(job.tip) || 0), 0);
-}
 
 function FormField({
   label, value, onChange, placeholder, isDark, type = 'text',
@@ -103,8 +97,7 @@ export function PayoutSetup() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showAllPayouts, setShowAllPayouts] = useState(false);
-  const [platformFee, setPlatformFee] = useState(15);
-  const [earningsData, setEarningsData] = useState({ net: 0, paidOut: 0 });
+  const [earningsData, setEarningsData] = useState({ totalEarned: 0, paidOut: 0, availableBalance: 0 });
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
@@ -117,11 +110,10 @@ export function PayoutSetup() {
     setLoadError(null);
 
     try {
-      const [methodsRes, payoutsRes, settings, jobsRes] = await Promise.all([
+      const [methodsRes, payoutsRes, balance] = await Promise.all([
         supabase.from('provider_payout_methods').select('*').eq('provider_id', user.id).order('created_at', { ascending: false }),
         supabase.from('provider_payouts').select('*').eq('provider_id', user.id).order('period_start', { ascending: false }).limit(50),
-        loadPlatformSettings(),
-        supabase.from('jobs').select('base_price, total_amount, tip, status, payment_status').eq('provider_id', user.id).eq('status', 'completed'),
+        loadProviderPayoutBalance(),
       ]);
 
       if (methodsRes.error && !(methodsRes.error as any)?.message?.includes('does not exist')) {
@@ -133,19 +125,7 @@ export function PayoutSetup() {
         setPayouts((payoutsRes.data || []) as PayoutRow[]);
       }
 
-      setPlatformFee(settings.platformFee);
-
-      if (jobsRes.data) {
-        const jobs = jobsRes.data;
-        const totalBase = jobs.reduce((s, j) => s + deriveBasePrice(j), 0);
-        const totalTips = jobs.reduce((s, j) => s + (Number(j.tip) || 0), 0);
-        const commission = totalBase * (settings.platformFee / 100);
-        const net = totalBase - commission + totalTips;
-        const paidOut = (payoutsRes.data || [])
-          .filter((p: any) => p.status === 'paid')
-          .reduce((s: number, p: any) => s + (Number(p.net_payout) || 0), 0);
-        setEarningsData({ net, paidOut });
-      }
+      setEarningsData(balance);
     } catch (error: any) {
       console.warn('Failed to load payout data:', error);
       if ((error as any)?.code === '42P01') {
@@ -279,7 +259,7 @@ export function PayoutSetup() {
 
   const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const availableBalance = Math.max(0, earningsData.net - earningsData.paidOut);
+  const availableBalance = earningsData.availableBalance;
   const visiblePayouts = showAllPayouts ? payouts : payouts.slice(0, 5);
   const defaultMethod = methods.find((m) => m.is_default) || methods[0];
 
@@ -431,12 +411,12 @@ export function PayoutSetup() {
                 <p className="text-sm" style={{ color: 'rgba(255,255,255,0.78)' }}>Available Balance</p>
               </div>
               <h2 className="font-bold text-4xl mb-1" style={{ color: '#FFFFFF' }}>${fmt(availableBalance)}</h2>
-              <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.72)' }}>After {platformFee}% platform fee</p>
+              <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.72)' }}>Unpaid earnings after platform fees</p>
 
               <div className="flex gap-3">
                 <div className="flex-1 rounded-xl py-2 px-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>
                   <p className="text-xs" style={{ color: 'rgba(255,255,255,0.72)' }}>Total Earned</p>
-                  <p className="font-bold" style={{ color: '#FFFFFF' }}>${fmt(earningsData.net)}</p>
+                  <p className="font-bold" style={{ color: '#FFFFFF' }}>${fmt(earningsData.totalEarned)}</p>
                 </div>
                 <div className="flex-1 rounded-xl py-2 px-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.12)' }}>
                   <p className="text-xs" style={{ color: 'rgba(255,255,255,0.72)' }}>Paid Out</p>
@@ -454,7 +434,7 @@ export function PayoutSetup() {
                     {methodIcon(defaultMethod.method_type)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs" style={{ color: subColor }}>Payouts go to</p>
+                    <p className="text-xs" style={{ color: subColor }}>Preferred payout method</p>
                     <p className="font-semibold truncate" style={{ color: textColor }}>
                       {defaultMethod.display_name || methodLabel(defaultMethod)}
                     </p>
@@ -540,7 +520,7 @@ export function PayoutSetup() {
                 <div>
                   <h3 className="font-semibold text-sm mb-1" style={{ color: textColor }}>Payout Schedule</h3>
                   <p className="text-xs" style={{ color: subColor }}>
-                    Payouts are processed weekly. Earnings from completed jobs are deposited to your default payout method within 2-3 business days after each payout period ends.
+                    Payouts are sent externally by TORC. Your available balance decreases after TORC records a confirmed payment, and the payment appears in your payout history.
                   </p>
                 </div>
               </div>
@@ -558,8 +538,8 @@ export function PayoutSetup() {
                 <>
                   <div className="space-y-3">
                     {visiblePayouts.map((payout) => {
-                      const statusColor = payout.status === 'paid' ? '#10B981' : payout.status === 'failed' ? '#EF4444' : '#F59E0B';
-                      const statusLabel = payout.status === 'paid' ? 'Paid' : payout.status === 'failed' ? 'Failed' : 'Processing';
+                      const statusColor = payout.status === 'paid' ? '#10B981' : payout.status === 'failed' ? '#EF4444' : payout.status === 'voided' ? '#6B7280' : '#F59E0B';
+                      const statusLabel = payout.status === 'paid' ? 'Paid' : payout.status === 'failed' ? 'Failed' : payout.status === 'voided' ? 'Voided' : 'Processing';
                       return (
                         <div key={payout.id} className="rounded-2xl p-4" style={{ backgroundColor: cardBg, border: `1px solid ${cardBorder}` }}>
                           <div className="flex items-center justify-between mb-1">
@@ -576,7 +556,7 @@ export function PayoutSetup() {
                               <span className="px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: `${statusColor}15`, color: statusColor }}>
                                 {statusLabel}
                               </span>
-                              {payout.reference && <span>Ref: {payout.reference}</span>}
+                              {payout.reference_id && <span>Ref: {payout.reference_id}</span>}
                             </div>
                             <span>
                               {payout.paid_at

@@ -51,15 +51,16 @@ export function AdminDashboard() {
   });
   const [pendingProviderRows, setPendingProviderRows] = useState<any[]>([]);
   const [urgentTicketRows, setUrgentTicketRows] = useState<any[]>([]);
+  const [topProviderRows, setTopProviderRows] = useState<any[]>([]);
   const [recentAlerts, setRecentAlerts] = useState<DashboardAlert[]>([]);
 
   const actionCards = [
     { label: 'Approve Providers', value: `${ops.pendingProviders}`, subtitle: 'Pending verification', icon: ShieldCheck, path: '/providers' },
     { label: 'Manage Users', value: `${ops.suspendedUsers}`, subtitle: 'Suspended users', icon: UserX, path: '/users' },
-    { label: 'Review Documents', value: `${ops.pendingDocs}`, subtitle: 'Pending document checks', icon: FileText, path: '/settings' },
+    { label: 'Review Documents', value: `${ops.pendingDocs}`, subtitle: 'Pending document checks', icon: FileText, path: '/documents' },
     { label: 'Manage Payouts', value: `${ops.pendingRefunds}`, subtitle: `Fee model ${ops.platformFeePercent.toFixed(1)}%`, icon: Wallet, path: '/payouts' },
-    { label: 'Live Dispatch', value: stats[0]?.value || '0', subtitle: 'Currently active jobs', icon: MessageSquare, path: '/jobs' },
-    { label: 'Service Pricing', value: `${ops.totalServices}`, subtitle: 'Configured services', icon: Wrench, path: '/settings' },
+    { label: 'Live Dispatch', value: stats[0]?.value || '0', subtitle: 'Currently active jobs', icon: MessageSquare, path: '/live-dispatch' },
+    { label: 'Service Pricing', value: `${ops.totalServices}`, subtitle: 'Configured services', icon: Wrench, path: '/services' },
     { label: 'Support Tickets', value: `${ops.openTickets}`, subtitle: `${ops.slaBreaches} SLA breach(es)`, icon: LifeBuoy, path: '/support-tickets' },
     { label: 'Financial Hub', value: `$${ops.refundsExposure.toFixed(0)}`, subtitle: `Pending refund exposure @ ${ops.platformFeePercent.toFixed(1)}% fee`, icon: LineChart, path: '/finance' },
     { label: 'Reporting Hub', value: `${ops.failedPayments}`, subtitle: 'Failed payments to review', icon: LineChart, path: '/reporting' },
@@ -213,6 +214,15 @@ export function AdminDashboard() {
           .slice(0, 5);
 
         setPendingProviderRows(providerQueue || []);
+
+        const providerStats = (providerProfileRows || [])
+          .map((row: any) => {
+            const profile = providerRoleMap.get(row.id) || {};
+            return { id: row.id, name: profile.full_name || profile.email || row.id.slice(0, 8), rating: Number(row.rating || 0), jobs: Number(row.total_jobs || 0), earnings: Number(row.total_earnings || 0) };
+          })
+          .sort((a: any, b: any) => b.earnings - a.earnings || b.rating - a.rating)
+          .slice(0, 5);
+        setTopProviderRows(providerStats);
 
         const { data: urgentTickets } = await supabase
           .from('support_tickets')
@@ -483,6 +493,29 @@ export function AdminDashboard() {
               </button>
             </div>
           </motion.div>
+        </div>
+
+        {/* Provider performance */}
+        <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100 mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Provider Performance</h2>
+              <p className="text-gray-400 text-sm">Highest earners and top-rated providers</p>
+            </div>
+            <button onClick={() => navigate('/providers')} className="text-[#008CE5] text-sm font-semibold hover:underline">View providers</button>
+          </div>
+          {topProviderRows.length === 0 ? <p className="text-gray-400 text-sm">No provider performance data yet.</p> : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+              {topProviderRows.map((row: any, index: number) => (
+                <div key={row.id} className="rounded-2xl bg-gray-50 p-4">
+                  <p className="text-xs text-gray-400 font-semibold">#{index + 1} · {row.rating.toFixed(1)} ★</p>
+                  <p className="text-gray-900 font-semibold truncate mt-1">{row.name}</p>
+                  <p className="text-gray-500 text-xs mt-2">{row.jobs} jobs</p>
+                  <p className="text-[#008CE5] font-bold mt-1">${row.earnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Pending Providers + Urgent Tickets */}

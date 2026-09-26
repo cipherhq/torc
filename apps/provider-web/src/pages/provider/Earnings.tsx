@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { PageHeader } from '../../components/PageHeader';
 import { supabase } from '../../lib/supabase';
+import { loadProviderPayoutBalance, type ProviderPayoutBalance } from '../../lib/providerPayoutBalance';
 
 interface Job {
   id: string;
@@ -54,6 +55,7 @@ export function ProviderEarnings() {
   const [payoutMethods, setPayoutMethods] = useState<any[]>([]);
   const [payouts, setPayouts] = useState<ProviderPayout[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
+  const [payoutBalance, setPayoutBalance] = useState<ProviderPayoutBalance>({ totalEarned: 0, paidOut: 0, availableBalance: 0 });
 
   // ── Fetch data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -65,7 +67,7 @@ export function ProviderEarnings() {
         setLoading(true);
 
         // Fetch in parallel: jobs, platform settings, payout methods, payout history
-        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes, earningsRes] = await Promise.all([
+        const [jobsRes, settingsRes, payoutMethodsRes, payoutsRes, earningsRes, balance] = await Promise.all([
           supabase
             .from('jobs')
             .select('*, service:services(name)')
@@ -94,11 +96,13 @@ export function ProviderEarnings() {
             .eq('provider_id', user!.id)
             .order('created_at', { ascending: false })
             .then(r => r, () => ({ data: null, error: null })),
+          loadProviderPayoutBalance(),
         ]);
 
         const jobRows = jobsRes.data || [];
         // Store ledger earnings in state for calcProviderEarnings
         setLedgerEntries(earningsRes?.data || []);
+        setPayoutBalance(balance);
         // Batch-fetch customer names
         const custIds = [...new Set(jobRows.map((j: any) => j.customer_id).filter(Boolean))] as string[];
         if (custIds.length > 0) {
@@ -177,6 +181,13 @@ export function ProviderEarnings() {
 
   // Financial stats — authoritative from ledger timestamps, not job status
   const allTimeStats = useMemo(() => calcLedgerStats(), [ledgerEntries]);
+  // Only completed payouts reduce the provider's available balance. Pending or
+  // processing payouts remain outstanding until the external payment clears.
+  const paidOutTotal = useMemo(
+    () => payouts.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.net_payout || 0), 0),
+    [payouts],
+  );
+  const unpaidNetEarnings = allTimeStats.netEarnings - paidOutTotal;
   const weekStats = useMemo(() => calcLedgerStats(weekStart), [ledgerEntries, weekStart]);
   const monthStats = useMemo(() => calcLedgerStats(monthStart), [ledgerEntries, monthStart]);
 
@@ -186,16 +197,7 @@ export function ProviderEarnings() {
     const net = estimated * (1 - commissionPct / 100);
     return { netEarnings: net };
   }, [pendingJobs, commissionPct]);
-  const paidOutTotal = useMemo(
-    () => payouts
-      .filter((p) => p.status === 'paid')
-      .reduce((sum, p) => sum + (Number(p.net_payout) || 0), 0),
-    [payouts]
-  );
-  const availableBalance = useMemo(
-    () => Math.max(allTimeStats.netEarnings - paidOutTotal, 0),
-    [allTimeStats.netEarnings, paidOutTotal]
-  );
+  const availableBalance = payoutBalance.availableBalance;
 
   const activeStats = activeTab === 'week' ? weekStats : activeTab === 'month' ? monthStats : allTimeStats;
 
@@ -310,7 +312,7 @@ export function ProviderEarnings() {
           gross: Number(p.total_earnings) || 0,
           tips: Number(p.total_tips) || 0,
           commission: Number(p.platform_fee) || 0,
-          status: p.status as 'pending' | 'processing' | 'paid' | 'failed',
+          status: p.status as 'pending' | 'processing' | 'paid' | 'failed' | 'voided',
         };
       });
   }, [payouts]);
@@ -390,7 +392,7 @@ export function ProviderEarnings() {
                   className="flex-1 py-3 rounded-2xl font-semibold text-sm flex items-center justify-center gap-2"
                   style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#FFFFFF' }}
                 >
-                  <Download className="w-4 h-4" /> Cash Out
+                  <Download className="w-4 h-4" /> Payout Methods
                 </motion.button>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
@@ -765,7 +767,8 @@ export function ProviderEarnings() {
                   const statusLabel = payout.status === 'paid' ? 'Paid'
                     : payout.status === 'processing' ? 'Processing'
                     : payout.status === 'failed' ? 'Failed'
-                    : payout.status === 'pending' ? 'Pending' : payout.status;
+                    : payout.status === 'pending' ? 'Pending'
+                    : payout.status === 'voided' ? 'Voided' : payout.status;
                   return (
                   <motion.div
                     key={payout.id}

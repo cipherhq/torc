@@ -42,6 +42,7 @@ interface JobRow {
   started_at: string | null;
   completed_at: string | null;
   service_id: string | null;
+  rating: number | null;
 }
 
 interface ProviderRow {
@@ -112,16 +113,19 @@ export function AdminAnalytics() {
       setLoading(true);
       setError(null);
 
-      const [jobsRes, providersRes, usersRes, servicesRes] = await Promise.all([
-        supabase
-          .from('jobs')
-          .select('id, total_amount, status, created_at, started_at, completed_at, service_id')
-          .order('created_at', { ascending: false })
-          .limit(5000),
-        supabase
-          .from('provider_profiles')
-          .select('id, is_online, is_verified, created_at')
-          .limit(5000),
+      const fetchAll = async (table: 'jobs' | 'provider_profiles', columns: string) => {
+        const rows: any[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase.from(table).select(columns).range(from, from + 999);
+          if (error) throw error;
+          rows.push(...(data || []));
+          if (!data || data.length < 1000) break;
+        }
+        return rows;
+      };
+      const [jobsData, providersData, usersRes, servicesRes] = await Promise.all([
+        fetchAll('jobs', 'id, total_amount, status, created_at, started_at, completed_at, service_id, rating'),
+        fetchAll('provider_profiles', 'id, is_online, is_verified, created_at'),
         supabase
           .from('profiles')
           .select('*', { count: 'exact', head: true }),
@@ -131,11 +135,8 @@ export function AdminAnalytics() {
           .eq('is_active', true),
       ]);
 
-      if (jobsRes.error) throw jobsRes.error;
-      if (providersRes.error) throw providersRes.error;
-
-      setJobs((jobsRes.data || []) as JobRow[]);
-      setProviders((providersRes.data || []) as ProviderRow[]);
+      setJobs(jobsData as JobRow[]);
+      setProviders(providersData as ProviderRow[]);
       setUserCount(usersRes.count || 0);
       setServices((servicesRes.data || []) as ServiceRow[]);
     } catch (err: any) {
@@ -190,8 +191,8 @@ export function AdminAnalytics() {
       {
         icon: Star,
         label: 'Avg. Rating',
-        value: 'N/A',
-        change: 'No ratings table',
+        value: (() => { const rated = jobs.filter(j => j.rating != null && Number(j.rating) > 0); return rated.length ? (rated.reduce((sum, j) => sum + Number(j.rating), 0) / rated.length).toFixed(1) + '/5' : 'N/A'; })(),
+        change: `${jobs.filter(j => j.rating != null && Number(j.rating) > 0).length} rated jobs`,
         trend: 'up' as const,
         gradient: 'linear-gradient(135deg, #F59E0B, #D97706)',
       },
@@ -306,7 +307,7 @@ export function AdminAnalytics() {
     return [
       { label: 'Avg Response Time', value: avgResponseTime, icon: Clock, color: '#008CE5' },
       { label: 'Completion Rate', value: completionRate, icon: Target, color: '#0070B8' },
-      { label: 'Customer Satisfaction', value: 'N/A', icon: Star, color: '#F59E0B' },
+      { label: 'Customer Satisfaction', value: (() => { const rated = jobs.filter(j => j.rating != null && Number(j.rating) > 0); return rated.length ? (rated.reduce((sum, j) => sum + Number(j.rating), 0) / rated.length).toFixed(1) + '/5' : 'N/A'; })(), icon: Star, color: '#F59E0B' },
       { label: 'Provider Utilization', value: utilization, icon: TrendingUp, color: '#34D399' },
     ];
   }, [jobs, providers]);

@@ -32,6 +32,16 @@ function formatEntity(entityType: string) {
     .replace(/\b\w/g, (s) => s.toUpperCase());
 }
 
+function humanSummary(log: AuditLogRow) {
+  const action = formatAction(log.action).toLowerCase();
+  const entity = formatEntity(log.entity_type).toLowerCase();
+  const details = log.details || {};
+  const reason = details.reason || details.error || details.message;
+  const state = details.new_status || details.status;
+  const suffix = [state && `status: ${state}`, reason && `reason: ${reason}`].filter(Boolean).join(' · ');
+  return `Admin ${action} ${entity}${suffix ? ` (${suffix})` : ''}.`;
+}
+
 export function AdminAuditTrail() {
   const [logs, setLogs] = useState([] as AuditLogView[]);
   const [loading, setLoading] = useState(true);
@@ -345,9 +355,8 @@ export function AdminAuditTrail() {
                         <p className="text-gray-400 text-xs">{log.entity_id}</p>
                       </td>
                       <td className="px-6 py-4">
-                        <pre className="text-gray-600 text-xs whitespace-pre-wrap break-words max-w-md">
-                          {JSON.stringify(log.details || {}, null, 2)}
-                        </pre>
+                        <p className="text-gray-700 text-sm max-w-md">{humanSummary(log)}</p>
+                        {Object.keys(log.details || {}).length > 0 && <details className="mt-2 max-w-md"><summary className="cursor-pointer text-xs text-[#008CE5]">View technical details</summary><pre className="mt-1 text-gray-500 text-xs whitespace-pre-wrap break-words">{JSON.stringify(log.details || {}, null, 2)}</pre></details>}
                       </td>
                     </motion.tr>
                   ))}

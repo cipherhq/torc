@@ -31,6 +31,7 @@ interface Provider {
   vehicle_plate: string;
   license_number: string;
   services: string[];
+  last_seen_at?: string | null;
 }
 
 interface ProviderJob {
@@ -99,11 +100,11 @@ export function AdminProviders() {
   });
   const [editSaving, setEditSaving] = useState(false);
 
-  const loadProviders = useCallback(async () => {
-    setLoading(true);
+  const loadProviders = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
-      const [profilesRes, providerProfilesRes] = await Promise.all([
+      const [profilesRes, providerProfilesRes, locationsRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, first_name, last_name, email, phone, status, created_at')
@@ -117,6 +118,7 @@ export function AdminProviders() {
             created_at
           `)
           .order('created_at', { ascending: false }),
+        supabase.from('provider_locations').select('provider_id, is_online, updated_at'),
       ]);
 
       if (profilesRes.error) throw profilesRes.error;
@@ -127,6 +129,8 @@ export function AdminProviders() {
 
       const providerProfileMap = new Map<string, any>();
       (providerProfilesRes.data || []).forEach((row: any) => providerProfileMap.set(row.id, row));
+      const locationMap = new Map<string, any>();
+      (locationsRes.data || []).forEach((row: any) => locationMap.set(row.provider_id, row));
 
       const ids = Array.from(new Set([
         ...(profilesRes.data || []).map((row: any) => row.id),
@@ -135,6 +139,7 @@ export function AdminProviders() {
 
       if (ids.length === 0) {
         setProviders([]);
+        if (!silent) setLoading(false);
         return;
       }
 
@@ -161,6 +166,7 @@ export function AdminProviders() {
           vehicle_plate: pp.vehicle_plate || '',
           license_number: pp.license_number || '',
           services: pp.services || [],
+          last_seen_at: locationMap.get(id)?.updated_at || null,
         };
       });
 
@@ -170,12 +176,21 @@ export function AdminProviders() {
       console.warn('Failed to load providers:', e);
       setError(e?.message || 'Failed to load providers');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     loadProviders();
+  }, [loadProviders]);
+
+  useEffect(() => {
+    const channel = supabase.channel('admin-provider-presence')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'provider_profiles' }, () => void loadProviders(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'provider_locations' }, () => void loadProviders(true))
+      .subscribe();
+    const interval = window.setInterval(() => void loadProviders(true), 30_000);
+    return () => { window.clearInterval(interval); void supabase.removeChannel(channel); };
   }, [loadProviders]);
 
   // Load detail data on-demand when expanding
@@ -255,6 +270,9 @@ export function AdminProviders() {
       }
 
       setProviders(prev => prev.map(p => p.id === providerId ? { ...p, is_verified: true } : p));
+      // Re-read the authoritative rows so status, counters, and the approval
+      // queue all reflect the committed database state (not just optimistic UI).
+      await loadProviders();
 
       // Best-effort audit
       supabase.from('admin_audit_logs').insert({
@@ -461,12 +479,13 @@ export function AdminProviders() {
   };
 
   const filteredProviders = useMemo(() => {
+    const currentlyOnline = (provider: Provider) => provider.is_online && (!provider.last_seen_at || Date.now() - new Date(provider.last_seen_at).getTime() < 120_000);
     return providers.filter(p => {
       const name = `${p.first_name} ${p.last_name}`.toLowerCase();
       const matchesSearch = !search || name.includes(search.toLowerCase()) || p.email.toLowerCase().includes(search.toLowerCase());
       if (filter === 'pending') return matchesSearch && !p.is_verified;
       if (filter === 'verified') return matchesSearch && p.is_verified;
-      if (filter === 'online') return matchesSearch && p.is_online;
+      if (filter === 'online') return matchesSearch && currentlyOnline(p);
       if (filter === 'suspended') return matchesSearch && p.status === 'suspended';
       return matchesSearch;
     });
@@ -480,7 +499,7 @@ export function AdminProviders() {
 
   const pendingCount = providers.filter(p => !p.is_verified).length;
   const verifiedCount = providers.filter(p => p.is_verified).length;
-  const onlineCount = providers.filter(p => p.is_online).length;
+  const onlineCount = providers.filter(p => p.is_online && (!p.last_seen_at || Date.now() - new Date(p.last_seen_at).getTime() < 120_000)).length;
   const suspendedCount = providers.filter(p => p.status === 'suspended').length;
 
   const formatCurrency = (n: number) => `$${n.toFixed(2)}`;
@@ -641,14 +660,14 @@ export function AdminProviders() {
                         <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #008CE5, #0070B8)' }}>
                           <span className="text-white font-bold">{initials}</span>
                         </div>
-                        {provider.is_online && (
+                        {provider.is_online && (!provider.last_seen_at || Date.now() - new Date(provider.last_seen_at).getTime() < 120_000) && (
                           <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-green-500 border-2 border-white" />
                         )}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-gray-900 font-semibold truncate">{fullName}</h3>
-                          {provider.is_online && (
+                          {provider.is_online && (!provider.last_seen_at || Date.now() - new Date(provider.last_seen_at).getTime() < 120_000) && (
                             <span className="px-2 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1" style={{ backgroundColor: '#DCFCE7', color: '#15803D' }}>
                               <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: '#22C55E' }} />
                               Online

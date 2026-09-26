@@ -264,26 +264,19 @@ export function AdminUsers() {
           last_name: editForm.last_name,
           full_name: `${editForm.first_name} ${editForm.last_name}`.trim(),
           phone: editForm.phone,
-          role: editForm.role,
           updated_at: new Date().toISOString(),
         })
         .eq('id', editingUser.id);
 
       if (updateError) throw updateError;
 
-      const { data: session } = await supabase.auth.getSession();
-      if (session?.session?.user?.id) {
-        await supabase.from('admin_audit_logs').insert({
-          actor_id: session.session.user.id,
-          action: 'edit_user',
-          entity_type: 'profile',
-          entity_id: editingUser.id,
-          details: {
-            changes: editForm,
-            previous_role: editingUser.role,
-            new_role: editForm.role,
-          },
+      if (editingUser.role !== editForm.role) {
+        const { data: roleResult, error: roleError } = await supabase.rpc('admin_change_profile_role', {
+          p_user_id: editingUser.id,
+          p_new_role: editForm.role,
         });
+        if (roleError) throw roleError;
+        if (!roleResult?.success) throw new Error(roleResult?.message || roleResult?.error || 'Role change was rejected');
       }
 
       setProfiles(prev =>

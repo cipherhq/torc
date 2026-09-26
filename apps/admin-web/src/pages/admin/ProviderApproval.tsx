@@ -33,6 +33,7 @@ interface ProviderDoc {
   id: string;
   type: string;
   file_name: string;
+  file_path: string | null;
   file_url: string | null;
   mime_type: string | null;
   status: 'pending' | 'approved' | 'rejected';
@@ -55,6 +56,8 @@ interface PendingProvider {
   created_at: string;
   documents: ProviderDoc[];
 }
+
+interface ServiceOption { id: string; name: string }
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -104,6 +107,7 @@ export function ProviderApproval() {
   const PAGE_SIZE = 15;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [serviceNames, setServiceNames] = useState<Record<string, string>>({});
 
   /* Deny modal state */
   const [denyModalId, setDenyModalId] = useState<string | null>(null);
@@ -121,7 +125,7 @@ export function ProviderApproval() {
     setError(null);
 
     try {
-      const [profileRes, providerProfileRes] = await Promise.all([
+      const [profileRes, providerProfileRes, servicesRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, full_name, email, phone, role, created_at')
@@ -132,10 +136,15 @@ export function ProviderApproval() {
           .select(
             'id, services, vehicle_make, vehicle_model, vehicle_year, vehicle_plate, license_number, is_verified, created_at',
           ),
+        supabase.from('services').select('id, name').order('name'),
       ]);
 
       if (profileRes.error) throw profileRes.error;
       if (providerProfileRes.error) throw providerProfileRes.error;
+      if (servicesRes.error) throw servicesRes.error;
+      const serviceMap: Record<string, string> = {};
+      (servicesRes.data || []).forEach((service: ServiceOption) => { serviceMap[String(service.id)] = service.name; });
+      setServiceNames(serviceMap);
 
       const profileRows = profileRes.data || [];
       const providerProfileRows = providerProfileRes.data || [];
@@ -172,20 +181,26 @@ export function ProviderApproval() {
       // 3. Documents for these providers
       const { data: docData, error: docErr } = await supabase
         .from('documents')
-        .select('id, provider_id, type, file_name, file_url, mime_type, status, rejection_reason, created_at, expires_at')
+        .select('id, provider_id, type, file_name, file_path, file_url, mime_type, status, rejection_reason, created_at, expires_at')
         .in('provider_id', pendingIds)
         .order('created_at', { ascending: true });
 
       if (docErr) throw docErr;
 
       const docMap = new Map<string, ProviderDoc[]>();
-      (docData || []).forEach((d: any) => {
+      await Promise.all((docData || []).map(async (d: any) => {
         const existing = docMap.get(d.provider_id) || [];
+        let fileUrl = d.file_url || null;
+        if (d.file_path) {
+          const signed = await supabase.storage.from('provider-documents').createSignedUrl(d.file_path, 300);
+          fileUrl = signed.data?.signedUrl || null;
+        }
         existing.push({
           id: d.id,
           type: d.type,
           file_name: d.file_name,
-          file_url: d.file_url || null,
+          file_path: d.file_path || null,
+          file_url: fileUrl,
           mime_type: d.mime_type || null,
           status: d.status,
           rejection_reason: d.rejection_reason || null,
@@ -193,7 +208,7 @@ export function ProviderApproval() {
           expires_at: d.expires_at || null,
         });
         docMap.set(d.provider_id, existing);
-      });
+      }));
 
       // 4. Merge
       const merged: PendingProvider[] = pendingIds.map((id) => {
@@ -204,7 +219,7 @@ export function ProviderApproval() {
           full_name: prof.full_name || 'Unknown',
           email: prof.email || '',
           phone: prof.phone || '',
-          services: pp.services || [],
+          services: (pp.services || []).map((service: string) => serviceMap[service] || service),
           vehicle_make: pp.vehicle_make || null,
           vehicle_model: pp.vehicle_model || null,
           vehicle_year: pp.vehicle_year || null,
@@ -382,6 +397,9 @@ export function ProviderApproval() {
 
       // Remove from local list immediately after DB success
       setProviders((prev) => prev.filter((p) => p.id !== providerId));
+      // Confirm the server-side verification and refresh document/provider
+      // counts before showing the queue as settled.
+      await loadProviders();
 
       // Best-effort: audit log, email, notification (don't block UI)
       supabase.from('admin_audit_logs').insert({
@@ -716,24 +734,22 @@ export function ProviderApproval() {
                       </div>
 
                       {/* Services offered */}
-                      {provider.services.length > 0 && (
-                        <div className="mb-6">
+                      <div className="mb-6">
                           <h4 className="text-gray-900 font-semibold text-sm mb-3 flex items-center gap-2">
                             <Briefcase className="w-4 h-4 text-gray-500" />
                             Services Offered
                           </h4>
                           <div className="flex flex-wrap gap-2">
-                            {provider.services.map((service) => (
+                            {provider.services.length > 0 ? provider.services.map((service) => (
                               <span
                                 key={service}
                                 className="px-3 py-1.5 rounded-full bg-blue-50 text-[#008CE5] text-xs font-semibold border border-blue-100"
                               >
                                 {service}
                               </span>
-                            ))}
+                            )) : <span className="text-gray-400 text-sm">No services selected</span>}
                           </div>
                         </div>
-                      )}
 
                       {/* Documents */}
                       <div className="mb-6">
