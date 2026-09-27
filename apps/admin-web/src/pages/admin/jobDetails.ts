@@ -26,12 +26,7 @@ export interface JobDetailRecord {
   provider_longitude: number | null;
   scheduled_for: string | null;
   accepted_at: string | null;
-  provider_arrived_at: string | null;
-  customer_confirmed_arrival_at: string | null;
-  provider_started_service_at: string | null;
   started_at: string | null;
-  provider_marked_completed_at: string | null;
-  customer_confirmed_completion_at: string | null;
   customer_completed_at: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
@@ -81,9 +76,7 @@ export const SUPPORT_SAFE_JOB_DETAIL_FIELDS = [
   'pickup_latitude', 'pickup_longitude', 'pickup_address',
   'destination_latitude', 'destination_longitude', 'destination_address',
   'provider_latitude', 'provider_longitude', 'scheduled_for', 'accepted_at',
-  'provider_arrived_at', 'customer_confirmed_arrival_at', 'provider_started_service_at',
-  'started_at', 'provider_marked_completed_at', 'customer_confirmed_completion_at',
-  'customer_completed_at', 'completed_at', 'cancelled_at', 'cancellation_reason',
+  'started_at', 'customer_completed_at', 'completed_at', 'cancelled_at', 'cancellation_reason',
   'cancelled_by', 'customer_notes', 'requester_type', 'requester_name',
   'requester_phone', 'payment_status', 'rating',
   'review', 'reviewed_at', 'provider_rating', 'provider_review', 'created_at', 'updated_at',
@@ -192,12 +185,7 @@ export function buildJobTimeline(details: JobDetails): TimelineEvent[] {
   const timestampEvents: Array<[string, string, string | null]> = [
     ['created', 'Created', job.created_at],
     ['accepted', 'Accepted', job.accepted_at],
-    ['provider-arrived', 'Provider arrived', job.provider_arrived_at],
-    ['customer-arrival', 'Customer confirmed arrival', job.customer_confirmed_arrival_at],
-    ['provider-started', 'Provider started service', job.provider_started_service_at],
     ['started', 'Service started', job.started_at],
-    ['provider-completed', 'Provider marked complete', job.provider_marked_completed_at],
-    ['customer-confirmed', 'Customer confirmed completion', job.customer_confirmed_completion_at],
     ['customer-completed', 'Customer completed', job.customer_completed_at],
     ['completed', 'Completed', job.completed_at],
     ['cancelled', 'Cancelled', job.cancelled_at],
