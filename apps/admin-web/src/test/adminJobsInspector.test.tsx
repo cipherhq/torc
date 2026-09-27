@@ -3,9 +3,11 @@ import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 
+const roleState = vi.hoisted(() => ({ value: 'admin' as 'admin' | 'support' }));
+
 vi.mock('../components/AdminLayout', () => ({
   AdminLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useAdminRole: () => 'admin',
+  useAdminRole: () => roleState.value,
 }));
 
 vi.mock('../components/ui/sheet', () => ({
@@ -109,6 +111,7 @@ function renderJobs(rows: JobRow[], detailsLoader = vi.fn(async (id: string) => 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  roleState.value = 'admin';
 });
 
 describe('Admin Jobs details inspector', () => {
@@ -191,6 +194,40 @@ describe('Admin Jobs details inspector', () => {
     expect(within(dialog).getByText('Customer')).toBeInTheDocument();
     expect(within(dialog).getByText('$120.00')).toBeInTheDocument();
     expect(within(dialog).getByText('re_safe_123')).toBeInTheDocument();
+  });
+
+  it('keeps the Support inspector operational without requesting or rendering financial fields', async () => {
+    roleState.value = 'support';
+    const supportDetails = details({
+      job: {
+        payment_intent_id: undefined, stripe_charge_id: undefined, checkout_id: undefined,
+        base_price: undefined, service_fee: undefined, tax: undefined, tip: undefined,
+        total_amount: undefined, cancellation_fee: undefined, cancellation_fee_pct: undefined,
+        payment_currency: undefined, paid_at: undefined,
+        status: 'cancelled', completed_at: null, cancelled_at: '2026-09-27T12:25:00.000Z',
+        cancellation_reason: 'Customer no longer needs service', cancelled_by: 'customer-a',
+      },
+      cancellationOperation: null,
+      earnings: [], payouts: [], refunds: [],
+    });
+    const loader = vi.fn(async () => supportDetails);
+    renderJobs([listJob({ status: 'cancelled' })], loader);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View job J-AAAAAA' }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(loader).toHaveBeenCalledWith(supportDetails.job.id, false);
+    expect(within(dialog).getByText(supportDetails.job.pickup_address!)).toBeInTheDocument();
+    expect(within(dialog).getByText(supportDetails.job.destination_address!)).toBeInTheDocument();
+    expect(within(dialog).getByText('Ada Customer')).toBeInTheDocument();
+    expect(within(dialog).getByText('Pat Provider')).toBeInTheDocument();
+    expect(within(dialog).getByText('Accepted')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('Customer no longer needs service').length).toBeGreaterThan(0);
+    expect(within(dialog).getByText('Fast and professional.')).toBeInTheDocument();
+    expect(within(dialog).getByText('Self')).toBeInTheDocument();
+    expect(within(dialog).getByText('Vehicle is in the lower garage.')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Pricing & Payment')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('pi_admin_safe_123')).not.toBeInTheDocument();
   });
 
   it('never shows Job A metadata after Job B is selected, even if A resolves late', async () => {

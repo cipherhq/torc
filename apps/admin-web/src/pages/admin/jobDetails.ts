@@ -37,23 +37,23 @@ export interface JobDetailRecord {
   cancelled_at: string | null;
   cancellation_reason: string | null;
   cancelled_by: string | null;
-  cancellation_fee: number | null;
-  cancellation_fee_pct: number | null;
+  cancellation_fee?: number | null;
+  cancellation_fee_pct?: number | null;
   customer_notes: string | null;
   requester_type: string | null;
   requester_name: string | null;
   requester_phone: string | null;
-  base_price: number | null;
-  service_fee: number | null;
-  tax: number | null;
-  tip: number | null;
-  total_amount: number | null;
+  base_price?: number | null;
+  service_fee?: number | null;
+  tax?: number | null;
+  tip?: number | null;
+  total_amount?: number | null;
   payment_status: string | null;
-  payment_currency: string | null;
-  payment_intent_id: string | null;
-  stripe_charge_id: string | null;
-  checkout_id: string | null;
-  paid_at: string | null;
+  payment_currency?: string | null;
+  payment_intent_id?: string | null;
+  stripe_charge_id?: string | null;
+  checkout_id?: string | null;
+  paid_at?: string | null;
   rating: number | null;
   review: string | null;
   reviewed_at: string | null;
@@ -76,7 +76,7 @@ export interface JobDetails {
   relatedWarnings: string[];
 }
 
-export const JOB_DETAIL_FIELDS = [
+export const SUPPORT_SAFE_JOB_DETAIL_FIELDS = [
   'id', 'customer_id', 'provider_id', 'service_id', 'vehicle_id', 'status',
   'pickup_latitude', 'pickup_longitude', 'pickup_address',
   'destination_latitude', 'destination_longitude', 'destination_address',
@@ -84,12 +84,23 @@ export const JOB_DETAIL_FIELDS = [
   'provider_arrived_at', 'customer_confirmed_arrival_at', 'provider_started_service_at',
   'started_at', 'provider_marked_completed_at', 'customer_confirmed_completion_at',
   'customer_completed_at', 'completed_at', 'cancelled_at', 'cancellation_reason',
-  'cancelled_by', 'cancellation_fee', 'cancellation_fee_pct', 'customer_notes',
-  'requester_type', 'requester_name', 'requester_phone', 'base_price', 'service_fee',
-  'tax', 'tip', 'total_amount', 'payment_status', 'payment_currency',
-  'payment_intent_id', 'stripe_charge_id', 'checkout_id', 'paid_at', 'rating',
+  'cancelled_by', 'customer_notes', 'requester_type', 'requester_name',
+  'requester_phone', 'payment_status', 'rating',
   'review', 'reviewed_at', 'provider_rating', 'provider_review', 'created_at', 'updated_at',
-].join(', ');
+] as const;
+
+export const ADMIN_ONLY_JOB_FINANCIAL_FIELDS = [
+  'base_price', 'service_fee', 'tax', 'tip', 'total_amount', 'cancellation_fee',
+  'cancellation_fee_pct', 'payment_currency', 'paid_at', 'payment_intent_id',
+  'stripe_charge_id', 'checkout_id',
+] as const;
+
+export function getJobDetailFields(includeFinancials: boolean) {
+  return [
+    ...SUPPORT_SAFE_JOB_DETAIL_FIELDS,
+    ...(includeFinancials ? ADMIN_ONLY_JOB_FINANCIAL_FIELDS : []),
+  ].join(', ');
+}
 
 function warning(result: { error?: { message?: string } | null }, label: string) {
   return result.error ? `${label}: ${result.error.message || 'Not available'}` : null;
@@ -98,7 +109,7 @@ function warning(result: { error?: { message?: string } | null }, label: string)
 export async function fetchJobDetails(jobId: string, includeFinancials: boolean): Promise<JobDetails> {
   const { data: job, error: jobError } = await supabase
     .from('jobs')
-    .select(JOB_DETAIL_FIELDS)
+    .select(getJobDetailFields(includeFinancials))
     .eq('id', jobId)
     .single();
 
