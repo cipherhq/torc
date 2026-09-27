@@ -11,9 +11,7 @@ const job = {
   pickup_latitude: 39.2904, pickup_longitude: -76.6122, pickup_address: '123 Pickup Avenue',
   destination_latitude: 39.4015, destination_longitude: -76.6019, destination_address: '987 Destination Boulevard',
   provider_latitude: null, provider_longitude: null, scheduled_for: null,
-  accepted_at: '2026-09-27T12:10:00.000Z', provider_arrived_at: null,
-  customer_confirmed_arrival_at: null, provider_started_service_at: null, started_at: null,
-  provider_marked_completed_at: null, customer_confirmed_completion_at: null,
+  accepted_at: '2026-09-27T12:10:00.000Z', started_at: null,
   customer_completed_at: null, completed_at: '2026-09-27T13:00:00.000Z', cancelled_at: null,
   cancellation_reason: null, cancelled_by: null, customer_notes: 'Garage level B2',
   requester_type: 'self', requester_name: null, requester_phone: null, payment_status: 'paid',
@@ -71,6 +69,11 @@ describe('job detail data minimization', () => {
     expect(selectedFields).not.toContain('base_price');
     expect(selectedFields).not.toContain('total_amount');
     expect(selectedFields).not.toContain('paid_at');
+    expect(selectedFields).not.toContain('provider_arrived_at');
+    expect(selectedFields).not.toContain('customer_confirmed_arrival_at');
+    expect(selectedFields).not.toContain('provider_started_service_at');
+    expect(selectedFields).not.toContain('provider_marked_completed_at');
+    expect(selectedFields).not.toContain('customer_confirmed_completion_at');
     expect(queryState.tables).not.toContain('refunds');
     expect(queryState.tables).not.toContain('provider_earnings');
     expect(queryState.tables).not.toContain('job_cancellation_operations');
