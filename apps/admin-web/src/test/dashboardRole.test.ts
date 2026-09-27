@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canQueryAdminDashboardFinancials, getProviderPerformanceRows, providerPerformanceShowsEarnings, visibleDashboardActionLabels } from '../pages/admin/Dashboard';
+import { canQueryAdminDashboardFinancials, formatProviderEarnings, getProviderPerformanceRows, providerPerformanceShowsEarnings, visibleDashboardActionLabels } from '../pages/admin/Dashboard';
 
 describe('dashboard role authority', () => {
   it('does not query or expose admin financial/refund dashboard features to Support', () => {
@@ -23,5 +23,10 @@ describe('dashboard role authority', () => {
     expect(labels).toContain('Service Pricing');
     expect(providerPerformanceShowsEarnings('admin')).toBe(true);
     expect(getProviderPerformanceRows([{ id: 'p1', name: 'Provider', rating: 5, jobs: 10, earnings: 9999 }], 'admin')[0].earnings).toBe(9999);
+  });
+
+  it('formats a missing earnings value without crashing during a role transition', () => {
+    expect(formatProviderEarnings(undefined)).toBe('0.00');
+    expect(formatProviderEarnings(1234.5)).toBe('1,234.50');
   });
 });

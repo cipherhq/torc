@@ -43,6 +43,14 @@ export function providerPerformanceShowsEarnings(role: 'admin' | 'support') {
   return role === 'admin';
 }
 
+export function formatProviderEarnings(value: unknown) {
+  const amount = Number(value);
+  return (Number.isFinite(amount) ? amount : 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function getProviderPerformanceRows(rows: any[], role: 'admin' | 'support') {
   return rows
     .map((row: any) => ({
@@ -553,7 +561,7 @@ export function AdminDashboard() {
                   <p className="text-xs text-gray-400 font-semibold">#{index + 1} · {row.rating.toFixed(1)} ★</p>
                   <p className="text-gray-900 font-semibold truncate mt-1">{row.name}</p>
                   <p className="text-gray-500 text-xs mt-2">{row.jobs} jobs</p>
-                  {providerPerformanceShowsEarnings(role) && <p className="text-[#008CE5] font-bold mt-1">${row.earnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+                  {providerPerformanceShowsEarnings(role) && <p className="text-[#008CE5] font-bold mt-1">${formatProviderEarnings(row.earnings)}</p>}
                 </div>
               ))}
             </div>
