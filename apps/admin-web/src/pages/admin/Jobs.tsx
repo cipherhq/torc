@@ -1,11 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
-import { AdminLayout } from '../../components/AdminLayout';
+import { AdminLayout, useAdminRole } from '../../components/AdminLayout';
 import { supabase } from '../../lib/supabase';
 import { MapPin, Clock, User, RefreshCw, Search, Briefcase } from 'lucide-react';
 import { Pagination } from '../../components/Pagination';
+import { JobDetailsInspector } from './JobDetailsInspector';
+import { fetchJobDetails, JobDetails } from './jobDetails';
 
-interface JobRow {
+export interface JobRow {
   id: string;
   service_id: string | null;
   customer_id: string | null;
@@ -63,7 +65,60 @@ function shortId(id: string): string {
   return `J-${id.slice(0, 6).toUpperCase()}`;
 }
 
-export function AdminJobs() {
+export async function fetchJobRows(): Promise<JobRow[]> {
+  const { data: jobRows, error: jobErr } = await supabase
+    .from('jobs')
+    .select('id, service_id, customer_id, provider_id, status, pickup_address, destination_address, total_amount, payment_status, created_at, started_at, completed_at, cancelled_at, rating')
+    .order('created_at', { ascending: false });
+
+  if (jobErr) throw jobErr;
+  if (!jobRows) return [];
+
+  const profileIds = new Set<string>();
+  const serviceIds = new Set<string>();
+  for (const job of jobRows) {
+    if (job.customer_id) profileIds.add(job.customer_id);
+    if (job.provider_id) profileIds.add(job.provider_id);
+    if (job.service_id) serviceIds.add(job.service_id);
+  }
+
+  const profileMap: Record<string, string> = {};
+  if (profileIds.size > 0) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name')
+      .in('id', Array.from(profileIds));
+    for (const profile of profiles || []) {
+      const first = profile.first_name || '';
+      const last = profile.last_name ? `${profile.last_name.charAt(0)}.` : '';
+      profileMap[profile.id] = `${first} ${last}`.trim() || 'Unknown';
+    }
+  }
+
+  const serviceMap: Record<string, string> = {};
+  if (serviceIds.size > 0) {
+    const { data: services } = await supabase
+      .from('services')
+      .select('id, name')
+      .in('id', Array.from(serviceIds));
+    for (const service of services || []) serviceMap[service.id] = service.name || 'Unknown Service';
+  }
+
+  return jobRows.map((job) => ({
+    ...job,
+    customer_name: job.customer_id ? (profileMap[job.customer_id] || 'Unknown') : 'Unknown',
+    provider_name: job.provider_id ? (profileMap[job.provider_id] || 'Unknown') : null,
+    service_name: job.service_id ? (serviceMap[job.service_id] || 'Unknown Service') : 'Unknown Service',
+  })) as JobRow[];
+}
+
+interface AdminJobsProps {
+  jobsLoader?: () => Promise<JobRow[]>;
+  detailsLoader?: (jobId: string, includeFinancials: boolean) => Promise<JobDetails>;
+}
+
+export function AdminJobs({ jobsLoader = fetchJobRows, detailsLoader = fetchJobDetails }: AdminJobsProps = {}) {
+  const role = useAdminRole();
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,72 +126,18 @@ export function AdminJobs() {
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedDetails, setSelectedDetails] = useState<JobDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailsRefreshVersion, setDetailsRefreshVersion] = useState(0);
+  const detailRequestSequence = useRef(0);
   const PAGE_SIZE = 15;
 
   const fetchJobs = async () => {
     try {
       setError(null);
-
-      // Fetch jobs
-      const { data: jobRows, error: jobErr } = await supabase
-        .from('jobs')
-        .select('id, service_id, customer_id, provider_id, status, pickup_address, destination_address, total_amount, payment_status, created_at, started_at, completed_at, cancelled_at, rating')
-        .order('created_at', { ascending: false });
-
-      if (jobErr) throw jobErr;
-      if (!jobRows) {
-        setJobs([]);
-        return;
-      }
-
-      // Gather unique profile IDs and service IDs
-      const profileIds = new Set<string>();
-      const serviceIds = new Set<string>();
-      for (const j of jobRows) {
-        if (j.customer_id) profileIds.add(j.customer_id);
-        if (j.provider_id) profileIds.add(j.provider_id);
-        if (j.service_id) serviceIds.add(j.service_id);
-      }
-
-      // Fetch profiles
-      let profileMap: Record<string, string> = {};
-      if (profileIds.size > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, first_name, last_name')
-          .in('id', Array.from(profileIds));
-        if (profiles) {
-          for (const p of profiles) {
-            const first = p.first_name || '';
-            const last = p.last_name ? `${p.last_name.charAt(0)}.` : '';
-            profileMap[p.id] = `${first} ${last}`.trim() || 'Unknown';
-          }
-        }
-      }
-
-      // Fetch services
-      let serviceMap: Record<string, string> = {};
-      if (serviceIds.size > 0) {
-        const { data: services } = await supabase
-          .from('services')
-          .select('id, name')
-          .in('id', Array.from(serviceIds));
-        if (services) {
-          for (const s of services) {
-            serviceMap[s.id] = s.name || 'Unknown Service';
-          }
-        }
-      }
-
-      // Map rows
-      const mapped: JobRow[] = jobRows.map((j) => ({
-        ...j,
-        customer_name: j.customer_id ? (profileMap[j.customer_id] || 'Unknown') : 'Unknown',
-        provider_name: j.provider_id ? (profileMap[j.provider_id] || 'Unknown') : null,
-        service_name: j.service_id ? (serviceMap[j.service_id] || 'Unknown Service') : 'Unknown Service',
-      }));
-
-      setJobs(mapped);
+      setJobs(await jobsLoader());
     } catch (err: any) {
       console.error('Error fetching jobs:', err);
       setError(err.message || 'Failed to load jobs');
@@ -147,14 +148,17 @@ export function AdminJobs() {
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [jobsLoader]);
 
   // Real-time: auto-refresh when jobs change
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => fetchJobs(), 2000);
+      timer = setTimeout(() => {
+        fetchJobs();
+        setDetailsRefreshVersion((version) => version + 1);
+      }, 2000);
     };
 
     const channel = supabase
@@ -166,7 +170,53 @@ export function AdminJobs() {
       if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [jobsLoader]);
+
+  useEffect(() => {
+    if (!selectedJobId) return;
+    const requestSequence = ++detailRequestSequence.current;
+    let cancelled = false;
+    setDetailsLoading(true);
+    setDetailsError(null);
+
+    detailsLoader(selectedJobId, role === 'admin')
+      .then((details) => {
+        if (!cancelled && requestSequence === detailRequestSequence.current) {
+          setSelectedDetails(details);
+        }
+      })
+      .catch((err: any) => {
+        if (!cancelled && requestSequence === detailRequestSequence.current) {
+          setSelectedDetails(null);
+          setDetailsError(err?.message || 'Failed to load job details');
+        }
+      })
+      .finally(() => {
+        if (!cancelled && requestSequence === detailRequestSequence.current) {
+          setDetailsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedJobId, role, detailsRefreshVersion, detailsLoader]);
+
+  const openJob = (jobId: string) => {
+    detailRequestSequence.current += 1;
+    setSelectedDetails(null);
+    setDetailsError(null);
+    setDetailsLoading(true);
+    setSelectedJobId(jobId);
+  };
+
+  const closeInspector = () => {
+    detailRequestSequence.current += 1;
+    setSelectedJobId(null);
+    setSelectedDetails(null);
+    setDetailsError(null);
+    setDetailsLoading(false);
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -382,7 +432,18 @@ export function AdminJobs() {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ delay: i * 0.02 }}
-                            className="hover:bg-gray-50/50 transition-colors"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`View job ${shortId(job.id)}`}
+                            aria-selected={selectedJobId === job.id}
+                            onClick={() => openJob(job.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openJob(job.id);
+                              }
+                            }}
+                            className="cursor-pointer transition-colors hover:bg-blue-50/60 focus:bg-blue-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#008CE5] aria-selected:bg-blue-50/80"
                           >
                             <td className="px-6 py-4">
                               <span className="font-mono text-sm font-semibold text-gray-900">{shortId(job.id)}</span>
@@ -438,6 +499,16 @@ export function AdminJobs() {
           )}
         </div>
       </div>
+      <JobDetailsInspector
+        open={Boolean(selectedJobId)}
+        jobId={selectedJobId}
+        details={selectedDetails}
+        loading={detailsLoading}
+        error={detailsError}
+        canViewFinancials={role === 'admin'}
+        onOpenChange={(open) => { if (!open) closeInspector(); }}
+        onRetry={() => setDetailsRefreshVersion((version) => version + 1)}
+      />
     </AdminLayout>
   );
 }
