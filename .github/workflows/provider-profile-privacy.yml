@@ -42,5 +42,5 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/provider_profile_privacy_setup.sql
       - name: Apply exact migration
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261008090000_lock_down_provider_profile_reads.sql
-      - name: Exercise table and RPC authorization as distinct JWT roles
+      - name: Exercise direct RLS authorization as distinct JWT roles
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/provider_profile_privacy.sql
