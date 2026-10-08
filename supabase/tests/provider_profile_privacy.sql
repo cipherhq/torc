@@ -11,10 +11,24 @@ DO $$ BEGIN
     'active-job customer cannot read assigned provider';
   ASSERT (SELECT count(*) FROM public.provider_profiles WHERE id='20000000-0000-4000-8000-000000000002')=0,
     'completed-job customer can read former provider';
-  -- Active-job customers intentionally retain the full row required by
-  -- currently released native clients; see the PR risk note on earnings data.
+  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000001'))=0,
+    'customer can call safe provider RPC for another customer job';
+  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000003'))=1,
+    'customer cannot retrieve safe provider details for own completed job';
+  ASSERT (SELECT phone FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000003')) IS NULL,
+    'completed job RPC should not return provider phone';
+  ASSERT position('vehicle_plate' in pg_get_function_result('public.get_job_provider_details(uuid)'::regprocedure))=0,
+    'customer RPC must not return vehicle_plate';
+  ASSERT position('license_number' in pg_get_function_result('public.get_job_provider_details(uuid)'::regprocedure))=0,
+    'customer RPC must not return license_number';
+  ASSERT position('total_earnings' in pg_get_function_result('public.get_job_provider_details(uuid)'::regprocedure))=0,
+    'customer RPC must not return total_earnings';
+  ASSERT position('acceptance_rate' in pg_get_function_result('public.get_job_provider_details(uuid)'::regprocedure))=0,
+    'customer RPC must not return acceptance_rate';
+  -- Stage 1 compatibility: legacy apps still read the assigned row until the
+  -- separate Stage 2 migration after the supported-client rollout.
   ASSERT (SELECT total_earnings FROM public.provider_profiles WHERE id='20000000-0000-4000-8000-000000000001')=12345.67,
-    'active-job compatibility contract changed';
+    'Stage 1 legacy-client compatibility row is unexpectedly unavailable';
   ASSERT (SELECT count(*) FROM public.documents)=0, 'customer can read provider verification documents';
 END $$;
 
@@ -41,6 +55,20 @@ DO $$ BEGIN
   ASSERT (SELECT count(*) FROM public.documents)=1, 'provider lost own verification document metadata';
 END $$;
 
+-- Simulate Stage 2 inside this transaction: old direct table reads are denied,
+-- while the new scoped RPC continues returning only its safe contract.
+RESET ROLE;
+DROP POLICY "Customer can view assigned active provider profile" ON public.provider_profiles;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',true);
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM public.provider_profiles)=0, 'Stage 2 still exposes provider rows to customers';
+  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000001'))=1,
+    'safe RPC stopped working after Stage 2 cutover';
+  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000002'))=0,
+    'safe RPC allows another customer job';
+END $$;
+
 -- Support is denied provider-profile rows; administrators preserve full access.
 SELECT set_config('request.jwt.claim.sub','40000000-0000-4000-8000-000000000001',true);
 DO $$ BEGIN
@@ -56,5 +84,9 @@ DO $$ BEGIN
     'anonymous helper execution was not revoked';
   ASSERT has_function_privilege('authenticated','public.customer_has_active_job_with_provider(uuid,uuid)','EXECUTE'),
     'authenticated helper execution is missing';
+  ASSERT has_function_privilege('authenticated','public.get_job_provider_details(uuid)','EXECUTE'),
+    'authenticated safe RPC execution is missing';
+  ASSERT NOT has_function_privilege('anon','public.get_job_provider_details(uuid)','EXECUTE'),
+    'anonymous safe RPC execution was not revoked';
 END $$;
 ROLLBACK;

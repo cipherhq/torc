@@ -125,11 +125,10 @@ export function JobProvider({ children }: { children: ReactNode }) {
       customer = cust;
     }
     if (data.provider_id) {
-      const { data: prov } = await supabase.from('profiles').select('*').eq('id', data.provider_id).maybeSingle();
-      const { data: pp } = await supabase.from('provider_profiles').select('*').eq('id', data.provider_id).maybeSingle();
-      if (prov || pp) {
-        provider = { ...(prov || {}), ...(pp || {}) };
-      }
+      const { data: providerDetails, error: providerDetailsError } = await supabase
+        .rpc('get_job_provider_details', { p_job_id: jobId });
+      if (providerDetailsError) console.warn('Could not load safe provider details:', providerDetailsError.message);
+      provider = providerDetails?.[0] || null;
     }
 
     const enriched = { ...data, customer, provider };

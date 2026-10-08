@@ -119,8 +119,6 @@ export function LiveTracking() {
     rating: provider.rating || 0,
     rescues: provider.total_jobs || 0,
     vehicle: provider.vehicle_make ? `${provider.vehicle_make} ${provider.vehicle_model || ''}`.trim() : '',
-    license: provider.license_number || '',
-    plate: provider.vehicle_plate || '',
     isVerified: provider.is_verified || false,
   } : null;
 
@@ -764,24 +762,12 @@ export function LiveTracking() {
               </div>
 
               {/* Vehicle info */}
-              {(providerInfo.vehicle || providerInfo.license || providerInfo.plate) && (
-                <div className="grid grid-cols-3 gap-2">
+              {providerInfo.vehicle && (
+                <div className="grid grid-cols-1 gap-2">
                   {providerInfo.vehicle && (
                     <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
                       <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>Vehicle</p>
                       <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.vehicle}</p>
-                    </div>
-                  )}
-                  {providerInfo.license && (
-                    <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
-                      <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>License</p>
-                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.license}</p>
-                    </div>
-                  )}
-                  {providerInfo.plate && (
-                    <div className="rounded-xl p-2 text-center" style={{ backgroundColor: '#F3F4F6' }}>
-                      <p className="text-[10px] mb-0.5" style={{ color: '#9CA3AF' }}>Plate</p>
-                      <p className="text-xs font-semibold" style={{ color: '#14263D' }}>{providerInfo.plate}</p>
                     </div>
                   )}
                 </div>
