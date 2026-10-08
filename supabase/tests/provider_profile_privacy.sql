@@ -11,7 +11,7 @@ DO $$ BEGIN
     'active-job customer cannot read assigned provider';
   ASSERT (SELECT count(*) FROM public.provider_profiles WHERE id='20000000-0000-4000-8000-000000000002')=0,
     'completed-job customer can read former provider';
-  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000001'))=0,
+  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000002'))=0,
     'customer can call safe provider RPC for another customer job';
   ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000003'))=1,
     'customer cannot retrieve safe provider details for own completed job';
