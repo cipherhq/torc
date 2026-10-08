@@ -25,14 +25,8 @@ CREATE TABLE public.provider_profiles (
 );
 CREATE TABLE public.jobs (
   id uuid PRIMARY KEY, customer_id uuid NOT NULL, provider_id uuid,
-  status text NOT NULL, service_id text, pickup_latitude double precision,
-  pickup_longitude double precision
+  status text NOT NULL
 );
-CREATE TABLE public.provider_locations (
-  provider_id uuid PRIMARY KEY, latitude double precision, longitude double precision,
-  is_online boolean NOT NULL, updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.platform_settings (key text PRIMARY KEY, value text);
 CREATE TABLE public.documents (
   id uuid PRIMARY KEY, provider_id uuid NOT NULL, document_type text NOT NULL,
   storage_path text NOT NULL
@@ -46,18 +40,6 @@ CREATE FUNCTION public.is_admin(actor_id uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
   SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id=actor_id AND role='admin')
 $$;
-CREATE FUNCTION public.is_valid_latitude(value double precision) RETURNS boolean
-LANGUAGE sql IMMUTABLE AS $$ SELECT value BETWEEN -90 AND 90 $$;
-CREATE FUNCTION public.is_valid_longitude(value double precision) RETURNS boolean
-LANGUAGE sql IMMUTABLE AS $$ SELECT value BETWEEN -180 AND 180 $$;
-CREATE FUNCTION public.haversine_distance_miles(lat1 double precision, lon1 double precision, lat2 double precision, lon2 double precision)
-RETURNS double precision LANGUAGE sql IMMUTABLE AS $$
-  SELECT 3958.8 * 2 * asin(sqrt(
-    power(sin(radians(lat1-lat2)/2),2) +
-    cos(radians(lat2)) * cos(radians(lat1)) * power(sin(radians(lon1-lon2)/2),2)
-  ))
-$$;
-
 ALTER TABLE public.provider_profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Provider can view own profile" ON public.provider_profiles FOR SELECT
   USING (auth.uid() = id);
@@ -80,10 +62,6 @@ CREATE POLICY "Provider can view own documents" ON public.documents FOR SELECT T
 CREATE POLICY "Support and admins can view document metadata" ON public.documents FOR SELECT TO authenticated
   USING (public.is_support_or_admin(auth.uid()));
 GRANT SELECT ON public.documents TO authenticated;
-ALTER TABLE public.provider_locations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Provider can view own location" ON public.provider_locations FOR SELECT TO authenticated
-  USING (provider_id=auth.uid());
-GRANT SELECT ON public.provider_locations TO authenticated;
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
 
@@ -93,23 +71,15 @@ INSERT INTO public.profiles(id,role,full_name,first_name,last_name,phone,avatar_
   ('10000000-0000-4000-8000-000000000003','customer','Customer Three','Customer','Three','555-1003',NULL),
   ('20000000-0000-4000-8000-000000000001','provider','Provider One','Provider','One','555-2001','provider-one.jpg'),
   ('20000000-0000-4000-8000-000000000002','provider','Provider Two','Provider','Two','555-2002','provider-two.jpg'),
-  ('20000000-0000-4000-8000-000000000003','provider','Provider Three','Provider','Three','555-2003','provider-three.jpg'),
   ('30000000-0000-4000-8000-000000000001','admin','Admin One','Admin','One','555-3001',NULL),
   ('40000000-0000-4000-8000-000000000001','support','Support One','Support','One','555-4001',NULL);
 INSERT INTO public.provider_profiles(id,services,vehicle_make,vehicle_model,vehicle_year,vehicle_plate,license_number,is_verified,is_online,rating,total_jobs,total_earnings,acceptance_rate) VALUES
   ('20000000-0000-4000-8000-000000000001',ARRAY['towing'],'Toyota','Tacoma',2024,'PRIVATE-PLATE-1','PRIVATE-LICENSE-1',true,true,4.90,45,12345.67,82.5),
-  ('20000000-0000-4000-8000-000000000002',ARRAY['jumpstart'],'Ford','F-150',2023,'PRIVATE-PLATE-2','PRIVATE-LICENSE-2',true,true,4.70,32,9876.54,70.0),
-  ('20000000-0000-4000-8000-000000000003',ARRAY['towing'],'Chevrolet','Silverado',2022,'PRIVATE-PLATE-3','PRIVATE-LICENSE-3',true,true,4.80,20,4567.89,75.0);
-INSERT INTO public.jobs(id,customer_id,provider_id,status,service_id,pickup_latitude,pickup_longitude) VALUES
-  ('50000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','accepted','towing',38,-77),
-  ('50000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000002','accepted','towing',38,-77),
-  ('50000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002','completed','towing',38,-77),
-  ('50000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002','cancelled','towing',39,-76),
-  ('50000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000001',NULL,'pending','towing',38,-77);
-INSERT INTO public.provider_locations(provider_id,latitude,longitude,is_online) VALUES
-  ('20000000-0000-4000-8000-000000000001',38.01,-77.01,true),
-  ('20000000-0000-4000-8000-000000000002',38.02,-77.02,true),
-  ('20000000-0000-4000-8000-000000000003',38.03,-77.03,true);
-INSERT INTO public.platform_settings(key,value) VALUES ('max_job_radius','50');
+  ('20000000-0000-4000-8000-000000000002',ARRAY['jumpstart'],'Ford','F-150',2023,'PRIVATE-PLATE-2','PRIVATE-LICENSE-2',true,true,4.70,32,9876.54,70.0);
+INSERT INTO public.jobs(id,customer_id,provider_id,status) VALUES
+  ('50000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','accepted'),
+  ('50000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000002','accepted'),
+  ('50000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002','completed'),
+  ('50000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002','cancelled');
 INSERT INTO public.documents(id,provider_id,document_type,storage_path) VALUES
   ('60000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','license','provider-one/license.pdf');
