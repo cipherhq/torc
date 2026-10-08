@@ -11,7 +11,7 @@ export interface AdminSession {
 // administrator-only at the route layer (DB policies remain authoritative).
 export const SUPPORT_ALLOWED_PATHS = new Set([
   '/dashboard', '/jobs', '/live-dispatch',
-  '/users', '/providers', '/documents', '/support-tickets',
+  '/users', '/documents', '/support-tickets',
 ]);
 
 export function canAccessAdminPath(role: AdminSession['role'], pathname: string): boolean {

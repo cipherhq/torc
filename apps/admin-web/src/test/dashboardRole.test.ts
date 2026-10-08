@@ -9,6 +9,7 @@ describe('dashboard role authority', () => {
     expect(labels).not.toContain('Financial Hub');
     expect(labels).not.toContain('Reporting Hub');
     expect(labels).not.toContain('Service Pricing');
+    expect(labels).not.toContain('Approve Providers');
     expect(providerPerformanceShowsEarnings('support')).toBe(false);
     const rows = getProviderPerformanceRows([{ id: 'p1', name: 'Provider', rating: 5, jobs: 10, earnings: 9999 }], 'support');
     expect(rows[0]).not.toHaveProperty('earnings');
