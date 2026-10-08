@@ -34,7 +34,7 @@ export function canQueryAdminDashboardFinancials(role: 'admin' | 'support') {
 
 export function visibleDashboardActionLabels(role: 'admin' | 'support') {
   const adminOnly = new Set(['Manage Payouts', 'Financial Hub', 'Reporting Hub']);
-  return role === 'support' ? ['Approve Providers', 'Manage Users', 'Review Documents', 'Live Dispatch', 'Support Tickets'] : [
+  return role === 'support' ? ['Manage Users', 'Review Documents', 'Live Dispatch', 'Support Tickets'] : [
     'Approve Providers', 'Manage Users', 'Review Documents', 'Manage Payouts', 'Live Dispatch', 'Service Pricing', 'Support Tickets', 'Financial Hub', 'Reporting Hub',
   ].filter((label) => !adminOnly.has(label) || role === 'admin');
 }
@@ -139,23 +139,27 @@ export function AdminDashboard() {
         const revenue = revenueData?.reduce((sum, job) => sum + (Number(job.total_amount) || 0), 0) || 0;
         const revenueFormatted = revenue >= 1000 ? `$${(revenue / 1000).toFixed(1)}K` : `$${revenue.toFixed(0)}`;
 
-        const { data: providerRoleRows, error: providerRoleErr } = await supabase
-          .from('profiles')
-          .select('id, full_name, email, created_at')
-          .eq('role', 'provider');
-        if (providerRoleErr) throw providerRoleErr;
+        let providerRoleRows: any[] = [];
+        if (!isSupport) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, created_at')
+            .eq('role', 'provider');
+          if (error) throw error;
+          providerRoleRows = data || [];
+        }
 
         let providerProfileRows: any[] = [];
-        try {
-          const { data, error } = await supabase
-          .from('provider_profiles')
-            .select(isSupport
-              ? 'id, is_online, is_verified, created_at, rating, total_jobs'
-              : 'id, is_online, is_verified, created_at, rating, total_jobs, total_earnings');
-          if (error) throw error;
-          providerProfileRows = data || [];
-        } catch {
-          providerProfileRows = [];
+        if (!isSupport) {
+          try {
+            const { data, error } = await supabase
+              .from('provider_profiles')
+              .select('id, is_online, is_verified, created_at, rating, total_jobs, total_earnings');
+            if (error) throw error;
+            providerProfileRows = data || [];
+          } catch {
+            providerProfileRows = [];
+          }
         }
 
         const providerProfileMap = new Map<string, any>();
@@ -377,9 +381,9 @@ export function AdminDashboard() {
       .channel('admin-dashboard-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, debouncedRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, debouncedRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'provider_profiles' }, debouncedRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, debouncedRefresh);
     if (!isSupport) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'provider_profiles' }, debouncedRefresh);
       channel.on('postgres_changes', { event: '*', schema: 'public', table: 'refunds' }, debouncedRefresh);
     }
     channel.subscribe();
@@ -408,7 +412,7 @@ export function AdminDashboard() {
 
         {/* Stats grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.filter((stat) => !(isSupport && stat.label === 'Today Revenue')).map((stat, index) => {
+          {stats.filter((stat) => !(isSupport && ['Today Revenue', 'Online Providers'].includes(stat.label))).map((stat, index) => {
             const Icon = stat.icon;
             return (
               <motion.button
@@ -511,12 +515,12 @@ export function AdminDashboard() {
               >
                 Monitor Active Jobs
               </button>
-              <button
+              {!isSupport && <button
                 onClick={() => navigate('/providers')}
                 className="w-full p-4 rounded-2xl bg-gray-50 text-gray-900 font-semibold hover:bg-gray-100 transition-all border border-gray-100"
               >
                 Verify Providers
-              </button>
+              </button>}
               <button
                 onClick={() => navigate('/analytics')}
                 className="w-full p-4 rounded-2xl bg-gray-50 text-gray-900 font-semibold hover:bg-gray-100 transition-all border border-gray-100"
@@ -546,7 +550,7 @@ export function AdminDashboard() {
         </div>
 
         {/* Provider performance */}
-        <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100 mt-6">
+        {!isSupport && <div className="bg-white rounded-[24px] p-6 shadow-sm border border-gray-100 mt-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Provider Performance</h2>
@@ -566,10 +570,10 @@ export function AdminDashboard() {
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Pending Providers + Urgent Tickets */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        {!isSupport && <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -629,7 +633,7 @@ export function AdminDashboard() {
               </div>
             )}
           </motion.div>
-        </div>
+        </div>}
       </div>
     </AdminLayout>
   );

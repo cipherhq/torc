@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { getJobProviderDetails } from '../services/providerDetails.service';
 
 const JobContext = createContext({});
 
@@ -176,19 +177,7 @@ export function JobProvider({ children }) {
       if (!custErr) customer = cust;
     }
     if (data.provider_id) {
-      const { data: prov } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', data.provider_id)
-        .maybeSingle();
-      const { data: pp } = await supabase
-        .from('provider_profiles')
-        .select('*')
-        .eq('id', data.provider_id)
-        .maybeSingle();
-      if (prov || pp) {
-        provider = { ...(prov || {}), ...(pp || {}) };
-      }
+      provider = await getJobProviderDetails(supabase, data);
     }
 
     const enriched = { ...data, customer, provider };

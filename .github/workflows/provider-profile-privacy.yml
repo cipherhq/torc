@@ -1,0 +1,46 @@
+name: Provider Profile Privacy
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/provider_profile_privacy*'
+      - '.github/workflows/provider-profile-privacy.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/provider_profile_privacy*'
+      - '.github/workflows/provider-profile-privacy.yml'
+
+jobs:
+  rls-authorization:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: torc_privacy_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d torc_privacy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: torc_privacy_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Build production-shaped authorization fixture
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/provider_profile_privacy_setup.sql
+      - name: Apply exact migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261008090000_lock_down_provider_profile_reads.sql
+      - name: Exercise direct RLS authorization as distinct JWT roles
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/provider_profile_privacy.sql

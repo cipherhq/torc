@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
+import { getJobProviderDetails } from '../../services/providerDetails.service';
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3959; // miles
@@ -461,18 +462,12 @@ export function Matching() {
           let provPhoto = null;
           if (updated.provider_id) {
             try {
-              const { data: pp } = await supabase
-                .from('provider_profiles')
-                .select('rating, avatar_url')
-                .eq('id', updated.provider_id)
-                .maybeSingle();
-              const { data: prof } = await supabase
-                .from('profiles')
-                .select('first_name, last_name')
-                .eq('id', updated.provider_id)
-                .maybeSingle();
-              if (prof) provName = `${prof.first_name || ''} ${prof.last_name || ''}`.trim() || provName;
-              if (pp) { provRating = pp.rating || 0; provPhoto = pp.avatar_url || null; }
+              const pp = await getJobProviderDetails(supabase, { ...updated, id: createdJobId });
+              if (pp) {
+                provName = `${pp.first_name || ''} ${pp.last_name || ''}`.trim() || pp.full_name || provName;
+                provRating = pp.rating || 0;
+                provPhoto = pp.avatar_url || null;
+              }
             } catch {}
           }
           handleProviderAccepted({ provider_name: provName, provider_rating: provRating, provider_photo: provPhoto });
@@ -501,18 +496,12 @@ export function Matching() {
           let provPhoto = null;
           if (job.provider_id) {
             try {
-              const { data: prof } = await supabase
-                .from('profiles')
-                .select('first_name, last_name')
-                .eq('id', job.provider_id)
-                .maybeSingle();
-              const { data: pp } = await supabase
-                .from('provider_profiles')
-                .select('rating, avatar_url')
-                .eq('id', job.provider_id)
-                .maybeSingle();
-              if (prof) provName = `${prof.first_name || ''} ${prof.last_name || ''}`.trim() || provName;
-              if (pp) { provRating = pp.rating || 0; provPhoto = pp.avatar_url || null; }
+              const pp = await getJobProviderDetails(supabase, { ...job, id: createdJobId });
+              if (pp) {
+                provName = `${pp.first_name || ''} ${pp.last_name || ''}`.trim() || pp.full_name || provName;
+                provRating = pp.rating || 0;
+                provPhoto = pp.avatar_url || null;
+              }
             } catch {}
           }
           handleProviderAccepted({ provider_id: job.provider_id, provider_name: provName, provider_rating: provRating, provider_photo: provPhoto });

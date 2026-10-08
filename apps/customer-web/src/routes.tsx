@@ -28,7 +28,6 @@ import { PaymentMethods } from "./pages/customer/PaymentMethods";
 import { Notifications } from "./pages/customer/Notifications";
 import { HelpCenter } from "./pages/customer/HelpCenter";
 import { Explore } from "./pages/customer/Explore";
-import { ShopDetail } from "./pages/customer/ShopDetail";
 import { PersonalInfo } from "./pages/customer/PersonalInfo";
 import { Vehicles } from "./pages/customer/Vehicles";
 import { AccountSecurity } from "./pages/customer/AccountSecurity";
@@ -243,10 +242,6 @@ export const router = createBrowserRouter([
   {
     path: "/explore",
     element: <Navigate to="/customer/explore" replace />,
-  },
-  {
-    path: "/shop/:shopId",
-    element: <ProtectedRoute requiredRole="customer"><ShopDetail /></ProtectedRoute>,
   },
   // Provider routes don't exist in customer app — redirect to home.
   {

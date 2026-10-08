@@ -1,5 +1,34 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
+
+const ACTIVE_JOB_STATUSES = new Set(['accepted', 'enroute', 'en_route', 'arrived', 'inprogress', 'in_progress']);
+const SAFE_PROVIDER_COLUMNS = 'id, services, vehicle_make, vehicle_model, vehicle_year, is_verified, rating, total_jobs';
+const SAFE_PROFILE_COLUMNS = 'full_name, first_name, last_name, phone, avatar_url';
+const SAFE_COMPLETED_PROFILE_COLUMNS = 'full_name, first_name, last_name, avatar_url';
+
+async function getJobProviderDetails(job: any) {
+  if (!job?.id || !job?.provider_id) return null;
+  const { data, error } = await supabase.rpc('get_job_provider_details', { p_job_id: job.id });
+  if (!error) return data?.[0] || null;
+
+  // App-first deployment bridge only: never use select('*') or request a private field.
+  if (error.code !== 'PGRST202' && error.code !== '42883') {
+    console.warn('Could not load safe provider details:', error.message);
+    return null;
+  }
+
+  const { data: provider, error: providerError } = await supabase
+    .from('provider_profiles').select(SAFE_PROVIDER_COLUMNS).eq('id', job.provider_id).maybeSingle();
+  if (providerError || !provider) {
+    if (providerError) console.warn('Safe provider details fallback failed:', providerError.message);
+    return null;
+  }
+  const activeJob = ACTIVE_JOB_STATUSES.has(job.status);
+  const { data: profile } = await supabase
+    .from('profiles').select(activeJob ? SAFE_PROFILE_COLUMNS : SAFE_COMPLETED_PROFILE_COLUMNS)
+    .eq('id', job.provider_id).maybeSingle();
+  return { ...provider, ...(profile || {}), phone: activeJob ? profile?.phone || null : null };
+}
 import { useAuth } from './AuthContext';
 
 interface JobContextType {
@@ -125,11 +154,7 @@ export function JobProvider({ children }: { children: ReactNode }) {
       customer = cust;
     }
     if (data.provider_id) {
-      const { data: prov } = await supabase.from('profiles').select('*').eq('id', data.provider_id).maybeSingle();
-      const { data: pp } = await supabase.from('provider_profiles').select('*').eq('id', data.provider_id).maybeSingle();
-      if (prov || pp) {
-        provider = { ...(prov || {}), ...(pp || {}) };
-      }
+      provider = await getJobProviderDetails({ ...data, id: jobId });
     }
 
     const enriched = { ...data, customer, provider };

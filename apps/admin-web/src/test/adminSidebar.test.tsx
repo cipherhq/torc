@@ -39,6 +39,9 @@ describe('Support navigation authority', () => {
     expect(SUPPORT_ALLOWED_PATHS.has('/documents')).toBe(true);
     expect(SUPPORT_ALLOWED_PATHS.has('/jobs')).toBe(true);
     expect(SUPPORT_ALLOWED_PATHS.has('/support-tickets')).toBe(true);
+    expect(SUPPORT_ALLOWED_PATHS.has('/providers')).toBe(false);
+    expect(canAccessAdminPath('support', '/providers')).toBe(false);
+    expect(canAccessAdminPath('admin', '/providers')).toBe(true);
     expect(SUPPORT_ALLOWED_PATHS.has('/notifications')).toBe(false);
     expect(SUPPORT_ALLOWED_PATHS.has('/directory')).toBe(false);
     expect(SUPPORT_ALLOWED_PATHS.has('/payouts')).toBe(false);
