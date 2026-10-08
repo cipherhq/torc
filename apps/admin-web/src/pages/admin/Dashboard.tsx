@@ -139,23 +139,27 @@ export function AdminDashboard() {
         const revenue = revenueData?.reduce((sum, job) => sum + (Number(job.total_amount) || 0), 0) || 0;
         const revenueFormatted = revenue >= 1000 ? `$${(revenue / 1000).toFixed(1)}K` : `$${revenue.toFixed(0)}`;
 
-        const { data: providerRoleRows, error: providerRoleErr } = await supabase
-          .from('profiles')
-          .select('id, full_name, email, created_at')
-          .eq('role', 'provider');
-        if (providerRoleErr) throw providerRoleErr;
+        let providerRoleRows: any[] = [];
+        if (!isSupport) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, created_at')
+            .eq('role', 'provider');
+          if (error) throw error;
+          providerRoleRows = data || [];
+        }
 
         let providerProfileRows: any[] = [];
-        try {
-          const { data, error } = await supabase
-          .from('provider_profiles')
-            .select(isSupport
-              ? 'id, is_online, is_verified, created_at, rating, total_jobs'
-              : 'id, is_online, is_verified, created_at, rating, total_jobs, total_earnings');
-          if (error) throw error;
-          providerProfileRows = data || [];
-        } catch {
-          providerProfileRows = [];
+        if (!isSupport) {
+          try {
+            const { data, error } = await supabase
+              .from('provider_profiles')
+              .select('id, is_online, is_verified, created_at, rating, total_jobs, total_earnings');
+            if (error) throw error;
+            providerProfileRows = data || [];
+          } catch {
+            providerProfileRows = [];
+          }
         }
 
         const providerProfileMap = new Map<string, any>();
@@ -377,9 +381,9 @@ export function AdminDashboard() {
       .channel('admin-dashboard-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, debouncedRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, debouncedRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'provider_profiles' }, debouncedRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, debouncedRefresh);
     if (!isSupport) {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'provider_profiles' }, debouncedRefresh);
       channel.on('postgres_changes', { event: '*', schema: 'public', table: 'refunds' }, debouncedRefresh);
     }
     channel.subscribe();
