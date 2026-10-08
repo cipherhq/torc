@@ -50,9 +50,9 @@ BEGIN
     terms_version = COALESCE(EXCLUDED.terms_version, public.profiles.terms_version),
     updated_at = now();
 
-  RETURN NEW;
-EXCEPTION WHEN OTHERS THEN
-  RAISE LOG 'handle_new_user error: %', SQLERRM;
+  -- Fail closed: auth.users and its profile are one transaction. If profile
+  -- creation fails, abort signup instead of leaving an authenticated user
+  -- without the profile row required by application authorization.
   RETURN NEW;
 END;
 $$;
