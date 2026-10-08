@@ -93,11 +93,13 @@ INSERT INTO public.profiles(id,role,full_name,first_name,last_name,phone,avatar_
   ('10000000-0000-4000-8000-000000000003','customer','Customer Three','Customer','Three','555-1003',NULL),
   ('20000000-0000-4000-8000-000000000001','provider','Provider One','Provider','One','555-2001','provider-one.jpg'),
   ('20000000-0000-4000-8000-000000000002','provider','Provider Two','Provider','Two','555-2002','provider-two.jpg'),
+  ('20000000-0000-4000-8000-000000000003','provider','Provider Three','Provider','Three','555-2003','provider-three.jpg'),
   ('30000000-0000-4000-8000-000000000001','admin','Admin One','Admin','One','555-3001',NULL),
   ('40000000-0000-4000-8000-000000000001','support','Support One','Support','One','555-4001',NULL);
 INSERT INTO public.provider_profiles(id,services,vehicle_make,vehicle_model,vehicle_year,vehicle_plate,license_number,is_verified,is_online,rating,total_jobs,total_earnings,acceptance_rate) VALUES
   ('20000000-0000-4000-8000-000000000001',ARRAY['towing'],'Toyota','Tacoma',2024,'PRIVATE-PLATE-1','PRIVATE-LICENSE-1',true,true,4.90,45,12345.67,82.5),
-  ('20000000-0000-4000-8000-000000000002',ARRAY['jumpstart'],'Ford','F-150',2023,'PRIVATE-PLATE-2','PRIVATE-LICENSE-2',true,true,4.70,32,9876.54,70.0);
+  ('20000000-0000-4000-8000-000000000002',ARRAY['jumpstart'],'Ford','F-150',2023,'PRIVATE-PLATE-2','PRIVATE-LICENSE-2',true,true,4.70,32,9876.54,70.0),
+  ('20000000-0000-4000-8000-000000000003',ARRAY['towing'],'Chevrolet','Silverado',2022,'PRIVATE-PLATE-3','PRIVATE-LICENSE-3',true,true,4.80,20,4567.89,75.0);
 INSERT INTO public.jobs(id,customer_id,provider_id,status,service_id,pickup_latitude,pickup_longitude) VALUES
   ('50000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','accepted','towing',38,-77),
   ('50000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000002','accepted','towing',38,-77),
@@ -106,7 +108,8 @@ INSERT INTO public.jobs(id,customer_id,provider_id,status,service_id,pickup_lati
   ('50000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000001',NULL,'pending','towing',38,-77);
 INSERT INTO public.provider_locations(provider_id,latitude,longitude,is_online) VALUES
   ('20000000-0000-4000-8000-000000000001',38.01,-77.01,true),
-  ('20000000-0000-4000-8000-000000000002',38.02,-77.02,true);
+  ('20000000-0000-4000-8000-000000000002',38.02,-77.02,true),
+  ('20000000-0000-4000-8000-000000000003',38.03,-77.03,true);
 INSERT INTO public.platform_settings(key,value) VALUES ('max_job_radius','50');
 INSERT INTO public.documents(id,provider_id,document_type,storage_path) VALUES
   ('60000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','license','provider-one/license.pdf');
