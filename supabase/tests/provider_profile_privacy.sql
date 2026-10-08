@@ -13,6 +13,15 @@ DO $$ BEGIN
     'completed-job customer can read former provider';
   ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000002'))=0,
     'customer can call safe provider RPC for another customer job';
+  ASSERT public.customer_has_active_job_with_provider(
+    '10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001'),
+    'customer helper denied a real active job';
+  ASSERT NOT public.customer_has_active_job_with_provider(
+    '10000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000002'),
+    'customer can spoof another customer identity in helper arguments';
+  ASSERT NOT public.customer_has_active_job_with_provider(
+    '10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002'),
+    'completed/cancelled provider relationship passed active-job helper';
   ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000003'))=1,
     'customer cannot retrieve safe provider details for own completed job';
   ASSERT (SELECT phone FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000003')) IS NULL,
@@ -30,6 +39,14 @@ DO $$ BEGIN
   ASSERT (SELECT total_earnings FROM public.provider_profiles WHERE id='20000000-0000-4000-8000-000000000001')=12345.67,
     'Stage 1 legacy-client compatibility row is unexpectedly unavailable';
   ASSERT (SELECT count(*) FROM public.documents)=0, 'customer can read provider verification documents';
+  ASSERT (SELECT count(*) FROM public.provider_locations)=0,
+    'customer can bypass active-job location policy through direct table read';
+  ASSERT (SELECT count(*) FROM public.get_nearby_providers(38,-77,5,'towing'))=1,
+    'customer dispatch lookup failed for their own pending job';
+  ASSERT (SELECT count(*) FROM public.get_nearby_providers(39,-76,5,'towing'))=0,
+    'cancelled job permits provider-location lookup';
+  ASSERT (SELECT count(*) FROM public.get_nearby_providers(38.5,-77.5,5,'towing'))=0,
+    'customer can probe provider locations with arbitrary coordinates';
 END $$;
 
 -- Another signed-in customer with a different active provider sees only that
@@ -42,6 +59,21 @@ DO $$ BEGIN
   ASSERT (SELECT count(*) FROM public.provider_profiles WHERE id='20000000-0000-4000-8000-000000000001')=0,
     'second customer can read first customer provider';
   ASSERT (SELECT count(*) FROM public.documents)=0, 'unrelated customer can read provider verification documents';
+  ASSERT (SELECT count(*) FROM public.get_nearby_providers(38,-77,5,'towing'))=0,
+    'second customer can use another customer pending job for provider discovery';
+END $$;
+
+-- An authenticated user with no jobs cannot enumerate providers or locations.
+SELECT set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000003',true);
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM public.provider_profiles)=0, 'zero-job customer can read a provider profile';
+  ASSERT (SELECT count(*) FROM public.get_job_provider_details('50000000-0000-4000-8000-000000000001'))=0,
+    'zero-job customer can call provider details RPC';
+  ASSERT (SELECT count(*) FROM public.get_nearby_providers(38,-77,5,'towing'))=0,
+    'zero-job customer can enumerate nearby provider identifiers/locations';
+  ASSERT NOT public.customer_has_active_job_with_provider(
+    '10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001'),
+    'zero-job caller can spoof a customer identity in the helper';
 END $$;
 
 -- Providers retain owner access but cannot read another provider.
@@ -88,5 +120,11 @@ DO $$ BEGIN
     'authenticated safe RPC execution is missing';
   ASSERT NOT has_function_privilege('anon','public.get_job_provider_details(uuid)','EXECUTE'),
     'anonymous safe RPC execution was not revoked';
+  ASSERT has_function_privilege('authenticated','public.get_nearby_providers(double precision,double precision,double precision,text)','EXECUTE'),
+    'authenticated dispatch lookup execution is missing';
+  ASSERT NOT has_function_privilege('anon','public.get_nearby_providers(double precision,double precision,double precision,text)','EXECUTE'),
+    'anonymous dispatch lookup execution was not revoked';
+  ASSERT position('latitude' in pg_get_function_result('public.get_nearby_providers(double precision,double precision,double precision,text)'::regprocedure)) > 0,
+    'legacy nearby lookup output contract unexpectedly changed';
 END $$;
 ROLLBACK;

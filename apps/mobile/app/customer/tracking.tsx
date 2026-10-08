@@ -121,6 +121,9 @@ export default function TrackingScreen() {
 
   const jobStatus = normalizeStatus(job.status);
   const isCompleted = jobStatus === 'completed';
+  const providerVehicle = job.provider
+    ? [job.provider.vehicle_year, job.provider.vehicle_make, job.provider.vehicle_model].filter(Boolean).join(' ')
+    : '';
 
   return (
     <View className="flex-1 bg-[#0F1419]">
@@ -170,6 +173,9 @@ export default function TrackingScreen() {
           <Text className="text-white text-xl font-bold mb-2">
             {job.provider?.full_name || job.provider?.first_name || 'Your Provider'}
           </Text>
+          {job.provider?.is_verified && (
+            <Text className="text-[#2EFFAF] text-sm font-semibold mb-2">✓ Verified TORC provider</Text>
+          )}
           <View className="flex-row items-center mb-4">
             <Text className="text-[#2EFFAF] text-lg mr-2">
               ⭐ {providerStats?.averageRating?.toFixed(1) || 'N/A'}
@@ -178,6 +184,10 @@ export default function TrackingScreen() {
               ({providerStats?.completedCount || 0} jobs)
             </Text>
           </View>
+
+          {providerVehicle ? (
+            <Text className="text-white/80 mb-4">Vehicle: {providerVehicle}</Text>
+          ) : null}
 
           {job.provider?.phone && (
             <Text className="text-white/60 mb-4">{job.provider.phone}</Text>

@@ -123,3 +123,140 @@ global authenticated policy. Stage 2 is a separate policy-only cutover and can
 be paused before applying. After Stage 2, do not recreate a broad policy to
 restore old-client behavior; fix forward or roll back only to the safe
 active-job row boundary while the upgrade path is corrected.
+
+## October 8 release-readiness audit (read-only; not a production change)
+
+The production catalog was rechecked on 2026-10-08. The broad `Authenticated
+users can view providers` policy and `anon`/`authenticated` table grants are
+still present. No `public` view definition references `provider_profiles`, and
+the table is not currently in `supabase_realtime`. Therefore the confirmed
+direct leakage path is PostgREST/table access under RLS (and any other SQL API
+using the same grants/policies), not a view or Realtime publication. Supabase's
+GraphQL API also follows PostgreSQL grants and RLS; it is not an RLS bypass.
+
+The effective field scope of that row policy is the entire table: `id`, service
+array, vehicle make/model/year/plate, license number, verification/online state,
+rating, total job count, earnings, acceptance rate, and timestamps. This audit
+did not read or export provider values. The especially sensitive fields are
+`vehicle_plate`, `license_number`, `total_earnings`, and `acceptance_rate`.
+`documents` and the private `provider-documents` bucket have separate policies;
+the migration does not change them.
+
+Related production callable paths checked:
+
+| Path | Current production behavior / proposed handling |
+| --- | --- |
+| `customer_has_active_job_with_provider(uuid,uuid)` | SECURITY DEFINER owned by `postgres`, `search_path=public`, executable by `anon` and `authenticated`. Body binds arguments to `auth.uid()` as customer or provider and active-job existence. Migration pins search path and removes anonymous execution. |
+| `get_nearby_providers(...)` | SECURITY DEFINER, authenticated-only. Current production function accepts caller-provided coordinates/service and returns provider IDs and live coordinates. Migration preserves the return signature but requires exact stored pickup coordinates/service of a caller-owned pending job. Coordinates remain visible to that job's customer during dispatch; this is an explicit residual legacy contract, not a profile-field leak. |
+| `get_job_provider_details(uuid)` | Not present in current production; migration adds it. SECURITY DEFINER, authenticated-only, job owner check from `auth.uid()`, safe allowlist and phone only for active jobs. |
+| `accept_job(uuid,uuid)` | SECURITY DEFINER, authenticated-only; checks provider argument equals `auth.uid()` and provider eligibility before acceptance. |
+| `approve_provider(uuid)` | SECURITY DEFINER, authenticated-only; admin authorization check. |
+| `ensure_provider_setup(...)` | SECURITY DEFINER, authenticated-only; provisions the caller's own provider record. |
+| `suspend_expired_document_providers()` | Separate production issue: SECURITY DEFINER owned by `postgres`, no pinned `search_path`, and `EXECUTE` granted to `authenticated`, although repository migration comments say it should be service-role/cron-only. It bulk-mutates verification/suspension state; it does not return profile rows. Do not change it in this PR; create a separate P0 authorization issue and remediate with CTO review. |
+
+Customer source audit found the previous direct provider table reads in job
+enrichment and matching. Current web and native source uses
+`get_job_provider_details`; only an app-first bridge for a missing RPC selects
+an explicit safe-column allowlist, never plate/license/earnings/acceptance.
+The stale customer `/shop/:shopId` component that issued another direct query
+was unreferenced and has been removed. The remaining customer-context provider
+table operation is an UPDATE of rating/job aggregates after a completed job,
+not a SELECT. Admin provider-management reads remain in admin-only dashboard
+routes; provider-web reads are for the authenticated provider's own profile.
+Support's admin-web provider route, dashboard metrics, links, and realtime
+subscription are removed/hidden; DB RLS remains the authoritative boundary.
+
+## Controlled rollout checklist (proposal; production gate remains closed)
+
+### Preflight and ordering
+
+1. CTO reviews the exact PR #44 head and the independent PR #43 head. Neither
+   head is authorized to merge or deploy by this document.
+2. On release day, re-run read-only catalog checks for policy definitions,
+   grants, relevant function signatures/definitions/ACLs, dependencies, and
+   `supabase_migrations.schema_migrations`. Confirm no schema drift and capture
+   the exact SQL/migration checksums. Take/verify the normal recoverable database
+   backup and rehearse restore/forward-fix procedures in a non-production clone.
+3. Current production migration history ends at `20261003163907`; PR #44's
+   `20261008090000` migration sorts before PR #43's
+   `20261008135507` migration. If both are approved, merge both reviewed PRs
+   before one controlled migration push so the CLI applies them in timestamp
+   order. Do not apply #43 first and then introduce an older pending #44
+   migration. If only #44 is approved, it can be applied alone; keep #43 pending.
+4. Prefer application code first: release updated web and native apps, then
+   apply the Stage 1 migration after compatibility gates. The safe RPC caller
+   falls back only on a missing-function/schema-cache error and only to
+   explicitly selected non-sensitive fields. It fails closed on other RPC
+   errors. Recheck PostgREST schema cache after migration. Do not change Site
+   URL, email templates, production Auth settings, or Vercel project state.
+
+### Compatibility evidence required before Stage 1
+
+Repository source currently declares Capacitor customer iOS/Android
+`1.1.0` / build `3`; the separate Expo target is `1.0.0` / `com.torc.mobile`.
+These are source versions, **not verified minimum installed versions**. Public
+store listings do not show adoption. App Store Connect, Play Console, release
+artifacts, crash/telemetry version breakdown, and at least one real device per
+platform are required to establish the deployed population. The Expo target's
+release status must also be determined. Do not label any binary compatibility
+as verified from HTTP 200 or repository builds.
+
+Stage 1's temporary policy permits legacy full-row reads only for an active
+assigned job. Older clients may lose direct provider details on completed job
+history after the migration; this is an acknowledged compatibility risk and
+must be exercised against the exact currently distributed binaries before
+release. Do not promise completed-history compatibility until that test passes.
+The app-first safe-column fallback supports the bridge before RPC deployment,
+but it is not evidence that an already-installed older binary uses the bridge.
+
+### Customer identification and end-to-end acceptance
+
+The written product roadmap asks for provider photo, rating, and “vehicle info”;
+it does not specify license plate or license number. Updated tracking shows
+provider name, verified state, rating, year/make/model, live map, and in active
+jobs the contact action. These are not a unique vehicle identifier. Product
+must confirm whether make/model/year plus live location/contact is sufficient
+for roadside arrival identification. If unique matching is required, prefer a
+job-scoped one-time arrival code over exposing plate/license broadly; that
+alternative is not implemented or yet approved.
+
+Before production release, test with real customer/provider accounts and an
+actual accepted job on iOS and Android (including the exact store-distributed
+old build and candidate new build): create request, matching waves, provider
+acceptance, customer/provider live tracking, contact, arrival confirmation,
+completion, history, review, and cancellation. Verify customer cannot retrieve
+another customer's details; completed jobs omit phone; direct table probes do
+not enumerate unrelated providers; legacy behavior matches the documented
+Stage 1 boundary; RPC and Realtime paths behave correctly. Validate email/login
+and provider onboarding remain unchanged. A successful build or HTTP 200 alone
+is insufficient.
+
+### Stage 2 cutover plan (separate tracked change)
+
+Stage 2 must be a separate migration/PR that drops only
+`Customer can view assigned active provider profile`; it must retain provider
+self and admin policies and the safe RPC. Engineering should target completion
+within 14 days of Stage 1 release, with Product/CTO assigning the accountable
+owners and confirming the date. Do not execute the policy drop until all active
+supported client versions use the RPC, or a minimum-version gate blocks older
+versions before tracking/job flows. If adoption cannot be proven, require a
+forced-upgrade decision rather than assuming store update equals installation.
+
+Stage 2 acceptance: production-safe direct customer selects return zero rows for
+active and completed provider jobs; scoped RPC returns only its contract for
+the caller's jobs; provider self/admin access is retained; unrelated and
+zero-job customer tests pass; old app binaries are either proven non-active or
+blocked by the minimum-version gate; new iOS, Android, Expo (if released), and
+web pass the real-device workflow above. Store version/adoption dashboard
+screenshots or export and test records are release artifacts. Roll back only by
+restoring the active-job scoped customer policy if required; never restore the
+global policy.
+
+### Migration rollback and monitoring
+
+This migration does not alter provider data. If the RPC or app bridge fails,
+pause Stage 2, roll back the app if necessary, keep the global policy removed,
+and use a reviewed forward fix or the narrow active-job policy. Monitor Postgres
+permission/RLS errors, PostgREST RPC errors, matching completion/acceptance,
+tracking loads, and support contacts. Do not re-enable broad authenticated reads
+as an emergency compatibility workaround.

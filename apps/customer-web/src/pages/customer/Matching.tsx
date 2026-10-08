@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
 import { useGoogleMaps } from '../../context/GoogleMapsContext';
+import { getJobProviderDetails } from '../../services/providerDetails.service';
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3959; // miles
@@ -461,8 +462,7 @@ export function Matching() {
           let provPhoto = null;
           if (updated.provider_id) {
             try {
-              const { data } = await supabase.rpc('get_job_provider_details', { p_job_id: createdJobId });
-              const pp = data?.[0];
+              const pp = await getJobProviderDetails(supabase, { ...updated, id: createdJobId });
               if (pp) {
                 provName = `${pp.first_name || ''} ${pp.last_name || ''}`.trim() || pp.full_name || provName;
                 provRating = pp.rating || 0;
@@ -496,8 +496,7 @@ export function Matching() {
           let provPhoto = null;
           if (job.provider_id) {
             try {
-              const { data } = await supabase.rpc('get_job_provider_details', { p_job_id: createdJobId });
-              const pp = data?.[0];
+              const pp = await getJobProviderDetails(supabase, { ...job, id: createdJobId });
               if (pp) {
                 provName = `${pp.first_name || ''} ${pp.last_name || ''}`.trim() || pp.full_name || provName;
                 provRating = pp.rating || 0;

@@ -118,7 +118,9 @@ export function LiveTracking() {
     phone: provider.phone || '',
     rating: provider.rating || 0,
     rescues: provider.total_jobs || 0,
-    vehicle: provider.vehicle_make ? `${provider.vehicle_make} ${provider.vehicle_model || ''}`.trim() : '',
+    vehicle: provider.vehicle_make
+      ? [provider.vehicle_year, provider.vehicle_make, provider.vehicle_model].filter(Boolean).join(' ')
+      : '',
     isVerified: provider.is_verified || false,
   } : null;
 

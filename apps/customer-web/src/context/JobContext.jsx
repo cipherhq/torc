@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { getJobProviderDetails } from '../services/providerDetails.service';
 
 const JobContext = createContext({});
 
@@ -176,10 +177,7 @@ export function JobProvider({ children }) {
       if (!custErr) customer = cust;
     }
     if (data.provider_id) {
-      const { data: providerDetails, error: providerDetailsError } = await supabase
-        .rpc('get_job_provider_details', { p_job_id: jobId });
-      if (providerDetailsError) console.warn('Could not load safe provider details:', providerDetailsError.message);
-      provider = providerDetails?.[0] || null;
+      provider = await getJobProviderDetails(supabase, data);
     }
 
     const enriched = { ...data, customer, provider };
