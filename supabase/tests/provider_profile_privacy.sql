@@ -43,6 +43,8 @@ DO $$ BEGIN
     'customer can bypass active-job location policy through direct table read';
   ASSERT (SELECT count(*) FROM public.get_nearby_providers(38,-77,5,'towing'))=1,
     'customer dispatch lookup failed for their own pending job';
+  ASSERT (SELECT provider_id FROM public.get_nearby_providers(38,-77,5,'towing'))='20000000-0000-4000-8000-000000000003',
+    'dispatch lookup returned a provider already assigned to an active job';
   ASSERT (SELECT count(*) FROM public.get_nearby_providers(39,-76,5,'towing'))=0,
     'cancelled job permits provider-location lookup';
   ASSERT (SELECT count(*) FROM public.get_nearby_providers(38.5,-77.5,5,'towing'))=0,
@@ -109,7 +111,7 @@ DO $$ BEGIN
 END $$;
 SELECT set_config('request.jwt.claim.sub','30000000-0000-4000-8000-000000000001',true);
 DO $$ BEGIN
-  ASSERT (SELECT count(*) FROM public.provider_profiles)=2, 'admin lost provider profile access';
+  ASSERT (SELECT count(*) FROM public.provider_profiles)=3, 'admin lost provider profile access';
   ASSERT (SELECT count(*) FROM public.documents)=1, 'admin lost document metadata access';
   ASSERT NOT has_table_privilege('anon','public.provider_profiles','SELECT'), 'anonymous SELECT grant was not revoked';
   ASSERT NOT has_function_privilege('anon','public.customer_has_active_job_with_provider(uuid,uuid)','EXECUTE'),
